@@ -1,0 +1,28 @@
+ <!DOCTYPE html>
+    <html lang="de">
+    <head>
+      <meta charset="UTF-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+      <title>Babyphone – Raum wählen</title>
+      <link rel="stylesheet" href="/style.css" />
+    </head>
+    <body>
+      <main>
+        <h1>👶 Babyphone</h1>
+        <form id="roomForm">
+          <label for="room">Familiencode:</label>
+          <input id="room" name="roomId" placeholder="z. B. familie123" required />
+          <button type="submit">Weiter</button>
+        </form>
+      </main>
+      <script>
+        document.getElementById("roomForm").addEventListener("submit", function (e) {
+          e.preventDefault();
+          const roomId = document.getElementById("room").value.trim();
+          if (roomId) {
+            window.location.href = "/" + encodeURIComponent(roomId);
+          }
+        });
+      </script>
+    </body>
+    </html>

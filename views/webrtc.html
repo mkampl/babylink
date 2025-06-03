@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Babyphone</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <script defer src="client.js"></script>
+  <style>
+    body { font-family: sans-serif; padding: 1em; background: #f0f0f0; }
+    #status, #alert { margin: 1em 0; font-weight: bold; }
+    button { padding: 0.5em 1em; font-size: 1em; margin: 0.5em; }
+  </style>
+</head>
+<body>
+  <h1>🎧 Babyphone WebRTC</h1>
+
+  <p id="status">🔄 Verbinde...</p>
+  <p id="alert" hidden></p>
+
+  <button id="mic" hidden>🎙️ Mikrofon aktiv</button>
+  <button id="speaker" hidden>🔈 Lautsprecher aktiv</button>
+  <button id="playAudio" hidden>🔊 Audio starten</button>
+
+  <audio id="remoteAudio" autoplay></audio>
+</body>
+</html>
+

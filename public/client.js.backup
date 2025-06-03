@@ -1,0 +1,93 @@
+// public/client.js
+const socket = io();
+
+// Hole Raum-ID und Rolle aus URL und Formularübergabe
+const urlParts = window.location.pathname.split("/");
+const roomId = urlParts[1];
+const params = new URLSearchParams(window.location.search);
+const role = params.get("role") || "parent"; // fallback = Eltern
+
+const remoteAudio = document.getElementById("remoteAudio");
+const status = document.getElementById("status");
+const mic = document.getElementById("mic");
+const speaker = document.getElementById("speaker");
+const alertBox = document.getElementById("alert");
+
+let pc;
+let alarm;
+
+async function start() {
+  socket.emit("join", { roomId, role });
+  status.textContent = "🔌 Verbunden, warte auf Gegenstelle...";
+
+  pc = new RTCPeerConnection({
+    iceServers: [ { urls: "stun:stun.l.google.com:19302" } ]
+  });
+
+  pc.onicecandidate = ({ candidate }) => {
+    if (candidate) socket.emit("signal", { candidate });
+  };
+
+  pc.ontrack = (event) => {
+    remoteAudio.srcObject = event.streams[0];
+    speaker.hidden = false;
+    status.textContent = "✅ Verbindung hergestellt";
+    if (alarm) {
+      alarm.pause();
+      alarm = null;
+    }
+  };
+
+  pc.onconnectionstatechange = () => {
+    if (pc.connectionState === "disconnected" || pc.connectionState === "failed") {
+      alertBox.hidden = false;
+      status.textContent = "🚨 Verbindung verloren";
+      alarm = new Audio("/alarm.mp3");
+      alarm.loop = true;
+      alarm.play();
+    }
+  };
+
+  if (role === "baby") {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+      mic.hidden = false;
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      socket.emit("signal", { sdp: pc.localDescription });
+    } catch (err) {
+      status.textContent = "❌ Mikrofonfehler: " + err.message;
+    }
+  }
+
+  if (role === "parent") {
+  speaker.hidden = false;
+  peer.addEventListener("track", (event) => {
+    const [stream] = event.streams;
+    remoteAudio.srcObject = stream;
+    remoteAudio.play().catch((err) => {
+      console.error("Audio abspielen fehlgeschlagen:", err);
+    });
+  });
+}
+}
+
+socket.on("signal", async (data) => {
+  if (data.sdp) {
+    await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+    if (data.sdp.type === "offer") {
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      socket.emit("signal", { sdp: pc.localDescription });
+    }
+  } else if (data.candidate) {
+    try {
+      await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+    } catch (err) {
+      console.error("ICE Fehler", err);
+    }
+  }
+});
+
+start();
