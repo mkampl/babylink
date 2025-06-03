@@ -7,22 +7,117 @@
   <script src="/socket.io/socket.io.js"></script>
   <script defer src="client.js"></script>
   <style>
-    body { font-family: sans-serif; padding: 1em; background: #f0f0f0; }
-    #status, #alert { margin: 1em 0; font-weight: bold; }
-    button { padding: 0.5em 1em; font-size: 1em; margin: 0.5em; }
+    body { 
+      font-family: sans-serif; 
+      padding: 1em; 
+      background: #f0f0f0; 
+      text-align: center;
+      max-width: 600px;
+      margin: 0 auto;
+    }
+    
+    #status { 
+      margin: 1em 0; 
+      font-weight: bold; 
+      font-size: 1.2em;
+      padding: 1em;
+      background: #fff;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    #alert { 
+      margin: 1em 0; 
+      font-weight: bold; 
+      padding: 1em;
+      background: #ffeb3b;
+      border-radius: 8px;
+      border-left: 4px solid #ff9800;
+    }
+    
+    button { 
+      padding: 0.8em 1.5em; 
+      font-size: 1.1em; 
+      margin: 0.5em; 
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background-color 0.3s;
+    }
+    
+    #mic {
+      background: #4caf50;
+      color: white;
+    }
+    
+    #speaker {
+      background: #2196f3;
+      color: white;
+    }
+    
+    #playAudio {
+      background: #ff5722;
+      color: white;
+      font-size: 1.3em;
+      padding: 1em 2em;
+      animation: pulse 2s infinite;
+    }
+    
+    #playAudio:hover {
+      background: #d84315;
+    }
+    
+    @keyframes pulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+      100% { transform: scale(1); }
+    }
+    
+    audio {
+      width: 100%;
+      margin: 1em 0;
+      border-radius: 8px;
+    }
+    
+    .connection-info {
+      background: #fff;
+      padding: 1em;
+      margin: 1em 0;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    
+    .debug-info {
+      font-family: monospace;
+      font-size: 0.9em;
+      color: #666;
+      margin-top: 1em;
+    }
   </style>
 </head>
 <body>
   <h1>🎧 Babyphone WebRTC</h1>
-
-  <p id="status">🔄 Verbinde...</p>
-  <p id="alert" hidden></p>
-
-  <button id="mic" hidden>🎙️ Mikrofon aktiv</button>
-  <button id="speaker" hidden>🔈 Lautsprecher aktiv</button>
-  <button id="playAudio" hidden>🔊 Audio starten</button>
-
-  <audio id="remoteAudio" autoplay></audio>
+  
+  <div class="connection-info">
+    <p id="status">🔄 Verbinde...</p>
+    <p id="alert" hidden></p>
+  </div>
+  
+  <div id="controls">
+    <button id="mic" hidden>🎙️ Mikrofon aktiv</button>
+    <button id="speaker" hidden>🔈 Lautsprecher aktiv</button>
+    <button id="playAudio" hidden>🔊 Audio starten</button>
+  </div>
+  
+  <audio id="remoteAudio" autoplay playsinline controls></audio>
+  
+  <div class="debug-info">
+    <p>🔊 Wenn kein Audio zu hören ist:</p>
+    <ul style="text-align: left; display: inline-block;">
+      <li>Klicke den "Audio starten" Button</li>
+      <li>Überprüfe die Lautstärke</li>
+      <li>Schaue in die Browser-Konsole (F12)</li>
+    </ul>
+  </div>
 </body>
 </html>
-
