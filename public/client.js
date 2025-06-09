@@ -23,7 +23,15 @@ let remoteRoleConnected = false;
 let userHasInteracted = false;
 let audioPermissionGranted = false;
 
-// Voice Activity Detection für Parent
+// Connection monitoring
+let connectionHealthy = true;
+let babyConnected = false;
+let serverConnected = true;
+let connectionCheckInterval = null;
+let alarmAudio = null;
+let alarmInterval = null;
+
+// Voice Activity Detection for Parent
 let audioContext = null;
 let analyser = null;
 let dataArray = null;
@@ -32,9 +40,9 @@ let isMonitoring = false;
 
 // Audio Level Thresholds (0-255)
 const LEVELS = {
-  GREEN: { min: 0, max: 30, name: "Ruhe", color: "#4CAF50" },
-  YELLOW: { min: 31, max: 80, name: "Bewegung", color: "#FFC107" },
-  RED: { min: 81, max: 255, name: "Weinen", color: "#F44336" }
+  GREEN: { min: 0, max: 30, name: "Quiet", color: "#4CAF50" },
+  YELLOW: { min: 31, max: 80, name: "Movement", color: "#FFC107" },
+  RED: { min: 81, max: 255, name: "Crying", color: "#F44336" }
 };
 
 // Timing states
@@ -48,12 +56,122 @@ let redTimer = null;
 let levelIndicator = null;
 let volumeMeter = null;
 
+// Initialize alarm sound
+function initializeAlarm() {
+  // Create alarm sound using Web Audio API
+  if (!alarmAudio && audioContext) {
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+    
+    oscillator.type = 'sine';
+    oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+    gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+    
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    
+    alarmAudio = { oscillator, gainNode };
+  }
+}
+
+function playAlarm() {
+  if (role !== "parent") return;
+  
+  console.log("🚨 Playing connection alarm");
+  
+  // Visual alarm - red background
+  document.body.style.background = "#ff4444";
+  document.body.style.transition = "background-color 0.3s";
+  
+  // Audio alarm - beeping sound
+  if (!alarmInterval) {
+    alarmInterval = setInterval(() => {
+      if (audioContext && audioContext.state === 'running') {
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(1000, audioContext.currentTime);
+        oscillator.frequency.setValueAtTime(800, audioContext.currentTime + 0.1);
+        
+        gainNode.gain.setValueAtTime(0, audioContext.currentTime);
+        gainNode.gain.linearRampToValueAtTime(0.2, audioContext.currentTime + 0.1);
+        gainNode.gain.linearRampToValueAtTime(0, audioContext.currentTime + 0.3);
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 0.3);
+      }
+    }, 1000); // Beep every second
+  }
+}
+
+function stopAlarm() {
+  if (role !== "parent") return;
+  
+  console.log("✅ Stopping connection alarm");
+  
+  // Reset background
+  document.body.style.background = "#f3f4f6";
+  
+  // Stop audio alarm
+  if (alarmInterval) {
+    clearInterval(alarmInterval);
+    alarmInterval = null;
+  }
+}
+
+function checkConnectionHealth() {
+  const wasHealthy = connectionHealthy;
+  connectionHealthy = serverConnected && babyConnected && (peer.iceConnectionState === 'connected' || peer.iceConnectionState === 'completed');
+  
+  if (role === "parent") {
+    if (!connectionHealthy && wasHealthy) {
+      console.log("⚠️ Connection became unhealthy");
+      playAlarm();
+      
+      let reason = "";
+      if (!serverConnected) reason = "Server disconnected";
+      else if (!babyConnected) reason = "Baby device disconnected";
+      else reason = "WebRTC connection lost";
+      
+      status.textContent = `🚨 CONNECTION LOST: ${reason}`;
+      alert.textContent = `⚠️ ALARM: Cannot monitor baby - ${reason}`;
+      alert.hidden = false;
+      alert.style.background = "#ff4444";
+      alert.style.color = "white";
+      
+    } else if (connectionHealthy && !wasHealthy) {
+      console.log("✅ Connection restored");
+      stopAlarm();
+      
+      status.textContent = "🔗 Connection restored - Monitoring active";
+      alert.textContent = "✅ Connection restored";
+      alert.style.background = "#4CAF50";
+      alert.style.color = "white";
+      
+      setTimeout(() => {
+        alert.hidden = true;
+        alert.style.background = "";
+        alert.style.color = "";
+      }, 3000);
+    }
+  }
+}
+
 // Peer connection event handlers
 peer.oniceconnectionstatechange = () => {
   console.log("🌐 ICE Connection State:", peer.iceConnectionState);
+  
   if (peer.iceConnectionState === 'connected' || peer.iceConnectionState === 'completed') {
     console.log("✅ WebRTC connection established");
+  } else if (peer.iceConnectionState === 'disconnected' || peer.iceConnectionState === 'failed') {
+    console.log("❌ WebRTC connection lost");
   }
+  
+  checkConnectionHealth();
 };
 
 peer.onicecandidate = (event) => {
@@ -94,15 +212,27 @@ socket.on("participant-joined", ({ role: joinedRole, participants }) => {
   console.log(`👤 ${joinedRole} joined room`);
   updateConnectionStatus(participants);
   
+  // Reset connection when someone rejoins after disconnect
+  if ((role === "baby" && joinedRole === "parent") || (role === "parent" && joinedRole === "baby")) {
+    console.log("🔄 Participant rejoined, resetting connection");
+    resetPeerConnection();
+  }
+  
   if (role === "baby" && joinedRole === "parent" && localStream) {
     console.log("🎙️ Parent joined, baby initiating connection");
-    initiateConnection();
+    setTimeout(() => initiateConnection(), 1000); // Add delay for reset
   }
 });
 
 socket.on("participant-left", ({ role: leftRole, participants }) => {
   console.log(`👤 ${leftRole} left room`);
   updateConnectionStatus(participants);
+  
+  // Reset peer connection when the other party leaves
+  if ((role === "baby" && leftRole === "parent") || (role === "parent" && leftRole === "baby")) {
+    console.log("🔄 Other participant left, preparing for reconnection");
+    resetPeerConnection();
+  }
 });
 
 socket.on("room-state", ({ participants }) => {
@@ -119,15 +249,18 @@ function updateConnectionStatus(participants) {
   const hasParent = participants.some(p => p.role === "parent");
   const hasBaby = participants.some(p => p.role === "baby");
   
-  remoteRoleConnected = role === "baby" ? hasParent : hasBaby;
+  babyConnected = role === "parent" ? hasBaby : hasParent;
+  remoteRoleConnected = babyConnected;
   
   if (hasParent && hasBaby) {
-    status.textContent = "🔗 Beide Geräte verbunden";
+    status.textContent = "🔗 Both devices connected";
   } else if (role === "baby") {
-    status.textContent = hasParent ? "🔗 Eltern gefunden, verbinde..." : "⏳ Warte auf Eltern...";
+    status.textContent = hasParent ? "🔗 Parent found, connecting..." : "⏳ Waiting for parent...";
   } else {
-    status.textContent = hasBaby ? "🔗 Baby gefunden, verbinde..." : "⏳ Warte auf Baby...";
+    status.textContent = hasBaby ? "🔗 Baby found, connecting..." : "⏳ Waiting for baby...";
   }
+  
+  checkConnectionHealth();
 }
 
 async function initiateConnection() {
@@ -159,7 +292,7 @@ function createVisualElements() {
     transition: all 0.3s ease;
     box-shadow: 0 4px 8px rgba(0,0,0,0.2);
   `;
-  levelIndicator.textContent = `🟢 ${LEVELS.GREEN.name} - Audio stumm`;
+  levelIndicator.textContent = `🟢 ${LEVELS.GREEN.name} - Audio muted`;
   
   // Volume Meter
   volumeMeter = document.createElement('div');
@@ -196,10 +329,10 @@ function createVisualElements() {
     text-align: left;
   `;
   infoPanel.innerHTML = `
-    <strong>🎵 Lautstärke-Überwachung:</strong><br>
-    🟢 <strong>Ruhe:</strong> Audio stumm<br>
-    🟡 <strong>Bewegung:</strong> Aktivierung nach 5 Sek.<br>
-    🔴 <strong>Weinen:</strong> Sofortige Aktivierung
+    <strong>🎵 Volume Monitoring:</strong><br>
+    🟢 <strong>Quiet:</strong> Audio muted<br>
+    🟡 <strong>Movement:</strong> Activation after 5 sec<br>
+    🔴 <strong>Crying:</strong> Immediate activation
   `;
   
   controls.appendChild(levelIndicator);
@@ -222,6 +355,7 @@ function initializeAudioAnalysis(stream) {
     source.connect(analyser);
     
     console.log("🎵 Audio analysis initialized");
+    initializeAlarm();
     startMonitoring();
     
   } catch (error) {
@@ -234,6 +368,10 @@ function startMonitoring() {
     isMonitoring = true;
     monitorAudioLevel();
     console.log("👂 Audio monitoring started");
+    
+    // Start connection health monitoring
+    if (connectionCheckInterval) clearInterval(connectionCheckInterval);
+    connectionCheckInterval = setInterval(checkConnectionHealth, 2000);
   }
 }
 
@@ -327,7 +465,7 @@ function updateLevelIndicator(level) {
   
   const levelInfo = LEVELS[level];
   const emoji = level === 'GREEN' ? '🟢' : level === 'YELLOW' ? '🟡' : '🔴';
-  const muteStatus = isMuted ? 'Audio stumm' : 'Audio aktiv';
+  const muteStatus = isMuted ? 'Audio muted' : 'Audio active';
   
   levelIndicator.style.background = levelInfo.color;
   levelIndicator.textContent = `${emoji} ${levelInfo.name} - ${muteStatus}`;
@@ -365,7 +503,7 @@ async function attemptAutoplay() {
     isMuted = true;
     await remoteAudio.play();
     console.log("✅ Audio playing (muted for voice activation)");
-    status.textContent = "🎵 Audio-Überwachung aktiv";
+    status.textContent = "🎵 Audio monitoring active";
     alert.hidden = true;
     playAudioBtn.hidden = true;
     
@@ -376,17 +514,17 @@ async function attemptAutoplay() {
 }
 
 function showManualPlayOption() {
-  status.textContent = "🔗 Verbunden - Klicke Audio starten";
-  alert.textContent = "🔊 Klicke 'Audio starten' für Überwachung";
+  status.textContent = "🔗 Connected - Click start audio";
+  alert.textContent = "🔊 Click 'Start monitoring' to begin";
   alert.hidden = false;
   playAudioBtn.hidden = false;
   playAudioBtn.style.animation = "pulse 1.5s infinite";
-  playAudioBtn.textContent = "🔊 ÜBERWACHUNG STARTEN";
+  playAudioBtn.textContent = "🔊 START MONITORING";
 }
 
 function createReadyButton() {
   const readyBtn = document.createElement('button');
-  readyBtn.textContent = '🔊 BEREIT FÜR BABY-ÜBERWACHUNG';
+  readyBtn.textContent = '🔊 READY FOR BABY MONITORING';
   readyBtn.id = 'readyBtn';
   readyBtn.style.cssText = `
     background: #ff5722;
@@ -419,7 +557,7 @@ function createReadyButton() {
     
     readyBtn.remove();
     createVisualElements();
-    status.textContent = "⏳ Warte auf Baby...";
+    status.textContent = "⏳ Waiting for baby...";
     
     socket.emit("join", { roomId, role });
   });
@@ -443,11 +581,11 @@ if (role === "baby") {
       });
       
       socket.emit("join", { roomId, role });
-      status.textContent = "⏳ Warte auf Eltern...";
+      status.textContent = "⏳ Waiting for parent...";
     })
     .catch((err) => {
       console.error("❌ Microphone error:", err);
-      alert.textContent = "❌ Mikrofon-Zugriff verweigert";
+      alert.textContent = "❌ Microphone access denied";
       alert.hidden = false;
     });
 } 
@@ -458,7 +596,7 @@ else if (role === "parent") {
   const readyBtn = createReadyButton();
   controls.appendChild(readyBtn);
   
-  status.textContent = "👆 Klicke BEREIT um Überwachung zu starten";
+  status.textContent = "👆 Click READY to start monitoring";
   
   // Handle incoming audio stream
   peer.addEventListener("track", (event) => {
@@ -487,7 +625,7 @@ else if (role === "parent") {
         isMuted = true;
         await remoteAudio.play();
         console.log("✅ Audio monitoring started manually");
-        status.textContent = "🎵 Audio-Überwachung aktiv";
+        status.textContent = "🎵 Audio monitoring active";
         alert.hidden = true;
         playAudioBtn.hidden = true;
         
@@ -496,22 +634,95 @@ else if (role === "parent") {
         }
       } catch (err) {
         console.error("❌ Failed to start monitoring:", err);
-        alert.textContent = "❌ Überwachung konnte nicht gestartet werden";
+        alert.textContent = "❌ Monitoring could not be started";
         alert.hidden = false;
       }
     } else {
       console.warn("⚠️ No audio stream available");
-      alert.textContent = "⚠️ Noch kein Audio empfangen";
+      alert.textContent = "⚠️ No audio received yet";
       alert.hidden = false;
     }
   });
 }
 
-// Connection lost handler
+// Reset peer connection
+function resetPeerConnection() {
+  console.log("🔄 Resetting peer connection");
+  
+  // Close old connection
+  if (peer) {
+    peer.close();
+  }
+  
+  // Create new peer connection
+  peer = new RTCPeerConnection({
+    iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+  });
+  
+  // Re-attach event handlers
+  peer.oniceconnectionstatechange = () => {
+    console.log("🌐 ICE Connection State:", peer.iceConnectionState);
+    
+    if (peer.iceConnectionState === 'connected' || peer.iceConnectionState === 'completed') {
+      console.log("✅ WebRTC connection established");
+    } else if (peer.iceConnectionState === 'disconnected' || peer.iceConnectionState === 'failed') {
+      console.log("❌ WebRTC connection lost");
+    }
+    
+    checkConnectionHealth();
+  };
+
+  peer.onicecandidate = (event) => {
+    if (event.candidate) {
+      socket.emit("signal", { candidate: event.candidate });
+      console.log("📤 ICE candidate sent");
+    }
+  };
+  
+  // Re-add tracks for baby
+  if (role === "baby" && localStream) {
+    localStream.getTracks().forEach((track) => {
+      peer.addTrack(track, localStream);
+      console.log("🎵 Audio track re-added to peer connection");
+    });
+  }
+  
+  // Re-attach track handler for parent
+  if (role === "parent") {
+    peer.addEventListener("track", (event) => {
+      console.log("📥 Audio track received after reconnection");
+      const [stream] = event.streams;
+      
+      if (stream) {
+        remoteAudio.srcObject = stream;
+        remoteAudio.volume = 1.0;
+        console.log("🔊 Audio stream re-established");
+        
+        // Re-initialize voice activity detection
+        if (audioContext) {
+          audioContext.close();
+        }
+        initializeAudioAnalysis(stream);
+        
+        // Start with muted audio
+        attemptAutoplay();
+      }
+    });
+  }
+}
+
+// Connection monitoring
+socket.on("connect", () => {
+  console.log("✅ Connected to server");
+  serverConnected = true;
+  checkConnectionHealth();
+});
+
 socket.on("disconnect", () => {
   console.warn("🚫 Socket disconnected");
-  status.textContent = "🚫 Verbindung getrennt";
-  alert.textContent = "🚫 Verbindung zum Server verloren";
+  serverConnected = false;
+  status.textContent = "🚫 Connection lost";
+  alert.textContent = "🚫 Connection to server lost";
   alert.hidden = false;
   
   // Stop monitoring
@@ -519,6 +730,18 @@ socket.on("disconnect", () => {
   if (audioContext) {
     audioContext.close();
   }
+  
+  if (connectionCheckInterval) {
+    clearInterval(connectionCheckInterval);
+  }
+  
+  checkConnectionHealth();
+});
+
+socket.on("reconnect", () => {
+  console.log("🔄 Reconnected to server");
+  serverConnected = true;
+  checkConnectionHealth();
 });
 
 // Additional user interaction detection
