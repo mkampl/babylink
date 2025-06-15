@@ -1,16 +1,29 @@
 {
-  "name": "babyphone",
+  "name": "babyphone-webrtc",
   "version": "1.0.0",
+  "description": "WebRTC Baby Monitor with voice activation",
   "main": "server.js",
-  "license": "BSD-3-Clause",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "start:http": "node server-http.js",
+    "dev": "nodemon server.js",
+    "docker:build": "docker build -t babyphone .",
+    "docker:run": "docker-compose up -d",
+    "docker:stop": "docker-compose down",
+    "docker:logs": "docker-compose logs -f"
   },
+  "keywords": ["webrtc", "baby-monitor", "socket.io", "voice-activation"],
+  "author": "Markus Kampl",
+  "license": "BSD-3-Clause",
   "dependencies": {
     "express": "^4.18.2",
-    "socket.io": "^4.7.2"
+    "socket.io": "^4.7.2",
+    "body-parser": "^1.20.2"
   },
   "devDependencies": {
-    "license-checker": "^25.0.1"
+    "nodemon": "^3.0.1"
+  },
+  "engines": {
+    "node": ">=16.0.0"
   }
 }

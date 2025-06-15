@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  babyphone:
+    build: .
+    container_name: babyphone-app
+    ports:
+      - "3001:3001"
+    volumes:
+      # Mount SSL certificates directory (optional)
+      # Place your cert.pem and key.pem files in ./ssl/ directory
+      - ./ssl:/app/ssl:ro
+      # Mount for persistent data or logs if needed
+      - ./logs:/app/logs
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+# Optional: Add nginx reverse proxy for production
+  nginx:
+    image: nginx:alpine
+    container_name: babyphone-proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - babyphone
+    restart: unless-stopped
+    profiles:
+      - proxy
+
+networks:
+  default:
+    name: babyphone-network
