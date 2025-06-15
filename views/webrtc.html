@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Babyphone</title>
+  <title>Baby Monitor</title>
   <script src="/socket.io/socket.io.js"></script>
   <script defer src="client.js"></script>
   <style>
@@ -12,7 +12,7 @@
       padding: 1em; 
       background: #f0f0f0; 
       text-align: center;
-      max-width: 600px;
+      max-width: 700px;
       margin: 0 auto;
     }
     
@@ -43,6 +43,15 @@
       border-radius: 6px;
       cursor: pointer;
       transition: background-color 0.3s;
+    }
+    
+    button:hover {
+      opacity: 0.9;
+    }
+    
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
     }
     
     #mic {
@@ -87,37 +96,59 @@
       box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
     
-    .debug-info {
-      font-family: monospace;
+    .help-info {
+      background: #e3f2fd;
+      border: 1px solid #2196f3;
+      border-radius: 8px;
+      padding: 1em;
+      margin: 1em 0;
       font-size: 0.9em;
-      color: #666;
-      margin-top: 1em;
+      color: #1976d2;
+    }
+    
+    .help-info h3 {
+      margin-top: 0;
+      color: #1565c0;
+    }
+    
+    .help-info ul {
+      text-align: left;
+      display: inline-block;
+      margin: 0.5em 0;
+    }
+    
+    .help-info li {
+      margin: 0.3em 0;
     }
   </style>
 </head>
 <body>
-  <h1>🎧 Babyphone WebRTC</h1>
+  <h1>🎧 Baby Monitor WebRTC</h1>
   
   <div class="connection-info">
-    <p id="status">🔄 Verbinde...</p>
+    <p id="status">🔄 Connecting...</p>
     <p id="alert" hidden></p>
   </div>
   
   <div id="controls">
-    <button id="mic" hidden>🎙️ Mikrofon aktiv</button>
-    <button id="speaker" hidden>🔈 Lautsprecher aktiv</button>
-    <button id="playAudio" hidden>🔊 Audio starten</button>
+    <button id="mic" hidden>🎙️ Microphone active</button>
+    <button id="speaker" hidden>🔈 Speaker active</button>
+    <button id="playAudio" hidden>🔊 Start audio</button>
   </div>
   
   <audio id="remoteAudio" autoplay playsinline></audio>
   
-  <div class="debug-info">
-    <p>🔊 Wenn kein Audio zu hören ist:</p>
-    <ul style="text-align: left; display: inline-block;">
-      <li>Klicke den "Audio starten" Button</li>
-      <li>Überprüfe die Lautstärke</li>
-      <li>Schaue in die Browser-Konsole (F12)</li>
+  <div class="help-info">
+    <h3>🔊 Audio Troubleshooting</h3>
+    <p>If you cannot hear any audio:</p>
+    <ul>
+      <li>Click the "Start audio" button when it appears</li>
+      <li>Check your device volume</li>
+      <li>Ensure microphone permissions are granted</li>
+      <li>Check the browser console (F12) for errors</li>
+      <li>Try refreshing the page if connection fails</li>
     </ul>
+    <p><strong>Note:</strong> HTTPS is required for microphone access in production.</p>
   </div>
 </body>
 </html>

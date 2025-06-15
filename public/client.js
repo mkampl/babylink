@@ -49,12 +49,137 @@ const LEVELS = {
 let currentLevel = 'GREEN';
 let levelStartTime = Date.now();
 let isMuted = true;
+let isManuallyMuted = false;
+let isManuallyListening = false;
 let yellowTimer = null;
 let redTimer = null;
 
 // Visual elements
 let levelIndicator = null;
 let volumeMeter = null;
+
+// Activity logging
+function logActivity(message, type = 'info') {
+  const logElement = document.getElementById('activityLog');
+  if (!logElement) return;
+  
+  const timestamp = new Date().toLocaleTimeString();
+  const colors = {
+    info: '#666',
+    mute: '#ff5722',
+    unmute: '#4caf50',
+    manual: '#2196f3',
+    auto: '#9c27b0'
+  };
+  
+  const logEntry = document.createElement('div');
+  logEntry.style.cssText = `
+    margin: 0.2em 0;
+    color: ${colors[type] || colors.info};
+    border-bottom: 1px solid #eee;
+    padding-bottom: 0.2em;
+  `;
+  logEntry.innerHTML = `<span style="color: #888;">[${timestamp}]</span> ${message}`;
+  
+  logElement.appendChild(logEntry);
+  logElement.scrollTop = logElement.scrollHeight;
+  
+  // Keep only last 20 entries
+  while (logElement.children.length > 20) {
+    logElement.removeChild(logElement.firstChild);
+  }
+}
+
+// Manual control functions
+function setupManualControls() {
+  const listenBtn = document.getElementById('manualListenBtn');
+  const muteBtn = document.getElementById('manualMuteBtn');
+  
+  listenBtn.addEventListener('click', () => {
+    isManuallyListening = true;
+    isManuallyMuted = false;
+    unmuteAudio('manual');
+    updateManualButtons();
+    logActivity('🔊 Manual listen activated', 'manual');
+    
+    // Auto-disable manual listen after 30 seconds unless baby is crying
+    setTimeout(() => {
+      if (isManuallyListening && currentLevel !== 'RED') {
+        isManuallyListening = false;
+        updateManualButtons();
+        // Resume automatic behavior
+        if (currentLevel === 'GREEN') {
+          muteAudio('auto');
+        }
+        logActivity('⏱️ Manual listen timeout (30s)', 'auto');
+      }
+    }, 30000);
+  });
+  
+  muteBtn.addEventListener('click', () => {
+    isManuallyMuted = true;
+    isManuallyListening = false;
+    muteAudio('manual');
+    updateManualButtons();
+    logActivity('🔇 Manual mute activated', 'manual');
+    
+    // Auto-disable manual mute if baby starts crying
+    // This is handled in handleLevelChange for RED level
+  });
+  
+  updateManualButtons();
+}
+
+function updateManualButtons() {
+  const listenBtn = document.getElementById('manualListenBtn');
+  const muteBtn = document.getElementById('manualMuteBtn');
+  
+  if (!listenBtn || !muteBtn) return;
+  
+  if (isManuallyListening) {
+    listenBtn.style.background = '#4caf50';
+    listenBtn.textContent = '✅ Listening';
+    listenBtn.disabled = true;
+  } else {
+    listenBtn.style.background = '#2196f3';
+    listenBtn.textContent = '🔊 Listen Now';
+    listenBtn.disabled = false;
+  }
+  
+  if (isManuallyMuted) {
+    muteBtn.style.background = '#f44336';
+    muteBtn.textContent = '🔇 Muted';
+    muteBtn.disabled = false;
+  } else {
+    muteBtn.style.background = '#ff5722';
+    muteBtn.textContent = '🔇 Mute';
+    muteBtn.disabled = false;
+  }
+  
+  // Allow unmuting even when manually muted
+  if (isManuallyMuted) {
+    muteBtn.onclick = () => {
+      isManuallyMuted = false;
+      isManuallyListening = false;
+      updateManualButtons();
+      // Resume automatic behavior
+      if (currentLevel === 'GREEN') {
+        muteAudio('auto');
+      } else {
+        unmuteAudio('auto');
+      }
+      logActivity('🔊 Manual mute deactivated', 'manual');
+    };
+  } else {
+    muteBtn.onclick = () => {
+      isManuallyMuted = true;
+      isManuallyListening = false;
+      muteAudio('manual');
+      updateManualButtons();
+      logActivity('🔇 Manual mute activated', 'manual');
+    };
+  }
+}
 
 // Initialize alarm sound
 function initializeAlarm() {
@@ -78,6 +203,7 @@ function playAlarm() {
   if (role !== "parent") return;
   
   console.log("🚨 Playing connection alarm");
+  logActivity('🚨 CONNECTION ALARM - Baby device disconnected', 'mute');
   
   // Visual alarm - red background
   document.body.style.background = "#ff4444";
@@ -112,6 +238,7 @@ function stopAlarm() {
   if (role !== "parent") return;
   
   console.log("✅ Stopping connection alarm");
+  logActivity('✅ Connection restored', 'unmute');
   
   // Reset background
   document.body.style.background = "#f3f4f6";
@@ -294,6 +421,46 @@ function createVisualElements() {
   `;
   levelIndicator.textContent = `🟢 ${LEVELS.GREEN.name} - Audio muted`;
   
+  // Manual Listen Controls
+  const manualControls = document.createElement('div');
+  manualControls.style.cssText = `
+    display: flex;
+    gap: 10px;
+    margin: 1em 0;
+    justify-content: center;
+  `;
+  
+  const listenBtn = document.createElement('button');
+  listenBtn.id = 'manualListenBtn';
+  listenBtn.textContent = '🔊 Listen Now';
+  listenBtn.style.cssText = `
+    background: #2196f3;
+    color: white;
+    border: none;
+    padding: 0.8em 1.5em;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 1em;
+    transition: background-color 0.3s;
+  `;
+  
+  const muteBtn = document.createElement('button');
+  muteBtn.id = 'manualMuteBtn';
+  muteBtn.textContent = '🔇 Mute';
+  muteBtn.style.cssText = `
+    background: #ff5722;
+    color: white;
+    border: none;
+    padding: 0.8em 1.5em;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 1em;
+    transition: background-color 0.3s;
+  `;
+  
+  manualControls.appendChild(listenBtn);
+  manualControls.appendChild(muteBtn);
+  
   // Volume Meter
   volumeMeter = document.createElement('div');
   volumeMeter.id = 'volumeMeter';
@@ -332,12 +499,52 @@ function createVisualElements() {
     <strong>🎵 Volume Monitoring:</strong><br>
     🟢 <strong>Quiet:</strong> Audio muted<br>
     🟡 <strong>Movement:</strong> Activation after 5 sec<br>
-    🔴 <strong>Crying:</strong> Immediate activation
+    🔴 <strong>Crying:</strong> Immediate activation<br>
+    <em>Manual controls override automatic behavior temporarily</em>
   `;
   
+  // Activity Log
+  const logContainer = document.createElement('div');
+  logContainer.style.cssText = `
+    background: #f9f9f9;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    margin: 1em 0;
+    max-height: 200px;
+    overflow-y: auto;
+  `;
+  
+  const logHeader = document.createElement('div');
+  logHeader.style.cssText = `
+    background: #e0e0e0;
+    padding: 0.5em 1em;
+    font-weight: bold;
+    border-bottom: 1px solid #ddd;
+  `;
+  logHeader.textContent = '📋 Activity Log';
+  
+  const logContent = document.createElement('div');
+  logContent.id = 'activityLog';
+  logContent.style.cssText = `
+    padding: 1em;
+    font-family: monospace;
+    font-size: 0.85em;
+    max-height: 150px;
+    overflow-y: auto;
+  `;
+  logContent.innerHTML = '<div style="color: #666;">Waiting for audio activity...</div>';
+  
+  logContainer.appendChild(logHeader);
+  logContainer.appendChild(logContent);
+  
   controls.appendChild(levelIndicator);
+  controls.appendChild(manualControls);
   controls.appendChild(volumeMeter);
   controls.appendChild(infoPanel);
+  controls.appendChild(logContainer);
+  
+  // Add manual control event listeners
+  setupManualControls();
 }
 
 function initializeAudioAnalysis(stream) {
@@ -355,11 +562,13 @@ function initializeAudioAnalysis(stream) {
     source.connect(analyser);
     
     console.log("🎵 Audio analysis initialized");
+    logActivity('🎵 Audio monitoring system initialized', 'info');
     initializeAlarm();
     startMonitoring();
     
   } catch (error) {
     console.error("❌ Audio analysis setup failed:", error);
+    logActivity('❌ Audio analysis setup failed', 'info');
   }
 }
 
@@ -368,6 +577,7 @@ function startMonitoring() {
     isMonitoring = true;
     monitorAudioLevel();
     console.log("👂 Audio monitoring started");
+    logActivity('👂 Voice activity detection started', 'info');
     
     // Start connection health monitoring
     if (connectionCheckInterval) clearInterval(connectionCheckInterval);
@@ -420,6 +630,7 @@ function updateVolumeMeter(volume, level) {
 function handleLevelChange(newLevel) {
   console.log(`🔊 Level changed: ${currentLevel} → ${newLevel}`);
   
+  const previousLevel = currentLevel;
   currentLevel = newLevel;
   levelStartTime = Date.now();
   
@@ -430,32 +641,43 @@ function handleLevelChange(newLevel) {
   // Update visual indicator
   updateLevelIndicator(newLevel);
   
-  // Handle audio muting/unmuting
+  // Log level change
+  const levelEmoji = newLevel === 'GREEN' ? '🟢' : newLevel === 'YELLOW' ? '🟡' : '🔴';
+  logActivity(`${levelEmoji} Audio level: ${LEVELS[newLevel].name}`, 'info');
+  
+  // Handle audio muting/unmuting based on manual state and level
   switch (newLevel) {
     case 'GREEN':
-      // Mute after delay if coming from yellow/red
-      if (!isMuted) {
-        const delay = currentLevel === 'RED' ? 10000 : 5000; // 10s for red, 5s for yellow
+      // Mute after delay if coming from yellow/red and not manually listening
+      if (!isMuted && !isManuallyListening) {
+        const delay = previousLevel === 'RED' ? 10000 : 5000; // 10s for red, 5s for yellow
         setTimeout(() => {
-          if (currentLevel === 'GREEN') {
-            muteAudio();
+          if (currentLevel === 'GREEN' && !isManuallyListening) {
+            muteAudio('auto');
           }
         }, delay);
       }
       break;
       
     case 'YELLOW':
-      // Unmute after 5 seconds
-      yellowTimer = setTimeout(() => {
-        if (currentLevel === 'YELLOW') {
-          unmuteAudio();
-        }
-      }, 5000);
+      // Unmute after 5 seconds if not manually muted
+      if (!isManuallyMuted) {
+        yellowTimer = setTimeout(() => {
+          if (currentLevel === 'YELLOW' && !isManuallyMuted) {
+            unmuteAudio('auto');
+          }
+        }, 5000);
+      }
       break;
       
     case 'RED':
-      // Immediate unmute
-      unmuteAudio();
+      // Immediate unmute - overrides manual mute for crying baby
+      if (isManuallyMuted) {
+        isManuallyMuted = false;
+        updateManualButtons();
+        logActivity('🚨 CRYING DETECTED - Manual mute overridden!', 'unmute');
+      }
+      unmuteAudio('auto');
       break;
   }
 }
@@ -465,27 +687,42 @@ function updateLevelIndicator(level) {
   
   const levelInfo = LEVELS[level];
   const emoji = level === 'GREEN' ? '🟢' : level === 'YELLOW' ? '🟡' : '🔴';
-  const muteStatus = isMuted ? 'Audio muted' : 'Audio active';
+  
+  let muteStatus = '';
+  if (isManuallyMuted) {
+    muteStatus = 'Manually muted';
+  } else if (isManuallyListening) {
+    muteStatus = 'Manually listening';
+  } else {
+    muteStatus = isMuted ? 'Auto muted' : 'Auto active';
+  }
   
   levelIndicator.style.background = levelInfo.color;
   levelIndicator.textContent = `${emoji} ${levelInfo.name} - ${muteStatus}`;
 }
 
-function muteAudio() {
+function muteAudio(source = 'auto') {
   if (remoteAudio && !isMuted) {
     remoteAudio.muted = true;
     isMuted = true;
-    console.log("🔇 Audio muted");
+    console.log(`🔇 Audio muted (${source})`);
     updateLevelIndicator(currentLevel);
+    
+    const sourceText = source === 'manual' ? 'Manual' : 'Automatic';
+    logActivity(`🔇 ${sourceText} mute activated`, 'mute');
   }
 }
 
-function unmuteAudio() {
+function unmuteAudio(source = 'auto') {
   if (remoteAudio && isMuted) {
     remoteAudio.muted = false;
     isMuted = false;
-    console.log("🔊 Audio unmuted");
+    console.log(`🔊 Audio unmuted (${source})`);
     updateLevelIndicator(currentLevel);
+    
+    const sourceText = source === 'manual' ? 'Manual' : 'Automatic';
+    const reason = currentLevel === 'RED' ? ' (CRYING)' : currentLevel === 'YELLOW' ? ' (Movement)' : '';
+    logActivity(`🔊 ${sourceText} unmute activated${reason}`, 'unmute');
   }
 }
 
@@ -506,6 +743,7 @@ async function attemptAutoplay() {
     status.textContent = "🎵 Audio monitoring active";
     alert.hidden = true;
     playAudioBtn.hidden = true;
+    logActivity('✅ Audio monitoring started', 'unmute');
     
   } catch (err) {
     console.log("⚠️ Autoplay blocked:", err.message);
