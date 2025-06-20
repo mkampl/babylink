@@ -1,4 +1,4 @@
-// public/client.js
+// public/client.js - Updated for BabyLink
 const socket = io();
 const params = new URLSearchParams(window.location.search);
 const role = params.get("role") || "parent";
@@ -57,6 +57,15 @@ let redTimer = null;
 // Visual elements
 let levelIndicator = null;
 let volumeMeter = null;
+
+// Wake Lock integration
+function integrateBabyLinkWakeLock() {
+  // Auto-request wake lock when monitoring becomes active
+  if (typeof autoRequestWakeLock === 'function') {
+    console.log('🔒 BabyLink: Requesting wake lock for baby monitoring');
+    autoRequestWakeLock();
+  }
+}
 
 // Activity logging
 function logActivity(message, type = 'info') {
@@ -294,6 +303,8 @@ peer.oniceconnectionstatechange = () => {
   
   if (peer.iceConnectionState === 'connected' || peer.iceConnectionState === 'completed') {
     console.log("✅ WebRTC connection established");
+    // Request wake lock when connection is established
+    integrateBabyLinkWakeLock();
   } else if (peer.iceConnectionState === 'disconnected' || peer.iceConnectionState === 'failed') {
     console.log("❌ WebRTC connection lost");
   }
@@ -336,7 +347,7 @@ socket.on("signal", async (data) => {
 
 // Room state management
 socket.on("participant-joined", ({ role: joinedRole, participants }) => {
-  console.log(`👤 ${joinedRole} joined room`);
+  console.log(`👤 ${joinedRole} joined BabyLink room`);
   updateConnectionStatus(participants);
   
   // Reset connection when someone rejoins after disconnect
@@ -352,7 +363,7 @@ socket.on("participant-joined", ({ role: joinedRole, participants }) => {
 });
 
 socket.on("participant-left", ({ role: leftRole, participants }) => {
-  console.log(`👤 ${leftRole} left room`);
+  console.log(`👤 ${leftRole} left BabyLink room`);
   updateConnectionStatus(participants);
   
   // Reset peer connection when the other party leaves
@@ -363,7 +374,7 @@ socket.on("participant-left", ({ role: leftRole, participants }) => {
 });
 
 socket.on("room-state", ({ participants }) => {
-  console.log("🏠 Room state:", participants.map(p => p.role));
+  console.log("🏠 BabyLink room state:", participants.map(p => p.role));
   updateConnectionStatus(participants);
   
   if (role === "baby" && participants.some(p => p.role === "parent") && localStream) {
@@ -496,7 +507,7 @@ function createVisualElements() {
     text-align: left;
   `;
   infoPanel.innerHTML = `
-    <strong>🎵 Volume Monitoring:</strong><br>
+    <strong>🎵 BabyLink Voice Monitoring:</strong><br>
     🟢 <strong>Quiet:</strong> Audio muted<br>
     🟡 <strong>Movement:</strong> Activation after 5 sec<br>
     🔴 <strong>Crying:</strong> Immediate activation<br>
@@ -521,7 +532,7 @@ function createVisualElements() {
     font-weight: bold;
     border-bottom: 1px solid #ddd;
   `;
-  logHeader.textContent = '📋 Activity Log';
+  logHeader.textContent = '📋 BabyLink Activity Log';
   
   const logContent = document.createElement('div');
   logContent.id = 'activityLog';
@@ -561,8 +572,8 @@ function initializeAudioAnalysis(stream) {
     
     source.connect(analyser);
     
-    console.log("🎵 Audio analysis initialized");
-    logActivity('🎵 Audio monitoring system initialized', 'info');
+    console.log("🎵 BabyLink audio analysis initialized");
+    logActivity('🎵 BabyLink monitoring system initialized', 'info');
     initializeAlarm();
     startMonitoring();
     
@@ -576,8 +587,11 @@ function startMonitoring() {
   if (!isMonitoring) {
     isMonitoring = true;
     monitorAudioLevel();
-    console.log("👂 Audio monitoring started");
+    console.log("👂 BabyLink audio monitoring started");
     logActivity('👂 Voice activity detection started', 'info');
+    
+    // Request wake lock when monitoring starts
+    integrateBabyLinkWakeLock();
     
     // Start connection health monitoring
     if (connectionCheckInterval) clearInterval(connectionCheckInterval);
@@ -740,10 +754,10 @@ async function attemptAutoplay() {
     isMuted = true;
     await remoteAudio.play();
     console.log("✅ Audio playing (muted for voice activation)");
-    status.textContent = "🎵 Audio monitoring active";
+    status.textContent = "🎵 BabyLink monitoring active";
     alert.hidden = true;
     playAudioBtn.hidden = true;
-    logActivity('✅ Audio monitoring started', 'unmute');
+    logActivity('✅ BabyLink monitoring started', 'unmute');
     
   } catch (err) {
     console.log("⚠️ Autoplay blocked:", err.message);
@@ -752,17 +766,17 @@ async function attemptAutoplay() {
 }
 
 function showManualPlayOption() {
-  status.textContent = "🔗 Connected - Click start audio";
+  status.textContent = "🔗 Connected - Click start monitoring";
   alert.textContent = "🔊 Click 'Start monitoring' to begin";
   alert.hidden = false;
   playAudioBtn.hidden = false;
   playAudioBtn.style.animation = "pulse 1.5s infinite";
-  playAudioBtn.textContent = "🔊 START MONITORING";
+  playAudioBtn.textContent = "🔊 START BABYLINK MONITORING";
 }
 
 function createReadyButton() {
   const readyBtn = document.createElement('button');
-  readyBtn.textContent = '🔊 READY FOR BABY MONITORING';
+  readyBtn.textContent = '🔊 READY FOR BABYLINK MONITORING';
   readyBtn.id = 'readyBtn';
   readyBtn.style.cssText = `
     background: #ff5722;
@@ -779,7 +793,7 @@ function createReadyButton() {
   `;
   
   readyBtn.addEventListener('click', async () => {
-    console.log("🔊 Parent ready for audio monitoring");
+    console.log("🔊 Parent ready for BabyLink monitoring");
     
     try {
       const silentAudio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmAcBzuU4fPSfC4HKHvL8-');
@@ -806,7 +820,7 @@ function createReadyButton() {
 // Role-specific initialization
 if (role === "baby") {
   mic.hidden = false;
-  console.log("🎙️ Baby mode - requesting microphone access");
+  console.log("🎙️ BabyLink baby mode - requesting microphone access");
   
   navigator.mediaDevices.getUserMedia({ audio: true })
     .then((stream) => {
@@ -829,12 +843,12 @@ if (role === "baby") {
 } 
 else if (role === "parent") {
   speaker.hidden = false;
-  console.log("🔈 Parent mode - voice activation monitoring");
+  console.log("🔈 BabyLink parent mode - voice activation monitoring");
   
   const readyBtn = createReadyButton();
   controls.appendChild(readyBtn);
   
-  status.textContent = "👆 Click READY to start monitoring";
+  status.textContent = "👆 Click READY to start BabyLink monitoring";
   
   // Handle incoming audio stream
   peer.addEventListener("track", (event) => {
@@ -856,14 +870,14 @@ else if (role === "parent") {
   
   // Manual play button handler
   playAudioBtn.addEventListener("click", async () => {
-    console.log("🔊 Manual monitoring start clicked");
+    console.log("🔊 Manual BabyLink monitoring start clicked");
     if (remoteAudio.srcObject) {
       try {
         remoteAudio.muted = true;
         isMuted = true;
         await remoteAudio.play();
-        console.log("✅ Audio monitoring started manually");
-        status.textContent = "🎵 Audio monitoring active";
+        console.log("✅ BabyLink monitoring started manually");
+        status.textContent = "🎵 BabyLink monitoring active";
         alert.hidden = true;
         playAudioBtn.hidden = true;
         
@@ -885,7 +899,7 @@ else if (role === "parent") {
 
 // Reset peer connection
 function resetPeerConnection() {
-  console.log("🔄 Resetting peer connection");
+  console.log("🔄 Resetting BabyLink peer connection");
   
   // Close old connection
   if (peer) {
@@ -903,6 +917,7 @@ function resetPeerConnection() {
     
     if (peer.iceConnectionState === 'connected' || peer.iceConnectionState === 'completed') {
       console.log("✅ WebRTC connection established");
+      integrateBabyLinkWakeLock();
     } else if (peer.iceConnectionState === 'disconnected' || peer.iceConnectionState === 'failed') {
       console.log("❌ WebRTC connection lost");
     }
@@ -951,16 +966,16 @@ function resetPeerConnection() {
 
 // Connection monitoring
 socket.on("connect", () => {
-  console.log("✅ Connected to server");
+  console.log("✅ Connected to BabyLink server");
   serverConnected = true;
   checkConnectionHealth();
 });
 
 socket.on("disconnect", () => {
-  console.warn("🚫 Socket disconnected");
+  console.warn("🚫 BabyLink socket disconnected");
   serverConnected = false;
   status.textContent = "🚫 Connection lost";
-  alert.textContent = "🚫 Connection to server lost";
+  alert.textContent = "🚫 Connection to BabyLink server lost";
   alert.hidden = false;
   
   // Stop monitoring
@@ -977,7 +992,7 @@ socket.on("disconnect", () => {
 });
 
 socket.on("reconnect", () => {
-  console.log("🔄 Reconnected to server");
+  console.log("🔄 Reconnected to BabyLink server");
   serverConnected = true;
   checkConnectionHealth();
 });

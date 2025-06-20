@@ -1,28 +1,269 @@
 <!DOCTYPE html>
-    <html lang="en">
-    <head>
-      <meta charset="UTF-8" />
-      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-      <title>Baby Monitor – Select Room</title>
-      <link rel="stylesheet" href="/style.css" />
-    </head>
-    <body>
-      <main>
-        <h1>👶 Baby Monitor</h1>
-        <form id="roomForm">
-          <label for="room">Family Code:</label>
-          <input id="room" name="roomId" placeholder="e.g. family123" required />
-          <button type="submit">Continue</button>
-        </form>
-      </main>
-      <script>
-        document.getElementById("roomForm").addEventListener("submit", function (e) {
-          e.preventDefault();
-          const roomId = document.getElementById("room").value.trim();
-          if (roomId) {
-            window.location.href = "/" + encodeURIComponent(roomId);
-          }
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BabyLink – Baby Monitor</title>
+  <link rel="stylesheet" href="/style.css" />
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#3b82f6">
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/icons/icon-16x16.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="BabyLink">
+  <link rel="apple-touch-icon" href="/icons/icon-192x192.png">
+</head>
+<body>
+  <main>
+    <h1>👶 BabyLink Monitor</h1>
+    
+    <!-- Create New Room Section -->
+    <div class="section">
+      <h2>🆕 Create New Room</h2>
+      <form id="createRoomForm">
+        <label for="roomName">Room Name:</label>
+        <input id="roomName" name="roomName" placeholder="e.g. Child1, Nursery, etc." required />
+        <button type="submit">Create Room</button>
+      </form>
+    </div>
+    
+    <!-- Previous Rooms Section -->
+    <div class="section" id="previousRoomsSection" style="display: none;">
+      <h2>📱 Previous Rooms</h2>
+      <div id="roomsList"></div>
+    </div>
+    
+    <!-- Join Existing Room Section -->
+    <div class="section">
+      <h2>🔗 Join Existing Room</h2>
+      <form id="joinRoomForm">
+        <label for="roomId">Room ID:</label>
+        <input id="roomId" name="roomId" placeholder="Enter room ID" required />
+        <button type="submit">Join Room</button>
+      </form>
+    </div>
+    
+    <!-- PWA Install Banner -->
+    <div id="pwaInstallBanner" class="pwa-banner" style="display: none;">
+      <p>📱 Install BabyLink as an app for better experience!</p>
+      <button id="installPwaBtn">Install App</button>
+      <button id="dismissPwaBtn">Maybe Later</button>
+    </div>
+  </main>
+  
+  <style>
+    .section {
+      background: #f8f9fa;
+      padding: 1.5em;
+      margin: 1em 0;
+      border-radius: 0.8em;
+      border: 1px solid #e9ecef;
+    }
+    
+    .section h2 {
+      margin-top: 0;
+      color: #495057;
+      font-size: 1.2em;
+    }
+    
+    .room-item {
+      background: white;
+      padding: 1em;
+      margin: 0.5em 0;
+      border-radius: 0.5em;
+      border: 1px solid #dee2e6;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    
+    .room-name {
+      font-weight: bold;
+      color: #495057;
+    }
+    
+    .room-id {
+      font-size: 0.8em;
+      color: #6c757d;
+      font-family: monospace;
+    }
+    
+    .room-actions {
+      display: flex;
+      gap: 0.5em;
+    }
+    
+    .room-actions button {
+      padding: 0.5em 1em;
+      font-size: 0.9em;
+      margin: 0;
+      width: auto;
+    }
+    
+    .join-btn {
+      background: #28a745;
+    }
+    
+    .delete-btn {
+      background: #dc3545;
+    }
+    
+    .pwa-banner {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 1em;
+      border-radius: 0.8em;
+      text-align: center;
+      margin: 1em 0;
+    }
+    
+    .pwa-banner button {
+      background: rgba(255, 255, 255, 0.2);
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      color: white;
+      margin: 0.2em;
+      padding: 0.5em 1em;
+      width: auto;
+    }
+    
+    .pwa-banner button:hover {
+      background: rgba(255, 255, 255, 0.3);
+    }
+  </style>
+  
+  <script>
+    // PWA and Wake Lock functionality
+    let deferredPrompt;
+    let wakeLock = null;
+    
+    // Room storage functions
+    function saveRoom(name, id) {
+      const rooms = JSON.parse(localStorage.getItem('babylink-rooms') || '[]');
+      const existingIndex = rooms.findIndex(room => room.id === id);
+      
+      if (existingIndex >= 0) {
+        rooms[existingIndex] = { name, id, lastUsed: Date.now() };
+      } else {
+        rooms.push({ name, id, lastUsed: Date.now() });
+      }
+      
+      // Keep only last 10 rooms
+      rooms.sort((a, b) => b.lastUsed - a.lastUsed);
+      localStorage.setItem('babylink-rooms', JSON.stringify(rooms.slice(0, 10)));
+      displayPreviousRooms();
+    }
+    
+    function deleteRoom(id) {
+      const rooms = JSON.parse(localStorage.getItem('babylink-rooms') || '[]');
+      const filteredRooms = rooms.filter(room => room.id !== id);
+      localStorage.setItem('babylink-rooms', JSON.stringify(filteredRooms));
+      displayPreviousRooms();
+    }
+    
+    function generateRoomId() {
+      // Generate a secure random room ID
+      const array = new Uint8Array(16);
+      crypto.getRandomValues(array);
+      return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
+    }
+    
+    function displayPreviousRooms() {
+      const rooms = JSON.parse(localStorage.getItem('babylink-rooms') || '[]');
+      const roomsList = document.getElementById('roomsList');
+      const section = document.getElementById('previousRoomsSection');
+      
+      if (rooms.length === 0) {
+        section.style.display = 'none';
+        return;
+      }
+      
+      section.style.display = 'block';
+      roomsList.innerHTML = '';
+      
+      rooms.forEach(room => {
+        const roomDiv = document.createElement('div');
+        roomDiv.className = 'room-item';
+        roomDiv.innerHTML = `
+          <div>
+            <div class="room-name">${room.name}</div>
+            <div class="room-id">ID: ${room.id.substring(0, 8)}...</div>
+          </div>
+          <div class="room-actions">
+            <button class="join-btn" onclick="joinRoom('${room.id}')">Join</button>
+            <button class="delete-btn" onclick="deleteRoom('${room.id}')">Delete</button>
+          </div>
+        `;
+        roomsList.appendChild(roomDiv);
+      });
+    }
+    
+    function joinRoom(roomId) {
+      window.location.href = "/" + encodeURIComponent(roomId);
+    }
+    
+    // PWA Install Banner
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredPrompt = e;
+      showInstallBanner();
+    });
+    
+    function showInstallBanner() {
+      const banner = document.getElementById('pwaInstallBanner');
+      banner.style.display = 'block';
+    }
+    
+    document.getElementById('installPwaBtn').addEventListener('click', async () => {
+      if (deferredPrompt) {
+        deferredPrompt.prompt();
+        const { outcome } = await deferredPrompt.userChoice;
+        if (outcome === 'accepted') {
+          console.log('PWA installed');
+        }
+        deferredPrompt = null;
+        document.getElementById('pwaInstallBanner').style.display = 'none';
+      }
+    });
+    
+    document.getElementById('dismissPwaBtn').addEventListener('click', () => {
+      document.getElementById('pwaInstallBanner').style.display = 'none';
+      // Don't show again for this session
+      deferredPrompt = null;
+    });
+    
+    // Service Worker Registration
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/service-worker.js')
+        .then((registration) => {
+          console.log('SW registered: ', registration);
+        })
+        .catch((registrationError) => {
+          console.log('SW registration failed: ', registrationError);
         });
-      </script>
-    </body>
-    </html>
+    }
+    
+    // Form handlers
+    document.getElementById("createRoomForm").addEventListener("submit", function (e) {
+      e.preventDefault();
+      const roomName = document.getElementById("roomName").value.trim();
+      if (roomName) {
+        const roomId = generateRoomId();
+        saveRoom(roomName, roomId);
+        window.location.href = "/" + encodeURIComponent(roomId);
+      }
+    });
+    
+    document.getElementById("joinRoomForm").addEventListener("submit", function (e) {
+      e.preventDefault();
+      const roomId = document.getElementById("roomId").value.trim();
+      if (roomId) {
+        window.location.href = "/" + encodeURIComponent(roomId);
+      }
+    });
+    
+    // Initialize
+    displayPreviousRooms();
+  </script>
+</body>
+</html>

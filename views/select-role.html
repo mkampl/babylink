@@ -3,20 +3,271 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Select Role</title>
+  <title>Select Role - BabyLink</title>
   <link rel="stylesheet" href="/style.css">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#3b82f6">
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/icons/icon-16x16.png">
 </head>
 <body>
   <main>
     <h1>👥 Who are you?</h1>
-    <form method="POST" action="">
-      <input type="hidden" name="role" value="baby" />
-      <button type="submit">🎤 Baby Device</button>
-    </form>
-    <form method="POST" action="">
-      <input type="hidden" name="role" value="parent" />
-      <button type="submit">👨‍👩‍👧 Parent Device</button>
-    </form>
+    
+    <!-- Room Sharing Section -->
+    <div class="room-sharing">
+      <h3>📤 Share this room:</h3>
+      <div class="share-controls">
+        <input type="text" id="roomLink" readonly />
+        <button id="copyLinkBtn">📋 Copy Link</button>
+      </div>
+      <div class="qr-container">
+        <img id="qrcode" alt="Loading QR code..." />
+        <p>Scan QR code to join</p>
+      </div>
+    </div>
+    
+    <!-- Role Selection -->
+    <div class="role-selection">
+      <form method="POST" action="">
+        <input type="hidden" name="role" value="baby" />
+        <button type="submit" class="role-btn baby-btn">🎤 Baby Device</button>
+      </form>
+      <form method="POST" action="">
+        <input type="hidden" name="role" value="parent" />
+        <button type="submit" class="role-btn parent-btn">👨‍👩‍👧 Parent Device</button>
+      </form>
+    </div>
   </main>
+  
+  <style>
+    .room-sharing {
+      background: #f8f9fa;
+      padding: 1.5em;
+      margin: 1em 0;
+      border-radius: 0.8em;
+      border: 1px solid #e9ecef;
+      text-align: center;
+    }
+    
+    .room-sharing h3 {
+      margin-top: 0;
+      color: #495057;
+    }
+    
+    .share-controls {
+      display: flex;
+      gap: 0.5em;
+      margin: 1em 0;
+    }
+    
+    .share-controls input {
+      flex: 1;
+      font-family: monospace;
+      font-size: 0.9em;
+      background: white;
+    }
+    
+    .share-controls button {
+      width: auto;
+      white-space: nowrap;
+      padding: 0.8em 1em;
+      margin: 0;
+    }
+    
+    .qr-container {
+      margin: 1em 0;
+    }
+    
+    .qr-container canvas {
+      border: 2px solid #dee2e6;
+      border-radius: 0.5em;
+      background: white;
+      padding: 1em;
+    }
+    
+    .qr-container p {
+      margin: 0.5em 0 0 0;
+      color: #6c757d;
+      font-size: 0.9em;
+    }
+    
+    .role-selection {
+      margin-top: 2em;
+    }
+    
+    .role-btn {
+      width: 100%;
+      padding: 1.5em;
+      font-size: 1.3em;
+      margin: 0.5em 0;
+      border: none;
+      border-radius: 0.8em;
+      cursor: pointer;
+      transition: all 0.3s;
+      font-weight: bold;
+    }
+    
+    .baby-btn {
+      background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+      color: white;
+    }
+    
+    .baby-btn:hover {
+      background: linear-gradient(135deg, #ee5a24, #c23616);
+      transform: translateY(-2px);
+    }
+    
+    .parent-btn {
+      background: linear-gradient(135deg, #3742fa, #2f3542);
+      color: white;
+    }
+    
+    .parent-btn:hover {
+      background: linear-gradient(135deg, #2f3542, #1e272e);
+      transform: translateY(-2px);
+    }
+    
+    @media (max-width: 480px) {
+      .share-controls {
+        flex-direction: column;
+      }
+      
+      .share-controls button {
+        width: 100%;
+      }
+    }
+  </style>
+  
+  <script>
+    // QR Code generation using QR Server API
+    function generateQR(text) {
+      const qrContainer = document.querySelector('.qr-container');
+      const canvas = document.getElementById('qrcode');
+      
+      // Remove canvas and replace with img element for better QR code
+      canvas.remove();
+      
+      const qrImg = document.createElement('img');
+      qrImg.id = 'qrcode';
+      qrImg.style.cssText = `
+        border: 2px solid #dee2e6;
+        border-radius: 0.5em;
+        background: white;
+        padding: 1em;
+        max-width: 200px;
+        height: auto;
+      `;
+      
+      // Use QR Server API (free service) to generate QR code
+      const qrText = encodeURIComponent(text);
+      qrImg.src = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${qrText}&bgcolor=ffffff&color=000000&qzone=1&format=png`;
+      qrImg.alt = 'QR Code for room link';
+      qrImg.title = 'Scan to join BabyLink room';
+      
+      // Add error handling
+      qrImg.onerror = function() {
+        console.log('QR Server API failed, trying alternative method');
+        generateQRFallback(text, qrContainer);
+      };
+      
+      // Insert the QR code image
+      const existingQR = document.getElementById('qrcode');
+      if (existingQR) {
+        existingQR.parentNode.replaceChild(qrImg, existingQR);
+      } else {
+        qrContainer.insertBefore(qrImg, qrContainer.querySelector('p'));
+      }
+    }
+    
+    // Fallback QR code generation using Google Charts API
+    function generateQRFallback(text, container) {
+      const qrImg = document.createElement('img');
+      qrImg.id = 'qrcode';
+      qrImg.style.cssText = `
+        border: 2px solid #dee2e6;
+        border-radius: 0.5em;
+        background: white;
+        padding: 1em;
+        max-width: 200px;
+        height: auto;
+      `;
+      
+      // Use Google Charts API as fallback
+      const qrText = encodeURIComponent(text);
+      qrImg.src = `https://chart.googleapis.com/chart?chs=200x200&cht=qr&chl=${qrText}&choe=UTF-8`;
+      qrImg.alt = 'QR Code for room link';
+      qrImg.title = 'Scan to join BabyLink room';
+      
+      // Final fallback - show text instruction
+      qrImg.onerror = function() {
+        console.log('Both QR APIs failed, showing manual instruction');
+        const fallbackDiv = document.createElement('div');
+        fallbackDiv.style.cssText = `
+          border: 2px solid #dee2e6;
+          border-radius: 0.5em;
+          background: #f8f9fa;
+          padding: 1em;
+          max-width: 200px;
+          font-size: 0.9em;
+          color: #495057;
+        `;
+        fallbackDiv.innerHTML = `
+          <div style="font-weight: bold; margin-bottom: 0.5em;">📱 QR Code Unavailable</div>
+          <div>Copy and share the link above instead</div>
+        `;
+        
+        const existingQR = document.getElementById('qrcode');
+        if (existingQR) {
+          existingQR.parentNode.replaceChild(fallbackDiv, existingQR);
+        }
+      };
+      
+      const existingQR = document.getElementById('qrcode');
+      if (existingQR) {
+        existingQR.parentNode.replaceChild(qrImg, existingQR);
+      } else {
+        container.insertBefore(qrImg, container.querySelector('p'));
+      }
+    }
+    
+    // Initialize page
+    function initializePage() {
+      const roomId = window.location.pathname.slice(1);
+      const currentUrl = window.location.origin + window.location.pathname;
+      
+      // Set room link
+      document.getElementById('roomLink').value = currentUrl;
+      
+      // Generate QR code
+      generateQR(currentUrl);
+      
+      // Copy link functionality
+      document.getElementById('copyLinkBtn').addEventListener('click', async () => {
+        const linkInput = document.getElementById('roomLink');
+        
+        try {
+          await navigator.clipboard.writeText(linkInput.value);
+          const btn = document.getElementById('copyLinkBtn');
+          const originalText = btn.textContent;
+          btn.textContent = '✅ Copied!';
+          btn.style.background = '#28a745';
+          
+          setTimeout(() => {
+            btn.textContent = originalText;
+            btn.style.background = '';
+          }, 2000);
+        } catch (err) {
+          // Fallback for older browsers
+          linkInput.select();
+          document.execCommand('copy');
+          alert('Link copied to clipboard!');
+        }
+      });
+    }
+    
+    // Initialize when page loads
+    document.addEventListener('DOMContentLoaded', initializePage);
+  </script>
 </body>
 </html>

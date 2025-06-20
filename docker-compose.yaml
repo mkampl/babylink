@@ -1,9 +1,9 @@
 version: '3.8'
 
 services:
-  babyphone:
+  babylink:
     build: .
-    container_name: babyphone-app
+    container_name: babylink-app
     ports:
       - "3001:3001"
     volumes:
@@ -26,7 +26,7 @@ services:
 # Optional: Add nginx reverse proxy for production
   nginx:
     image: nginx:alpine
-    container_name: babyphone-proxy
+    container_name: babylink-proxy
     ports:
       - "80:80"
       - "443:443"
@@ -34,11 +34,11 @@ services:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
       - ./ssl:/etc/nginx/ssl:ro
     depends_on:
-      - babyphone
+      - babylink
     restart: unless-stopped
     profiles:
       - proxy
 
 networks:
   default:
-    name: babyphone-network
+    name: babylink-network
