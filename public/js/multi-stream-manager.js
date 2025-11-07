@@ -134,26 +134,36 @@ class MultiStreamManager {
       const { analyser, dataArray } = this.analysers.get(participantId);
       analyser.getByteFrequencyData(dataArray);
 
-      // Calculate average volume
+      // Calculate average volume (0-255 range)
       const sum = dataArray.reduce((a, b) => a + b, 0);
       const average = sum / dataArray.length;
 
-      // Determine level
+      // Find peak value for better sensitivity
+      const peak = Math.max(...dataArray);
+
+      // Use peak for level detection (more responsive)
+      const volume = peak;
+
+      // Determine level based on peak volume
       let level = 'GREEN';
-      if (average > 80) {
+      if (volume > 80) {
         level = 'RED'; // Crying
-      } else if (average > 30) {
+      } else if (volume > 30) {
         level = 'YELLOW'; // Movement
       }
 
-      // Update if changed
-      const analysisData = this.analysers.get(participantId);
-      if (analysisData.currentLevel !== level) {
-        analysisData.currentLevel = level;
-        analysisData.lastUpdate = Date.now();
+      // Always call the callback with current values (not just on change)
+      if (this.onAudioLevelUpdate) {
+        this.onAudioLevelUpdate(participantId, level, volume);
+      }
 
-        if (this.onAudioLevelUpdate) {
-          this.onAudioLevelUpdate(participantId, level, average);
+      // Store level in analysis data
+      const analysisData = this.analysers.get(participantId);
+      if (analysisData) {
+        const levelChanged = analysisData.currentLevel !== level;
+        analysisData.currentLevel = level;
+        if (levelChanged) {
+          analysisData.lastUpdate = Date.now();
         }
       }
 

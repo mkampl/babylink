@@ -10,6 +10,10 @@ class MultiBabyUI {
     this.babyCards = new Map(); // babyId → DOM element
     this.audioLevels = new Map(); // babyId → current level
     this.activityLogs = new Map(); // babyId → log entries
+    this.autoMuteTimers = new Map(); // babyId → timeout ID
+    this.isMuted = new Map(); // babyId → mute state
+    this.isManuallyMuted = new Map(); // babyId → manual mute override
+    this.lastLevelChangeTime = new Map(); // babyId → timestamp
 
     this.onMuteToggle = null;
     this.onSoloToggle = null;
@@ -91,10 +95,10 @@ class MultiBabyUI {
       </div>
 
       <div class="baby-controls">
-        <button class="btn btn-mute" id="mute-${babyId}" data-muted="false">
-          🔊 Unmuted
+        <button class="btn btn-mute" id="mute-${babyId}" data-muted="true">
+          🔇 Muted
         </button>
-        <button class="btn btn-solo" id="solo-${babyId}">
+        <button class="btn btn-solo" id="solo-${babyId}" title="Listen to only this baby">
           🎧 Solo
         </button>
         <div class="volume-control">
@@ -114,6 +118,8 @@ class MultiBabyUI {
     this.babyCards.set(babyId, card);
     this.audioLevels.set(babyId, 'GREEN');
     this.activityLogs.set(babyId, []);
+    this.isMuted.set(babyId, true); // Start muted
+    this.isManuallyMuted.set(babyId, false); // Not manually controlled yet
 
     // Add event listeners
     this.setupCardEventListeners(babyId);
@@ -132,13 +138,25 @@ class MultiBabyUI {
     // Mute button
     const muteBtn = document.getElementById(`mute-${babyId}`);
     muteBtn.addEventListener('click', () => {
-      const isMuted = muteBtn.dataset.muted === 'true';
-      muteBtn.dataset.muted = !isMuted;
-      muteBtn.textContent = isMuted ? '🔊 Unmuted' : '🔇 Muted';
-      muteBtn.className = isMuted ? 'btn btn-mute' : 'btn btn-mute muted';
+      const currentlyMuted = this.isMuted.get(babyId);
 
-      if (this.onMuteToggle) {
-        this.onMuteToggle(babyId, !isMuted);
+      if (currentlyMuted) {
+        // User wants to unmute
+        this.isManuallyMuted.set(babyId, false);
+        this.unmuteBaby(babyId, 'manual');
+        this.logActivity(babyId, '🔊 Manually unmuted', 'manual');
+      } else {
+        // User wants to mute
+        this.isManuallyMuted.set(babyId, true);
+        this.muteBaby(babyId, 'manual');
+        this.logActivity(babyId, '🔇 Manually muted', 'manual');
+
+        // Clear any auto-unmute timers
+        const timer = this.autoMuteTimers.get(babyId);
+        if (timer) {
+          clearTimeout(timer);
+          this.autoMuteTimers.delete(babyId);
+        }
       }
     });
 
@@ -171,10 +189,22 @@ class MultiBabyUI {
   removeBaby(babyId) {
     const card = this.babyCards.get(babyId);
     if (card) {
+      // Clear any timers
+      const timer = this.autoMuteTimers.get(babyId);
+      if (timer) {
+        clearTimeout(timer);
+        this.autoMuteTimers.delete(babyId);
+      }
+
+      // Clean up all state
       card.remove();
       this.babyCards.delete(babyId);
       this.audioLevels.delete(babyId);
       this.activityLogs.delete(babyId);
+      this.isMuted.delete(babyId);
+      this.isManuallyMuted.delete(babyId);
+      this.lastLevelChangeTime.delete(babyId);
+
       this.updateBabyCount();
     }
   }
@@ -183,6 +213,7 @@ class MultiBabyUI {
    * Update audio level for a specific baby
    */
   updateAudioLevel(babyId, level, volume) {
+    const previousLevel = this.audioLevels.get(babyId);
     this.audioLevels.set(babyId, level);
 
     // Update volume meter
@@ -210,7 +241,10 @@ class MultiBabyUI {
       if (level === 'RED') {
         levelText = 'Crying!';
         levelClass = 'level-red';
-        this.logActivity(babyId, '🚨 Baby is crying!', 'alert');
+        // Only log once when level changes to RED
+        if (previousLevel !== 'RED') {
+          this.logActivity(babyId, '🚨 Baby is crying!', 'alert');
+        }
       } else if (level === 'YELLOW') {
         levelText = 'Movement';
         levelClass = 'level-yellow';
@@ -227,6 +261,105 @@ class MultiBabyUI {
     } else if (status) {
       status.className = 'baby-status';
       status.textContent = '🟢 Connected';
+    }
+
+    // Auto-mute/unmute logic
+    this.handleAutoMuteLogic(babyId, level, previousLevel);
+  }
+
+  /**
+   * Handle automatic muting/unmuting based on audio levels
+   */
+  handleAutoMuteLogic(babyId, level, previousLevel) {
+    // Don't auto-mute if user has manually set mute state
+    if (this.isManuallyMuted.get(babyId)) {
+      return;
+    }
+
+    // Clear any existing timer
+    const existingTimer = this.autoMuteTimers.get(babyId);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
+      this.autoMuteTimers.delete(babyId);
+    }
+
+    // Level changed
+    if (level !== previousLevel) {
+      this.lastLevelChangeTime.set(babyId, Date.now());
+    }
+
+    if (level === 'RED') {
+      // CRYING - Immediately unmute (override manual mute)
+      if (this.isMuted.get(babyId)) {
+        this.unmuteBaby(babyId, 'auto');
+        this.logActivity(babyId, '🔊 Auto-unmuted (crying detected)', 'auto');
+      }
+      // Override manual mute when crying
+      this.isManuallyMuted.set(babyId, false);
+
+      // Auto-mute 10 seconds after returning to quiet
+      // (This will be set when level changes from RED)
+
+    } else if (level === 'YELLOW') {
+      // MOVEMENT - Unmute after brief delay
+      if (this.isMuted.get(babyId)) {
+        const timer = setTimeout(() => {
+          if (this.audioLevels.get(babyId) !== 'GREEN' && !this.isManuallyMuted.get(babyId)) {
+            this.unmuteBaby(babyId, 'auto');
+            this.logActivity(babyId, '🔊 Auto-unmuted (movement detected)', 'auto');
+          }
+        }, 2000); // 2 seconds delay
+        this.autoMuteTimers.set(babyId, timer);
+      }
+
+    } else if (level === 'GREEN') {
+      // QUIET - Auto-mute after delay
+      const wasCrying = previousLevel === 'RED';
+      const muteDelay = wasCrying ? 10000 : 5000; // 10s after crying, 5s otherwise
+
+      const timer = setTimeout(() => {
+        if (this.audioLevels.get(babyId) === 'GREEN' && !this.isManuallyMuted.get(babyId)) {
+          this.muteBaby(babyId, 'auto');
+          this.logActivity(babyId, '🔇 Auto-muted (quiet)', 'auto');
+        }
+      }, muteDelay);
+      this.autoMuteTimers.set(babyId, timer);
+    }
+  }
+
+  /**
+   * Mute a baby (internal method)
+   */
+  muteBaby(babyId, source = 'manual') {
+    this.isMuted.set(babyId, true);
+    if (this.onMuteToggle) {
+      this.onMuteToggle(babyId, true);
+    }
+
+    // Update button state
+    const muteBtn = document.getElementById(`mute-${babyId}`);
+    if (muteBtn) {
+      muteBtn.dataset.muted = 'true';
+      muteBtn.textContent = '🔇 Muted';
+      muteBtn.className = 'btn btn-mute muted';
+    }
+  }
+
+  /**
+   * Unmute a baby (internal method)
+   */
+  unmuteBaby(babyId, source = 'manual') {
+    this.isMuted.set(babyId, false);
+    if (this.onMuteToggle) {
+      this.onMuteToggle(babyId, false);
+    }
+
+    // Update button state
+    const muteBtn = document.getElementById(`mute-${babyId}`);
+    if (muteBtn) {
+      muteBtn.dataset.muted = 'false';
+      muteBtn.textContent = '🔊 Unmuted';
+      muteBtn.className = 'btn btn-mute';
     }
   }
 
