@@ -434,14 +434,32 @@
     // Socket event handlers
     socket.on('connect', () => {
       console.log('✅ Connected to server');
-      document.getElementById('status').textContent = '✅ Connected';
+      document.getElementById('status').textContent = '✅ Connected - Rejoining room...';
+      document.getElementById('alert').hidden = true;
+
+      // Re-join the room after reconnection
+      socket.emit('join', { roomId, role, userName });
+      console.log('🔄 Rejoined room after reconnection');
     });
 
-    socket.on('disconnect', () => {
-      console.log('❌ Disconnected from server');
+    socket.on('disconnect', (reason) => {
+      console.log('❌ Disconnected from server:', reason);
       document.getElementById('status').textContent = '❌ Disconnected - Reconnecting...';
-      document.getElementById('alert').textContent = '⚠️ Connection lost. Attempting to reconnect...';
-      document.getElementById('alert').hidden = false;
+
+      // Show alert after 3 seconds (don't show immediately for quick reconnects)
+      setTimeout(() => {
+        if (!socket.connected) {
+          document.getElementById('alert').textContent = '⚠️ Connection lost. Attempting to reconnect...';
+          document.getElementById('alert').hidden = false;
+        }
+      }, 3000);
+
+      // Mark all babies as disconnected if we're a parent
+      if (role === 'parent' && multiBabyUI) {
+        for (const [babyId] of multiBabyUI.babyCards) {
+          multiBabyUI.updateBabyStatus(babyId, false, 'Server disconnected');
+        }
+      }
     });
 
     socket.on('room-state', (data) => {
