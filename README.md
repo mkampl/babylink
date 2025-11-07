@@ -1,351 +1,545 @@
-# BabyLink Docker Setup
+# 👶 BabyLink - Multi-Baby WebRTC Monitor
 
-BabyLink is a secure WebRTC baby monitor with voice activation, PWA support, and screen wake lock functionality. This Docker setup automatically detects SSL certificates and runs BabyLink in either HTTPS or HTTP mode.
+**BabyLink** is a secure, real-time baby monitor built with WebRTC technology. It supports **multiple babies and multiple parents** in the same room, with voice activity detection, PWA support, and screen wake lock functionality.
 
-## 🆕 New Features
+[![License](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
+[![Node](https://img.shields.io/badge/node-%3E%3D16.0.0-brightgreen.svg)](https://nodejs.org/)
 
-- **🔒 Secure Room IDs**: Impossible-to-guess room identifiers for enhanced security
-- **📱 PWA Support**: Install as a native app with offline capabilities
-- **🔋 Wake Lock**: Prevents screen from turning off during monitoring
-- **💾 Room Memory**: Saves previous rooms locally for easy access
-- **📤 QR Code Sharing**: Easy room sharing via QR codes
-- **🎯 Voice Activation**: Smart audio monitoring with manual overrides
+---
 
-## Quick Start
+## ✨ Features
 
-### 1. Basic HTTP Setup (No SSL)
+### 🆕 New in This Version
+
+- **Multi-Baby/Multi-Parent Support** - Monitor multiple babies from one or more parent devices
+- **Named Participants** - Give each baby a name for easy identification
+- **Individual Controls** - Mute/unmute and volume control for each baby independently
+- **Visual Audio Levels** - Real-time audio level indicators for each baby
+- **Activity Logs** - Per-baby activity logging
+- **Enhanced Security** - Input validation, rate limiting, CORS, helmet.js security headers
+- **Production-Ready** - Structured logging with Winston, environment configuration, graceful shutdown
+- **Reverse Proxy Ready** - Designed for Caddy/Nginx SSL termination (no built-in SSL)
+
+### 🔒 Security Features
+
+- **Cryptographically Secure Room IDs** - 32-character random hexadecimal identifiers
+- **Input Validation** - Server-side validation of all room IDs and user inputs
+- **Rate Limiting** - Prevent abuse with configurable rate limits
+- **Security Headers** - Helmet.js integration for secure HTTP headers
+- **CORS Configuration** - Configurable cross-origin resource sharing
+- **No SSL Complexity** - Designed for reverse proxy SSL termination
+
+### 📱 Core Features
+
+- **WebRTC Peer-to-Peer** - Direct audio streaming between devices
+- **Voice Activity Detection** - Automatic detection of quiet, movement, and crying
+- **Progressive Web App** - Install as native app on any device
+- **Screen Wake Lock** - Prevents screen from turning off during monitoring
+- **Room History** - Saves last 10 rooms locally for quick access
+- **QR Code Sharing** - Easy room sharing with QR codes
+- **Manual Controls** - Override automatic voice detection
+
+---
+
+## 🚀 Quick Start
+
+### 1. Install Dependencies
 
 ```bash
-# Build and run the container
+npm install
+```
+
+### 2. Create Environment File
+
+```bash
+cp .env.example .env
+# Edit .env with your configuration (optional, defaults work for development)
+```
+
+### 3. Run the Server
+
+```bash
+# Development mode with auto-restart
+npm run dev
+
+# Production mode
+npm start
+```
+
+### 4. Access the Application
+
+Open your browser to **http://localhost:3001**
+
+---
+
+## 📖 Usage
+
+### Creating a Room
+
+1. Visit BabyLink homepage
+2. Enter a memorable room name (e.g., "Nursery", "Child1")
+3. Click **"Create Room"**
+4. Share the room via QR code or link
+
+### Joining as Baby Device
+
+1. Click "Baby Device"
+2. Enter baby's name (e.g., "Emma", "Room 1")
+3. Grant microphone access
+4. Device will stream audio to all connected parents
+
+### Joining as Parent Device
+
+1. Click "Parent Device"
+2. Enter your name (optional)
+3. Monitor all babies in the room
+4. Control each baby independently:
+   - **Mute/Unmute** - Toggle audio for specific baby
+   - **Solo** - Listen to only one baby
+   - **Volume** - Adjust individual baby volume
+   - **Activity Log** - View recent activity per baby
+
+### Multi-Baby Scenarios
+
+**Example 1: One Parent, Two Children**
+- 2 baby devices (Emma's phone, Liam's tablet)
+- 1 parent device (Mom's laptop)
+- Mom can monitor both children simultaneously
+
+**Example 2: Two Parents, One Child**
+- 1 baby device (Emma's phone)
+- 2 parent devices (Mom's phone, Dad's tablet)
+- Both parents receive audio from the same baby
+
+**Example 3: Two Parents, Two Children**
+- 2 baby devices (Emma's phone, Liam's tablet)
+- 2 parent devices (Mom's phone, Dad's tablet)
+- All parents monitor all children
+
+---
+
+## 🔧 Configuration
+
+### Environment Variables
+
+See [`.env.example`](.env.example) for all available configuration options.
+
+**Essential Variables:**
+
+```env
+NODE_ENV=production
+PORT=3001
+SESSION_SECRET=your-secure-random-secret-here
+```
+
+**Room Limits:**
+
+```env
+MAX_BABIES_PER_ROOM=5
+MAX_PARENTS_PER_ROOM=10
+MAX_ROOMS=1000
+```
+
+**WebRTC Configuration:**
+
+```env
+STUN_SERVER=stun:stun.l.google.com:19302
+# Optional TURN server for difficult network scenarios
+# TURN_SERVER=turn:turn.example.com:3478
+# TURN_USERNAME=username
+# TURN_PASSWORD=password
+```
+
+**Security:**
+
+```env
+RATE_LIMIT_WINDOW=900000  # 15 minutes in ms
+RATE_LIMIT_MAX_REQUESTS=100
+CORS_ORIGIN=*  # Or specify your domain
+```
+
+**Logging:**
+
+```env
+LOG_LEVEL=info  # error, warn, info, debug
+LOG_TO_FILE=true
+LOG_FILE_PATH=./logs/babylink.log
+```
+
+---
+
+## 🐳 Docker Deployment
+
+### Basic Deployment
+
+```bash
+# Build and run
 docker-compose up -d
 
 # View logs
 docker-compose logs -f
 
-# Access the app
-# HTTP: http://localhost:3001
+# Stop
+docker-compose down
 ```
 
-### 2. HTTPS Setup (With SSL Certificates)
+### With Caddy Reverse Proxy
+
+```yaml
+# docker-compose.override.yml
+version: '3.8'
+
+services:
+  caddy:
+    image: caddy:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - babylink
+
+volumes:
+  caddy_data:
+  caddy_config:
+```
 
 ```bash
-# Create SSL directory
-mkdir ssl
-
-# Place your SSL certificates in the ssl directory:
-# ssl/cert.pem (your certificate)
-# ssl/key.pem (your private key)
-
-# Build and run
-docker-compose up -d
-
-# The app will automatically detect certificates and run in HTTPS mode
-# HTTPS: https://localhost:3001
+docker-compose -f docker-compose.yml -f docker-compose.override.yml up -d
 ```
 
-### 3. With Nginx Proxy (Production)
+---
+
+## 🌐 Production Deployment
+
+### Architecture
+
+```
+Internet (HTTPS) → Caddy (SSL Termination) → BabyLink (HTTP:3001)
+```
+
+### 1. Install Caddy
+
+**Ubuntu/Debian:**
+```bash
+sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+sudo apt update
+sudo apt install caddy
+```
+
+### 2. Configure Caddy
+
+Edit `Caddyfile`:
+
+```caddy
+yourdomain.com {
+    reverse_proxy localhost:3001
+}
+```
+
+### 3. Deploy BabyLink
 
 ```bash
-# Run with nginx reverse proxy
-docker-compose --profile proxy up -d
+# Install to /opt/babylink
+sudo mkdir -p /opt/babylink
+sudo cp -r . /opt/babylink/
+cd /opt/babylink
 
-# Access via nginx:
-# HTTP: http://localhost:80
-# HTTPS: https://localhost:443 (if SSL configured)
+# Install dependencies
+sudo npm ci --only=production
+
+# Create environment file
+sudo cp .env.example .env
+sudo nano .env  # Edit configuration
+
+# Create systemd service
+sudo cp deployment/babylink.service /etc/systemd/system/
+sudo systemctl enable babylink
+sudo systemctl start babylink
 ```
 
-## 🔐 Security Features
-
-### Room Management
-- **Secure Room IDs**: 32-character cryptographically secure random IDs
-- **User-Friendly Names**: Create rooms with memorable names (e.g., "Child1", "Nursery")
-- **Local Storage**: Previous rooms saved locally, no server-side storage
-- **Easy Sharing**: QR codes and copy-paste links for room sharing
-
-### Privacy & Security
-- End-to-end WebRTC communication
-- No audio stored on servers
-- Secure random room generation
-- Local-only room history storage
-
-## 📱 PWA (Progressive Web App) Benefits
-
-Installing BabyLink as a PWA provides several advantages:
-
-1. **🚀 Faster Loading**: Cached resources load instantly
-2. **📱 Native Feel**: Behaves like a native mobile app
-3. **🔔 Background Processing**: Better background operation support
-4. **💾 Offline Capability**: Basic functionality works offline
-5. **🏠 Home Screen**: Add to home screen like any other app
-6. **🔋 Better Power Management**: Optimized for mobile devices
-7. **🔒 Enhanced Security**: Served over HTTPS with secure context
-
-### Installing as PWA
-1. Open BabyLink in a supported browser (Chrome, Safari, Edge)
-2. Look for the "Install App" banner or browser install prompt
-3. Click "Install" to add BabyLink to your device
-4. Access from home screen or app drawer
-
-## 🔋 Wake Lock Feature
-
-The Screen Wake Lock API prevents your device screen from turning off during monitoring:
-
-- **Why Important**: Prevents WebRTC connections from suspending
-- **Battery Aware**: Only active during monitoring sessions
-- **Auto-Release**: Automatically released when page is closed
-- **Manual Control**: Enable/disable as needed
-- **Cross-Platform**: Works on modern browsers and PWA installs
-
-## SSL Certificate Generation
-
-### Self-Signed Certificates (Development)
+### 4. Start Services
 
 ```bash
-# Create ssl directory
-mkdir ssl
+# Copy Caddyfile
+sudo cp Caddyfile /etc/caddy/Caddyfile
 
-# Generate self-signed certificate
-openssl req -x509 -newkey rsa:4096 -keyout ssl/key.pem -out ssl/cert.pem -days 365 -nodes
-
-# You'll be prompted to enter certificate information
-# For local development, you can use localhost as Common Name
+# Reload Caddy (automatic SSL with Let's Encrypt)
+sudo systemctl reload caddy
 ```
 
-### Let's Encrypt (Production)
+**✅ Done!** Caddy automatically obtains and renews SSL certificates.
+
+For detailed deployment instructions, see [DEPLOYMENT.md](DEPLOYMENT.md).
+
+---
+
+## 🏗️ Architecture
+
+### Technology Stack
+
+- **Backend:** Node.js + Express
+- **Real-time:** Socket.IO (signaling)
+- **WebRTC:** Browser native APIs (peer-to-peer audio)
+- **Security:** Helmet.js, express-rate-limit, CORS
+- **Logging:** Winston
+- **Configuration:** dotenv
+
+### Data Flow
+
+```
+Baby Device → WebRTC (P2P) → Parent Device(s)
+     ↓                              ↓
+Socket.IO ← BabyLink Server → Socket.IO
+(Signaling only)
+```
+
+### Multi-Stream Architecture
+
+- **Mesh Network:** Each baby establishes P2P connection with each parent
+- **Scalable:** Supports up to 5 babies × 10 parents per room
+- **Efficient:** Audio streams directly between devices (not through server)
+
+---
+
+## 🎨 Voice Activity Detection
+
+BabyLink automatically detects baby sounds and manages audio:
+
+| Level | Audio Range | Color | Behavior | Timeout |
+|-------|-------------|-------|----------|---------|
+| 🟢 **Quiet** | 0-30 | Green | Audio muted | - |
+| 🟡 **Movement** | 31-80 | Yellow | Unmute after delay | 5 seconds |
+| 🔴 **Crying** | 81-255 | Red | Immediate unmute | 10 seconds |
+
+**Manual Override:** Parents can manually mute/unmute any baby at any time.
+
+---
+
+## 🔐 Security Best Practices
+
+### Before Production
+
+- [ ] Change `SESSION_SECRET` in `.env` to a secure random string
+- [ ] Set appropriate `CORS_ORIGIN` (your domain, not `*`)
+- [ ] Configure HTTPS with Caddy or Nginx
+- [ ] Set `NODE_ENV=production`
+- [ ] Review and adjust rate limiting settings
+- [ ] Set up log rotation
+- [ ] Enable firewall (allow 80, 443, SSH only)
+- [ ] Keep dependencies updated (`npm audit`)
+
+### SSL Certificates
+
+**Never commit SSL certificates to the repository!**
+
+- `.pem`, `.key`, `.crt`, `.cert` files are git-ignored
+- Use Caddy for automatic Let's Encrypt SSL
+- Certificates managed by reverse proxy, not application
+
+---
+
+## 📊 Monitoring
+
+### Health Check
 
 ```bash
-# Install certbot
-sudo apt-get install certbot
-
-# Generate certificate (replace yourdomain.com)
-sudo certbot certonly --standalone -d yourdomain.com
-
-# Copy certificates to ssl directory
-sudo cp /etc/letsencrypt/live/yourdomain.com/fullchain.pem ssl/cert.pem
-sudo cp /etc/letsencrypt/live/yourdomain.com/privkey.pem ssl/key.pem
-sudo chown $USER:$USER ssl/*.pem
+curl http://localhost:3001/health
 ```
 
-## Directory Structure
+**Response:**
+```json
+{
+  "status": "healthy",
+  "uptime": 12345.67,
+  "timestamp": "2025-01-01T00:00:00.000Z",
+  "rooms": 5,
+  "version": "1.0.0"
+}
+```
+
+### Logs
+
+**Application logs:**
+```bash
+tail -f logs/babylink.log
+tail -f logs/error.log
+```
+
+**System service:**
+```bash
+sudo journalctl -u babylink -f
+```
+
+**Docker:**
+```bash
+docker-compose logs -f babylink
+```
+
+---
+
+## 🐛 Troubleshooting
+
+### WebRTC Connection Issues
+
+**Symptom:** Audio not streaming between devices
+
+**Solutions:**
+1. Verify STUN server is accessible
+2. Add TURN server for NAT traversal (see `.env.example`)
+3. Check firewall allows UDP traffic
+4. Test on same network first (eliminate network issues)
+
+### Microphone Access Denied
+
+**Symptom:** Baby device can't access microphone
+
+**Solutions:**
+1. Use HTTPS (required by browsers for getUserMedia)
+2. Check browser permissions (camera/microphone)
+3. Try different browser (Chrome/Safari recommended)
+
+### Can't Access via HTTPS
+
+**Solutions:**
+1. Verify Caddy is running: `sudo systemctl status caddy`
+2. Check DNS points to your server: `dig yourdomain.com`
+3. Check firewall allows ports 80 and 443
+4. View Caddy logs: `sudo journalctl -u caddy`
+
+---
+
+## 🧪 Development
+
+### Project Structure
 
 ```
 babylink/
-├── ssl/                    # SSL certificates (optional)
-│   ├── cert.pem           # SSL certificate
-│   └── key.pem            # Private key
-├── public/                # Static files
-│   ├── client.js          # Updated client with wake lock
-│   ├── style.css          # Styling
-│   ├── manifest.json      # PWA manifest
-│   ├── service-worker.js  # Service worker for PWA
-│   └── icons/             # PWA icons directory
-│       ├── icon-72x72.png
-│       ├── icon-96x96.png
-│       ├── icon-128x128.png
-│       ├── icon-144x144.png
-│       ├── icon-152x152.png
-│       ├── icon-192x192.png
-│       ├── icon-384x384.png
-│       └── icon-512x512.png
-├── views/                 # HTML templates
-│   ├── index.html         # Updated with room management
-│   ├── select-role.html   # Updated with QR sharing
-│   └── webrtc.html        # Updated with wake lock
-├── logs/                  # Application logs (created by Docker)
-├── server.js              # HTTPS server
-├── server-http.js         # HTTP server
-├── package.json           # Updated dependencies
+├── server.js                # Main server file
+├── config/
+│   └── index.js            # Configuration management
+├── middleware/
+│   └── validation.js       # Input validation
+├── utils/
+│   └── logger.js           # Winston logging
+├── public/
+│   ├── js/
+│   │   ├── multi-stream-manager.js  # WebRTC management
+│   │   └── multi-baby-ui.js         # UI components
+│   ├── client.js           # Legacy single-baby client
+│   └── style.css
+├── views/
+│   ├── index.html          # Room creation/joining
+│   ├── select-role.html    # Role selection with name input
+│   ├── webrtc.html         # Multi-baby monitoring interface
+│   └── webrtc-legacy.html  # Legacy single-baby interface
 ├── Dockerfile
-├── docker-compose.yaml    # Updated for BabyLink
-├── nginx.conf             # Nginx configuration
-└── .dockerignore
+├── docker-compose.yaml
+├── Caddyfile              # Production Caddy config
+├── Caddyfile.local        # Local HTTPS Caddy config
+├── package.json
+├── .env.example
+└── .gitignore
 ```
 
-## Docker Commands
+### Running Tests
 
 ```bash
-# Build the image
-docker build -t babylink .
-
-# Run container directly
-docker run -d -p 3001:3001 -v $(pwd)/ssl:/app/ssl:ro --name babylink-app babylink
-
-# Using docker-compose (recommended)
-docker-compose up -d                    # Start in background
-docker-compose down                     # Stop and remove containers
-docker-compose logs -f                  # View logs
-docker-compose restart                  # Restart services
-docker-compose pull                     # Update images
-
-# With nginx proxy
-docker-compose --profile proxy up -d    # Start with nginx
-docker-compose --profile proxy down     # Stop nginx setup
+# Coming soon
+npm test
 ```
 
-## Environment Variables
+### Code Style
 
-You can customize the setup using environment variables:
+- ES6+ JavaScript
+- Modular design
+- Structured logging
+- Error handling with try-catch
+- Input validation on all endpoints
 
-```bash
-# Set in docker-compose.yaml or .env file
-PORT=3001                   # Application port
-NODE_ENV=production         # Node environment
+---
+
+## 📝 API Endpoints
+
+### HTTP Endpoints
+
+```
+GET  /                    # Home page (room creation)
+GET  /:roomId            # Room page (role selection or monitoring)
+POST /:roomId            # Join room with role
+GET  /health             # Health check endpoint
+GET  /api/config/webrtc  # Get WebRTC configuration
 ```
 
-## 🎯 Usage Guide
+### Socket.IO Events
 
-### Creating a Room
-1. Visit BabyLink homepage
-2. Enter a memorable room name (e.g., "Child1", "Nursery")
-3. Click "Create Room" - a secure random ID is generated
-4. Share the room via QR code or copy the link
+**Client → Server:**
+- `join` - Join a room with role and name
+- `signal` - WebRTC signaling (offer/answer/ICE)
 
-### Joining a Room
-1. **From Previous Rooms**: Select from your saved rooms list
-2. **Via QR Code**: Scan the QR code with your camera
-3. **Via Link**: Click the shared link or paste the room ID
-4. **Manual Entry**: Enter the room ID in the join form
+**Server → Client:**
+- `room-state` - Current room participants
+- `participant-joined` - New participant joined
+- `participant-left` - Participant disconnected
+- `signal` - WebRTC signaling relay
+- `error` - Error message
 
-### Setting Up Monitoring
-1. **Baby Device**: Select "Baby Device" role, grant microphone access
-2. **Parent Device**: Select "Parent Device" role, enable monitoring
-3. **Wake Lock**: Enable to prevent screen from turning off
-4. **Voice Activation**: Automatic based on baby's voice levels
+---
 
-## Health Check
+## 🤝 Contributing
 
-The container includes a health check that verifies the application is responding:
+Contributions are welcome! Please:
 
-```bash
-# Check container health
-docker ps
-# Look for "healthy" status
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
-# Manual health check
-docker exec babylink-app curl -f http://localhost:3001 || exit 1
-```
+---
 
-## Troubleshooting
+## 📜 License
 
-### Container won't start
-```bash
-# Check logs
-docker-compose logs babylink
+This project is licensed under the **BSD-3-Clause License** - see the [LICENSE](LICENSE) file for details.
 
-# Check if port is in use
-netstat -tulpn | grep 3001
+---
 
-# Restart container
-docker-compose restart babylink
-```
+## 🙏 Acknowledgments
 
-### SSL Issues
-```bash
-# Verify certificate files exist
-ls -la ssl/
+- WebRTC for peer-to-peer audio streaming
+- Socket.IO for real-time communication
+- Caddy for automatic HTTPS
+- Node.js and Express ecosystem
 
-# Check certificate validity
-openssl x509 -in ssl/cert.pem -text -noout
+---
 
-# Test HTTPS connection
-curl -k https://localhost:3001
-```
+## 📧 Support
 
-### WebRTC Connection Issues
-- Make sure both devices can reach the server
-- For external access, configure your router's port forwarding
-- Consider using STUN/TURN servers for complex network setups
-- Enable wake lock to prevent connection suspension
+For issues or questions:
 
-### Audio Issues in Browser
-- WebRTC audio requires HTTPS in production
-- Use self-signed certificates for local development
-- Check browser console for autoplay policy violations
-- Grant microphone permissions when prompted
-- Enable wake lock to maintain connection stability
+- 🐛 [GitHub Issues](https://github.com/yourusername/babylink/issues)
+- 📖 [Documentation](DEPLOYMENT.md)
+- 💬 Check application logs for errors
 
-### PWA Installation Issues
-- Ensure HTTPS is enabled (required for PWA)
-- Check that manifest.json is accessible
-- Verify service worker registration in browser dev tools
-- Clear browser cache and try again
+---
 
-## Production Deployment
+## 🗺️ Roadmap
 
-For production deployment:
+- [ ] Audio recording functionality
+- [ ] Push notifications for crying alerts
+- [ ] Video streaming support
+- [ ] Mobile app (React Native)
+- [ ] Redis integration for horizontal scaling
+- [ ] Automated tests (Jest + Playwright)
+- [ ] Admin dashboard
+- [ ] Usage analytics
+- [ ] Dark mode UI
 
-1. **Use real SSL certificates** (Let's Encrypt recommended)
-2. **Enable nginx proxy** for better performance
-3. **Configure firewall** to allow ports 80, 443, and 3001
-4. **Set up monitoring** and log rotation
-5. **Use a reverse proxy** like nginx or Traefik
-6. **Configure STUN/TURN servers** for better WebRTC connectivity
-7. **Generate PWA icons** in all required sizes
-8. **Test PWA installation** on target devices
+---
 
-### Example Production Setup
-
-```bash
-# 1. Get SSL certificates
-sudo certbot certonly --standalone -d yourdomain.com
-
-# 2. Copy certificates
-sudo cp /etc/letsencrypt/live/yourdomain.com/fullchain.pem ssl/cert.pem
-sudo cp /etc/letsencrypt/live/yourdomain.com/privkey.pem ssl/key.pem
-sudo chown $USER:$USER ssl/*.pem
-
-# 3. Update nginx.conf for HTTPS
-# Uncomment the HTTPS server block in nginx.conf
-
-# 4. Start with nginx proxy
-docker-compose --profile proxy up -d
-
-# 5. Set up auto-renewal for certificates
-sudo crontab -e
-# Add: 0 12 * * * /usr/bin/certbot renew --quiet && docker-compose restart nginx
-```
-
-## Security Considerations
-
-- Use strong SSL certificates in production
-- Keep Docker images updated
-- Limit network access to necessary ports
-- Use non-root user in container (already configured)
-- Regular security updates for dependencies
-- Consider using Docker secrets for sensitive data
-- Monitor for unusual connection patterns
-- Implement rate limiting for room creation
-
-## Browser Compatibility
-
-### Wake Lock API Support
-- Chrome 84+ (Desktop & Mobile)
-- Edge 84+
-- Safari 16.4+ (iOS 16.4+)
-- Firefox: Planned support
-
-### PWA Support
-- Chrome/Chromium browsers
-- Safari (iOS 11.3+, macOS 10.14.4+)
-- Edge
-- Firefox (limited PWA features)
-
-### WebRTC Support
-- All modern browsers
-- Requires HTTPS in production
-- Some mobile browsers may have limitations
-
-## Contributing
-
-When contributing to BabyLink:
-
-1. Maintain security focus in all changes
-2. Test PWA functionality on multiple devices
-3. Verify wake lock behavior on supported browsers
-4. Ensure WebRTC compatibility across browsers
-5. Follow existing code style and patterns
-6. Update documentation for new features
-
-## License
-
-BabyLink is licensed under the BSD-3-Clause License.
+**Made with ❤️ for parents everywhere**

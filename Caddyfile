@@ -1,0 +1,74 @@
+# Caddyfile - Caddy reverse proxy configuration for BabyLink
+# This provides automatic HTTPS with Let's Encrypt SSL certificates
+
+# Replace with your domain name
+# For local development, use localhost
+babylink.example.com {
+    # Automatic HTTPS with Let's Encrypt
+    # Caddy handles certificate issuance and renewal automatically
+
+    # Reverse proxy to BabyLink backend
+    reverse_proxy localhost:3001 {
+        # WebSocket support for Socket.IO
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+
+    # Security headers
+    header {
+        # Enable HSTS
+        Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+
+        # Prevent MIME type sniffing
+        X-Content-Type-Options "nosniff"
+
+        # Frame options
+        X-Frame-Options "SAMEORIGIN"
+
+        # XSS Protection
+        X-XSS-Protection "1; mode=block"
+
+        # Referrer Policy
+        Referrer-Policy "strict-origin-when-cross-origin"
+
+        # Remove server header
+        -Server
+    }
+
+    # Enable gzip compression
+    encode gzip zstd
+
+    # Logging
+    log {
+        output file /var/log/caddy/babylink-access.log {
+            roll_size 100MB
+            roll_keep 5
+            roll_keep_for 720h
+        }
+        format json
+    }
+
+    # Health check endpoint (bypass proxy)
+    handle /health {
+        reverse_proxy localhost:3001
+    }
+}
+
+# Local development configuration
+localhost {
+    reverse_proxy localhost:3001
+
+    # Enable compression
+    encode gzip
+
+    log {
+        output stdout
+        format console
+    }
+}
+
+# Optional: Redirect www to non-www
+www.babylink.example.com {
+    redir https://babylink.example.com{uri} permanent
+}

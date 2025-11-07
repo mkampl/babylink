@@ -8,29 +8,20 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies
-RUN npm install
+RUN npm ci --only=production
 
 # Copy application files
 COPY . .
 
-# Create directories for SSL certificates and public files
-RUN mkdir -p /app/ssl /app/public /app/views
+# Create directories for logs
+RUN mkdir -p /app/logs
 
 # Expose port
 EXPOSE 3001
 
-# Create startup script that checks for SSL certificates
-RUN echo '#!/bin/sh' > /app/start.sh && \
-    echo 'if [ -f "/app/ssl/cert.pem" ] && [ -f "/app/ssl/key.pem" ]; then' >> /app/start.sh && \
-    echo '  echo "SSL certificates found - starting HTTPS server"' >> /app/start.sh && \
-    echo '  cp /app/ssl/cert.pem /app/cert.pem' >> /app/start.sh && \
-    echo '  cp /app/ssl/key.pem /app/key.pem' >> /app/start.sh && \
-    echo '  node server.js' >> /app/start.sh && \
-    echo 'else' >> /app/start.sh && \
-    echo '  echo "No SSL certificates found - starting HTTP server"' >> /app/start.sh && \
-    echo '  node server-http.js' >> /app/start.sh && \
-    echo 'fi' >> /app/start.sh && \
-    chmod +x /app/start.sh
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:3001', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"
 
 # Start the application
-CMD ["/app/start.sh"]
+CMD ["node", "server.js"]

@@ -13,7 +13,7 @@
 <body>
   <main>
     <h1>👥 Who are you?</h1>
-    
+
     <!-- Room Sharing Section -->
     <div class="room-sharing">
       <h3>📤 Share this room:</h3>
@@ -26,20 +26,48 @@
         <p>Scan QR code to join</p>
       </div>
     </div>
-    
+
     <!-- Role Selection -->
     <div class="role-selection">
-      <form method="POST" action="">
-        <input type="hidden" name="role" value="baby" />
-        <button type="submit" class="role-btn baby-btn">🎤 Baby Device</button>
-      </form>
-      <form method="POST" action="">
-        <input type="hidden" name="role" value="parent" />
-        <button type="submit" class="role-btn parent-btn">👨‍👩‍👧 Parent Device</button>
-      </form>
+      <div class="role-card">
+        <h3>🎤 Baby Device</h3>
+        <p>This device will stream audio from the baby</p>
+        <form id="babyForm">
+          <label for="babyName">Baby's Name:</label>
+          <input
+            type="text"
+            id="babyName"
+            name="userName"
+            placeholder="e.g. Emma, Room 1, etc."
+            maxlength="50"
+            required
+          />
+          <button type="submit" class="role-btn baby-btn">
+            🎤 Join as Baby Device
+          </button>
+        </form>
+      </div>
+
+      <div class="role-card">
+        <h3>👨‍👩‍👧 Parent Device</h3>
+        <p>Monitor multiple babies from this device</p>
+        <form id="parentForm">
+          <label for="parentName">Your Name (optional):</label>
+          <input
+            type="text"
+            id="parentName"
+            name="userName"
+            placeholder="e.g. Mom, Dad, etc."
+            maxlength="50"
+          />
+          <button type="submit" class="role-btn parent-btn">
+            👨‍👩‍👧 Join as Parent Device
+          </button>
+        </form>
+      </div>
     </div>
   </main>
-  
+
   <style>
     .room-sharing {
       background: #f8f9fa;
@@ -49,210 +77,205 @@
       border: 1px solid #e9ecef;
       text-align: center;
     }
-    
+
     .room-sharing h3 {
       margin-top: 0;
       color: #495057;
     }
-    
+
     .share-controls {
       display: flex;
       gap: 0.5em;
       margin: 1em 0;
     }
-    
+
     .share-controls input {
       flex: 1;
       font-family: monospace;
       font-size: 0.9em;
       background: white;
     }
-    
+
     .share-controls button {
       width: auto;
       white-space: nowrap;
       padding: 0.8em 1em;
       margin: 0;
     }
-    
+
     .qr-container {
       margin: 1em 0;
     }
-    
-    .qr-container canvas {
+
+    .qr-container img {
       border: 2px solid #dee2e6;
       border-radius: 0.5em;
       background: white;
       padding: 1em;
+      max-width: 200px;
+      height: auto;
     }
-    
+
     .qr-container p {
       margin: 0.5em 0 0 0;
       color: #6c757d;
       font-size: 0.9em;
     }
-    
+
     .role-selection {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1.5em;
       margin-top: 2em;
     }
-    
+
+    .role-card {
+      background: white;
+      border-radius: 0.8em;
+      padding: 1.5em;
+      border: 2px solid #e9ecef;
+      transition: all 0.3s;
+    }
+
+    .role-card:hover {
+      border-color: #3742fa;
+      box-shadow: 0 4px 12px rgba(55, 66, 250, 0.15);
+    }
+
+    .role-card h3 {
+      margin: 0 0 0.5em 0;
+      color: #333;
+      font-size: 1.5em;
+    }
+
+    .role-card p {
+      color: #666;
+      margin: 0 0 1em 0;
+      font-size: 0.95em;
+    }
+
+    .role-card form {
+      display: flex;
+      flex-direction: column;
+      gap: 0.8em;
+    }
+
+    .role-card label {
+      font-weight: bold;
+      color: #495057;
+      text-align: left;
+    }
+
+    .role-card input[type="text"] {
+      padding: 0.8em;
+      border: 2px solid #dee2e6;
+      border-radius: 0.5em;
+      font-size: 1em;
+      transition: border-color 0.3s;
+    }
+
+    .role-card input[type="text"]:focus {
+      outline: none;
+      border-color: #3742fa;
+    }
+
     .role-btn {
       width: 100%;
-      padding: 1.5em;
-      font-size: 1.3em;
-      margin: 0.5em 0;
+      padding: 1.2em;
+      font-size: 1.1em;
+      margin: 0;
       border: none;
       border-radius: 0.8em;
       cursor: pointer;
       transition: all 0.3s;
       font-weight: bold;
     }
-    
+
     .baby-btn {
       background: linear-gradient(135deg, #ff6b6b, #ee5a24);
       color: white;
     }
-    
+
     .baby-btn:hover {
       background: linear-gradient(135deg, #ee5a24, #c23616);
       transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(238, 90, 36, 0.3);
     }
-    
+
     .parent-btn {
       background: linear-gradient(135deg, #3742fa, #2f3542);
       color: white;
     }
-    
+
     .parent-btn:hover {
       background: linear-gradient(135deg, #2f3542, #1e272e);
       transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(55, 66, 250, 0.3);
     }
-    
-    @media (max-width: 480px) {
+
+    @media (max-width: 768px) {
+      .role-selection {
+        grid-template-columns: 1fr;
+      }
+
       .share-controls {
         flex-direction: column;
       }
-      
+
       .share-controls button {
         width: 100%;
       }
     }
   </style>
-  
+
   <script>
     // QR Code generation using QR Server API
     function generateQR(text) {
-      const qrContainer = document.querySelector('.qr-container');
-      const canvas = document.getElementById('qrcode');
-      
-      // Remove canvas and replace with img element for better QR code
-      canvas.remove();
-      
-      const qrImg = document.createElement('img');
-      qrImg.id = 'qrcode';
-      qrImg.style.cssText = `
-        border: 2px solid #dee2e6;
-        border-radius: 0.5em;
-        background: white;
-        padding: 1em;
-        max-width: 200px;
-        height: auto;
-      `;
-      
+      const qrImg = document.getElementById('qrcode');
+
       // Use QR Server API (free service) to generate QR code
       const qrText = encodeURIComponent(text);
       qrImg.src = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${qrText}&bgcolor=ffffff&color=000000&qzone=1&format=png`;
       qrImg.alt = 'QR Code for room link';
       qrImg.title = 'Scan to join BabyLink room';
-      
+
       // Add error handling
       qrImg.onerror = function() {
         console.log('QR Server API failed, trying alternative method');
-        generateQRFallback(text, qrContainer);
+        // Use Google Charts API as fallback
+        qrImg.src = `https://chart.googleapis.com/chart?chs=200x200&cht=qr&chl=${qrText}&choe=UTF-8`;
+        qrImg.onerror = function() {
+          qrImg.style.display = 'none';
+          const fallback = document.createElement('div');
+          fallback.style.cssText = 'padding: 1em; background: #f8f9fa; border-radius: 0.5em;';
+          fallback.textContent = '📱 QR Code unavailable - please share the link above';
+          qrImg.parentNode.appendChild(fallback);
+        };
       };
-      
-      // Insert the QR code image
-      const existingQR = document.getElementById('qrcode');
-      if (existingQR) {
-        existingQR.parentNode.replaceChild(qrImg, existingQR);
-      } else {
-        qrContainer.insertBefore(qrImg, qrContainer.querySelector('p'));
-      }
     }
-    
-    // Fallback QR code generation using Google Charts API
-    function generateQRFallback(text, container) {
-      const qrImg = document.createElement('img');
-      qrImg.id = 'qrcode';
-      qrImg.style.cssText = `
-        border: 2px solid #dee2e6;
-        border-radius: 0.5em;
-        background: white;
-        padding: 1em;
-        max-width: 200px;
-        height: auto;
-      `;
-      
-      // Use Google Charts API as fallback
-      const qrText = encodeURIComponent(text);
-      qrImg.src = `https://chart.googleapis.com/chart?chs=200x200&cht=qr&chl=${qrText}&choe=UTF-8`;
-      qrImg.alt = 'QR Code for room link';
-      qrImg.title = 'Scan to join BabyLink room';
-      
-      // Final fallback - show text instruction
-      qrImg.onerror = function() {
-        console.log('Both QR APIs failed, showing manual instruction');
-        const fallbackDiv = document.createElement('div');
-        fallbackDiv.style.cssText = `
-          border: 2px solid #dee2e6;
-          border-radius: 0.5em;
-          background: #f8f9fa;
-          padding: 1em;
-          max-width: 200px;
-          font-size: 0.9em;
-          color: #495057;
-        `;
-        fallbackDiv.innerHTML = `
-          <div style="font-weight: bold; margin-bottom: 0.5em;">📱 QR Code Unavailable</div>
-          <div>Copy and share the link above instead</div>
-        `;
-        
-        const existingQR = document.getElementById('qrcode');
-        if (existingQR) {
-          existingQR.parentNode.replaceChild(fallbackDiv, existingQR);
-        }
-      };
-      
-      const existingQR = document.getElementById('qrcode');
-      if (existingQR) {
-        existingQR.parentNode.replaceChild(qrImg, existingQR);
-      } else {
-        container.insertBefore(qrImg, container.querySelector('p'));
-      }
-    }
-    
+
     // Initialize page
     function initializePage() {
       const roomId = window.location.pathname.slice(1);
       const currentUrl = window.location.origin + window.location.pathname;
-      
+
       // Set room link
       document.getElementById('roomLink').value = currentUrl;
-      
+
       // Generate QR code
       generateQR(currentUrl);
-      
+
       // Copy link functionality
       document.getElementById('copyLinkBtn').addEventListener('click', async () => {
         const linkInput = document.getElementById('roomLink');
-        
+
         try {
           await navigator.clipboard.writeText(linkInput.value);
           const btn = document.getElementById('copyLinkBtn');
           const originalText = btn.textContent;
           btn.textContent = '✅ Copied!';
           btn.style.background = '#28a745';
-          
+
           setTimeout(() => {
             btn.textContent = originalText;
             btn.style.background = '';
@@ -264,8 +287,26 @@
           alert('Link copied to clipboard!');
         }
       });
+
+      // Baby form submission
+      document.getElementById('babyForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const babyName = document.getElementById('babyName').value.trim();
+        if (babyName) {
+          const url = `${window.location.pathname}?role=baby&userName=${encodeURIComponent(babyName)}`;
+          window.location.href = url;
+        }
+      });
+
+      // Parent form submission
+      document.getElementById('parentForm').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const parentName = document.getElementById('parentName').value.trim() || 'Parent';
+        const url = `${window.location.pathname}?role=parent&userName=${encodeURIComponent(parentName)}`;
+        window.location.href = url;
+      });
     }
-    
+
     // Initialize when page loads
     document.addEventListener('DOMContentLoaded', initializePage);
   </script>

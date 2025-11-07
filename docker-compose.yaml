@@ -5,13 +5,9 @@ services:
     build: .
     container_name: babylink-app
     ports:
-      - "3001:3001"
+      - "127.0.0.1:3001:3001"  # Only expose on localhost for reverse proxy
     volumes:
-      # Mount SSL certificates directory (optional)
-      # Place your cert.pem and key.pem files in ./ssl/ directory
-      - ./ssl:/app/ssl:ro
-      # Mount for persistent data or logs if needed
-      - ./logs:/app/logs
+      - ./logs:/app/logs  # Mount for logs
     environment:
       - NODE_ENV=production
       - PORT=3001

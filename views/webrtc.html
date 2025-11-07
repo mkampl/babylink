@@ -10,235 +10,239 @@
   <link rel="icon" type="image/png" sizes="16x16" href="/icons/icon-16x16.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
+
+  <!-- Socket.IO -->
   <script src="/socket.io/socket.io.js"></script>
-  <script defer src="client.js"></script>
+
+  <!-- Multi-baby modules -->
+  <script src="/js/multi-stream-manager.js"></script>
+  <script src="/js/multi-baby-ui.js"></script>
+
   <style>
-    body { 
-      font-family: sans-serif; 
-      padding: 1em; 
-      background: #f0f0f0; 
-      text-align: center;
-      max-width: 700px;
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      padding: 1em;
+      background: #f5f7fa;
+      margin: 0;
+      max-width: 1400px;
       margin: 0 auto;
     }
-    
-    #status { 
-      margin: 1em 0; 
-      font-weight: bold; 
+
+    h1 {
+      text-align: center;
+      color: #333;
+      margin-bottom: 1em;
+    }
+
+    #mainContainer {
+      min-height: 200px;
+    }
+
+    #status {
+      text-align: center;
+      margin: 1em 0;
+      font-weight: bold;
       font-size: 1.2em;
       padding: 1em;
       background: #fff;
       border-radius: 8px;
       box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
-    
-    #alert { 
-      margin: 1em 0; 
-      font-weight: bold; 
+
+    #alert {
+      text-align: center;
+      margin: 1em 0;
+      font-weight: bold;
       padding: 1em;
       background: #ffeb3b;
       border-radius: 8px;
       border-left: 4px solid #ff9800;
     }
-    
-    button { 
-      padding: 0.8em 1.5em; 
-      font-size: 1.1em; 
-      margin: 0.5em; 
+
+    button {
+      padding: 0.8em 1.5em;
+      font-size: 1.1em;
+      margin: 0.5em;
       border: none;
       border-radius: 6px;
       cursor: pointer;
-      transition: background-color 0.3s;
+      transition: all 0.3s;
+      font-weight: bold;
     }
-    
+
     button:hover {
       opacity: 0.9;
+      transform: translateY(-1px);
     }
-    
+
     button:disabled {
       opacity: 0.6;
       cursor: not-allowed;
     }
-    
-    #mic {
-      background: #4caf50;
+
+    .btn {
+      display: inline-block;
+    }
+
+    .btn-success {
+      background: #4CAF50;
       color: white;
     }
-    
-    #speaker {
-      background: #2196f3;
+
+    .btn-danger {
+      background: #f44336;
       color: white;
     }
-    
-    #playAudio {
-      background: #ff5722;
+
+    .btn-primary {
+      background: #2196F3;
       color: white;
-      font-size: 1.3em;
-      padding: 1em 2em;
-      animation: pulse 2s infinite;
     }
-    
-    #playAudio:hover {
-      background: #d84315;
+
+    /* Baby device specific styles */
+    .baby-device-container {
+      text-align: center;
+      max-width: 600px;
+      margin: 2em auto;
+      padding: 2em;
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
     }
-    
-    @keyframes pulse {
-      0% { transform: scale(1); }
-      50% { transform: scale(1.05); }
-      100% { transform: scale(1); }
+
+    .baby-device-container h2 {
+      color: #ff6b6b;
+      margin-bottom: 1em;
     }
-    
-    audio {
-      width: 100%;
+
+    .baby-name-display {
+      font-size: 1.5em;
+      color: #333;
       margin: 1em 0;
+      padding: 1em;
+      background: #f8f9fa;
       border-radius: 8px;
     }
-    
-    .connection-info {
-      background: #fff;
+
+    .connection-status {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 1em;
+      margin: 1em 0;
       padding: 1em;
+      background: #e8f5e9;
+      border-radius: 8px;
+      color: #2e7d32;
+      font-weight: bold;
+    }
+
+    .connection-status.disconnected {
+      background: #ffebee;
+      color: #c62828;
+    }
+
+    /* Wake Lock styles */
+    .wake-lock-container {
+      background: #fff;
+      padding: 1.5em;
       margin: 1em 0;
       border-radius: 8px;
       box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
-    
-    .help-info {
-      background: #e3f2fd;
-      border: 1px solid #2196f3;
-      border-radius: 8px;
-      padding: 1em;
-      margin: 1em 0;
-      font-size: 0.9em;
-      color: #1976d2;
-    }
-    
-    .help-info h3 {
-      margin-top: 0;
-      color: #1565c0;
-    }
-    
-    .help-info ul {
-      text-align: left;
-      display: inline-block;
-      margin: 0.5em 0;
-    }
-    
-    .help-info li {
-      margin: 0.3em 0;
-    }
-    
-    .wake-lock-info {
-      background: #e8f5e8;
-      border: 1px solid #4caf50;
-      border-radius: 8px;
-      padding: 1em;
-      margin: 1em 0;
-      font-size: 0.9em;
-      color: #2e7d32;
-    }
-    
+
     .wake-lock-status {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      background: #fff;
       padding: 0.8em;
       margin: 0.5em 0;
       border-radius: 6px;
       border: 1px solid #ddd;
     }
-    
+
     .wake-lock-indicator {
       font-size: 1.2em;
       font-weight: bold;
     }
-    
+
     .wake-lock-active {
       color: #4caf50;
     }
-    
+
     .wake-lock-inactive {
       color: #f44336;
     }
-    
-    #wakeLockBtn {
-      background: #4caf50;
-      color: white;
-      padding: 0.6em 1.2em;
-      font-size: 0.9em;
-    }
-    
-    #wakeLockBtn:disabled {
-      background: #9e9e9e;
+
+    @media (max-width: 768px) {
+      body {
+        padding: 0.5em;
+      }
+
+      h1 {
+        font-size: 1.5em;
+      }
+
+      button {
+        font-size: 1em;
+        padding: 0.7em 1.2em;
+      }
     }
   </style>
 </head>
 <body>
-  <h1>🎧 BabyLink Monitor</h1>
-  
-  <div class="connection-info">
-    <p id="status">🔄 Connecting...</p>
-    <p id="alert" hidden></p>
-  </div>
-  
+  <h1>🎧 BabyLink Multi-Monitor</h1>
+
+  <div id="status">🔄 Connecting...</div>
+  <div id="alert" hidden></div>
+
   <!-- Wake Lock Status -->
-  <div class="wake-lock-status">
-    <div>
-      <span id="wakeLockIndicator" class="wake-lock-indicator wake-lock-inactive">📱 Screen Lock: Inactive</span>
-      <div style="font-size: 0.8em; color: #666;">Prevents screen from turning off</div>
+  <div class="wake-lock-container">
+    <div class="wake-lock-status">
+      <div>
+        <span id="wakeLockIndicator" class="wake-lock-indicator wake-lock-inactive">📱 Screen Lock: Inactive</span>
+        <div style="font-size: 0.8em; color: #666;">Prevents screen from turning off</div>
+      </div>
+      <button id="wakeLockBtn" class="btn btn-success">Enable Wake Lock</button>
     </div>
-    <button id="wakeLockBtn">Enable Wake Lock</button>
   </div>
-  
-  <div id="controls">
-    <button id="mic" hidden>🎙️ Microphone active</button>
-    <button id="speaker" hidden>🔈 Speaker active</button>
-    <button id="playAudio" hidden>🔊 Start audio</button>
-  </div>
-  
-  <audio id="remoteAudio" autoplay playsinline></audio>
-  
-  <div class="wake-lock-info">
-    <h3>🔒 Screen Wake Lock</h3>
-    <p>Wake Lock keeps your screen on while monitoring your baby. This prevents the device from going to sleep and potentially interrupting the WebRTC connection.</p>
-    <ul>
-      <li><strong>Enabled:</strong> Screen stays on, reliable monitoring</li>
-      <li><strong>Disabled:</strong> Screen may turn off, connection might suspend</li>
-    </ul>
-    <p><em>Note: Wake Lock is automatically released when you leave this page.</em></p>
-  </div>
-  
-  <div class="help-info">
-    <h3>🔊 Audio Troubleshooting</h3>
-    <p>If you cannot hear any audio:</p>
-    <ul>
-      <li>Click the "Start audio" button when it appears</li>
-      <li>Check your device volume</li>
-      <li>Ensure microphone permissions are granted</li>
-      <li>Check the browser console (F12) for errors</li>
-      <li>Try refreshing the page if connection fails</li>
-      <li>Enable Wake Lock to prevent connection interruption</li>
-    </ul>
-    <p><strong>Note:</strong> HTTPS is required for microphone access in production.</p>
-  </div>
-  
+
+  <!-- Main container (will be populated based on role) -->
+  <div id="mainContainer"></div>
+
+  <!-- Audio element (hidden) -->
+  <audio id="remoteAudio" autoplay playsinline style="display: none;"></audio>
+
   <script>
-    // Wake Lock functionality
+    // Global variables
+    const socket = io();
+    const params = new URLSearchParams(window.location.search);
+    const role = params.get('role') || 'parent';
+    const userName = params.get('userName') || role;
+    const roomId = window.location.pathname.slice(1);
+
+    let multiStreamManager = null;
+    let multiBabyUI = null;
     let wakeLock = null;
-    
+
+    // Wake Lock functionality
     async function requestWakeLock() {
       try {
         if ('wakeLock' in navigator) {
           wakeLock = await navigator.wakeLock.request('screen');
           console.log('🔒 Screen Wake Lock acquired');
           updateWakeLockStatus(true);
-          
+
           wakeLock.addEventListener('release', () => {
             console.log('🔓 Screen Wake Lock released');
             updateWakeLockStatus(false);
             wakeLock = null;
           });
-          
+
           return true;
         } else {
           console.warn('⚠️ Wake Lock API not supported');
@@ -252,7 +256,7 @@
         return false;
       }
     }
-    
+
     function releaseWakeLock() {
       if (wakeLock) {
         wakeLock.release();
@@ -260,25 +264,25 @@
         updateWakeLockStatus(false);
       }
     }
-    
+
     function updateWakeLockStatus(active) {
       const indicator = document.getElementById('wakeLockIndicator');
       const button = document.getElementById('wakeLockBtn');
-      
+
       if (active) {
         indicator.textContent = '🔒 Screen Lock: Active';
         indicator.className = 'wake-lock-indicator wake-lock-active';
         button.textContent = 'Release Wake Lock';
-        button.style.background = '#f44336';
+        button.className = 'btn btn-danger';
       } else {
         indicator.textContent = '📱 Screen Lock: Inactive';
         indicator.className = 'wake-lock-indicator wake-lock-inactive';
         button.textContent = 'Enable Wake Lock';
-        button.style.background = '#4caf50';
+        button.className = 'btn btn-success';
         button.disabled = false;
       }
     }
-    
+
     // Wake Lock button handler
     document.getElementById('wakeLockBtn').addEventListener('click', async () => {
       if (wakeLock) {
@@ -287,7 +291,7 @@
         const button = document.getElementById('wakeLockBtn');
         button.disabled = true;
         button.textContent = 'Requesting...';
-        
+
         const success = await requestWakeLock();
         if (!success) {
           button.disabled = false;
@@ -295,7 +299,7 @@
         }
       }
     });
-    
+
     // Auto-request wake lock when monitoring starts
     function autoRequestWakeLock() {
       if (!wakeLock && 'wakeLock' in navigator) {
@@ -303,34 +307,215 @@
         requestWakeLock();
       }
     }
-    
+
     // Release wake lock when page is hidden/closed
     document.addEventListener('visibilitychange', () => {
       if (document.hidden && wakeLock) {
         console.log('🔓 Page hidden, releasing wake lock');
         releaseWakeLock();
-      } else if (!document.hidden && !wakeLock) {
+      } else if (!document.hidden && !wakeLock && (role === 'parent' || role === 'baby')) {
         console.log('🔒 Page visible, auto-requesting wake lock');
-        setTimeout(autoRequestWakeLock, 1000); // Delay to ensure page is fully active
+        setTimeout(autoRequestWakeLock, 1000);
       }
     });
-    
-    // Release on page unload
+
     window.addEventListener('beforeunload', () => {
       if (wakeLock) {
         releaseWakeLock();
       }
     });
-    
+
     // Initialize wake lock status
     updateWakeLockStatus(false);
-    
-    // Auto-request wake lock after user interaction
-    document.addEventListener('click', () => {
-      if (!wakeLock && 'wakeLock' in navigator) {
-        setTimeout(autoRequestWakeLock, 500);
+
+    // Initialize based on role
+    async function initialize() {
+      console.log(`🚀 Initializing BabyLink as ${role} (${userName}) in room ${roomId}`);
+
+      if (role === 'baby') {
+        await initializeBabyDevice();
+      } else if (role === 'parent') {
+        await initializeParentDevice();
       }
-    }, { once: true });
+
+      // Join the room
+      socket.emit('join', { roomId, role, userName });
+
+      // Auto-request wake lock
+      setTimeout(autoRequestWakeLock, 1000);
+    }
+
+    // Initialize baby device
+    async function initializeBabyDevice() {
+      const container = document.getElementById('mainContainer');
+      container.innerHTML = `
+        <div class="baby-device-container">
+          <h2>🎤 Baby Device</h2>
+          <div class="baby-name-display">👶 ${escapeHtml(userName)}</div>
+          <div class="connection-status" id="babyConnectionStatus">
+            <span>🟢 Connected</span>
+            <span id="parentCount">Waiting for parents...</span>
+          </div>
+          <p style="color: #666;">This device is streaming audio to parent devices.</p>
+        </div>
+      `;
+
+      // Request microphone access
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        console.log('🎙️ Microphone access granted');
+
+        // Get WebRTC config from server
+        const configResponse = await fetch('/api/config/webrtc');
+        const webrtcConfig = await configResponse.json();
+
+        // Initialize multi-stream manager
+        multiStreamManager = new MultiStreamManager(socket, webrtcConfig);
+
+        document.getElementById('status').textContent = '🎙️ Microphone active - streaming to parents';
+
+      } catch (err) {
+        console.error('❌ Microphone error:', err);
+        document.getElementById('status').textContent = '❌ Microphone access denied';
+        document.getElementById('alert').textContent = 'Please allow microphone access to use baby monitor';
+        document.getElementById('alert').hidden = false;
+      }
+    }
+
+    // Initialize parent device
+    async function initializeParentDevice() {
+      const container = document.getElementById('mainContainer');
+
+      // Create multi-baby UI
+      multiBabyUI = new MultiBabyUI(container);
+
+      // Get WebRTC config from server
+      const configResponse = await fetch('/api/config/webrtc');
+      const webrtcConfig = await configResponse.json();
+
+      // Initialize multi-stream manager
+      multiStreamManager = new MultiStreamManager(socket, webrtcConfig);
+
+      // Set up event handlers
+      multiBabyUI.onMuteToggle = (babyId, mute) => {
+        multiStreamManager.muteParticipant(babyId, mute);
+      };
+
+      multiBabyUI.onVolumeChange = (babyId, volume) => {
+        multiStreamManager.setParticipantVolume(babyId, volume);
+      };
+
+      multiBabyUI.onSoloToggle = (babyId) => {
+        // Mute all except this one
+        for (const [id] of multiBabyUI.babyCards) {
+          multiStreamManager.muteParticipant(id, id !== babyId);
+        }
+      };
+
+      multiStreamManager.onStreamAdded = (participantId, stream, participantInfo) => {
+        multiBabyUI.addBaby(participantId, participantInfo);
+      };
+
+      multiStreamManager.onStreamRemoved = (participantId) => {
+        multiBabyUI.removeBaby(participantId);
+      };
+
+      multiStreamManager.onAudioLevelUpdate = (participantId, level, volume) => {
+        multiBabyUI.updateAudioLevel(participantId, level, volume);
+      };
+
+      document.getElementById('status').textContent = '👂 Listening for babies...';
+    }
+
+    // Socket event handlers
+    socket.on('connect', () => {
+      console.log('✅ Connected to server');
+      document.getElementById('status').textContent = '✅ Connected';
+    });
+
+    socket.on('disconnect', () => {
+      console.log('❌ Disconnected from server');
+      document.getElementById('status').textContent = '❌ Disconnected - Reconnecting...';
+      document.getElementById('alert').textContent = '⚠️ Connection lost. Attempting to reconnect...';
+      document.getElementById('alert').hidden = false;
+    });
+
+    socket.on('room-state', (data) => {
+      console.log('📊 Room state received:', data);
+      const { participants } = data;
+
+      if (role === 'baby') {
+        const parentCount = participants.filter(p => p.role === 'parent').length;
+        const el = document.getElementById('parentCount');
+        if (el) {
+          el.textContent = `${parentCount} parent${parentCount !== 1 ? 's' : ''} monitoring`;
+        }
+      } else if (role === 'parent') {
+        // Add any babies already in the room
+        const babies = participants.filter(p => p.role === 'baby');
+        babies.forEach(baby => {
+          if (!multiBabyUI.babyCards.has(baby.socketId)) {
+            multiBabyUI.addBaby(baby.socketId, baby);
+            // Create peer connection for this baby
+            multiStreamManager.createPeerConnection(baby.socketId, baby);
+          }
+        });
+      }
+    });
+
+    socket.on('participant-joined', (data) => {
+      console.log('👋 Participant joined:', data);
+      const { role: participantRole, socketId, userName, participants } = data;
+
+      if (role === 'baby' && participantRole === 'parent') {
+        const parentCount = participants.filter(p => p.role === 'parent').length;
+        const el = document.getElementById('parentCount');
+        if (el) {
+          el.textContent = `${parentCount} parent${parentCount !== 1 ? 's' : ''} monitoring`;
+        }
+      } else if (role === 'parent' && participantRole === 'baby') {
+        multiBabyUI.addBaby(socketId, { socketId, role: participantRole, userName });
+        multiStreamManager.createPeerConnection(socketId, { socketId, role: participantRole, userName });
+      }
+    });
+
+    socket.on('participant-left', (data) => {
+      console.log('👋 Participant left:', data);
+      const { role: participantRole, socketId, participants } = data;
+
+      if (role === 'baby' && participantRole === 'parent') {
+        const parentCount = participants.filter(p => p.role === 'parent').length;
+        const el = document.getElementById('parentCount');
+        if (el) {
+          el.textContent = `${parentCount} parent${parentCount !== 1 ? 's' : ''} monitoring`;
+        }
+      } else if (role === 'parent' && participantRole === 'baby') {
+        multiBabyUI.removeBaby(socketId);
+        multiStreamManager.removeParticipant(socketId);
+      }
+    });
+
+    socket.on('signal', (data) => {
+      if (multiStreamManager) {
+        multiStreamManager.handleSignal(data);
+      }
+    });
+
+    socket.on('error', (data) => {
+      console.error('❌ Server error:', data);
+      document.getElementById('alert').textContent = `⚠️ Error: ${data.message}`;
+      document.getElementById('alert').hidden = false;
+    });
+
+    // Helper function to escape HTML
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // Initialize the application
+    document.addEventListener('DOMContentLoaded', initialize);
   </script>
 </body>
 </html>
