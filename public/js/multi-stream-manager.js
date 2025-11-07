@@ -10,6 +10,7 @@ class MultiStreamManager {
     this.audioElements = new Map();   // participantId → HTMLAudioElement
     this.analysers = new Map();       // participantId → AudioAnalyser
     this.participants = new Map();    // participantId → participant info
+    this.sensitivity = new Map();     // participantId → sensitivity multiplier (0.5-3.0, default 1.0)
 
     this.onStreamAdded = null;
     this.onStreamRemoved = null;
@@ -144,15 +145,24 @@ class MultiStreamManager {
       // Use peak for level detection (more responsive)
       const volume = peak;
 
-      // Determine level based on peak volume
+      // Get sensitivity for this participant (default 1.0 if not set)
+      const sensitivity = this.sensitivity.get(participantId) || 1.0;
+
+      // Adjust thresholds based on sensitivity
+      // Higher sensitivity (e.g., 2.0) = lower thresholds (more sensitive)
+      // Lower sensitivity (e.g., 0.5) = higher thresholds (less sensitive)
+      const yellowThreshold = 100 / sensitivity;
+      const redThreshold = 180 / sensitivity;
+
+      // Determine level based on peak volume with sensitivity adjustment
       // Peak values are much higher than average, so we need higher thresholds
       let level = 'GREEN';
-      if (volume > 180) {
+      if (volume > redThreshold) {
         level = 'RED'; // Crying/Loud noise
-      } else if (volume > 100) {
+      } else if (volume > yellowThreshold) {
         level = 'YELLOW'; // Movement/Talking
       }
-      // GREEN: 0-100 (quiet/background noise)
+      // GREEN: 0-yellowThreshold (quiet/background noise)
 
       // Always call the callback with current values (not just on change)
       if (this.onAudioLevelUpdate) {
@@ -286,6 +296,20 @@ class MultiStreamManager {
   }
 
   /**
+   * Set sensitivity for a specific baby
+   * @param {string} participantId - The baby's ID
+   * @param {number} sensitivity - Sensitivity multiplier (0.5-3.0, default 1.0)
+   *   Higher = more sensitive (lower thresholds), Lower = less sensitive (higher thresholds)
+   */
+  setSensitivity(participantId, sensitivity) {
+    // Clamp sensitivity to reasonable range
+    const clampedSensitivity = Math.max(0.5, Math.min(3.0, sensitivity));
+    this.sensitivity.set(participantId, clampedSensitivity);
+    console.log(`Set sensitivity for ${participantId} to ${clampedSensitivity.toFixed(1)}x`);
+    return true;
+  }
+
+  /**
    * Remove a participant's connection
    */
   removeParticipant(participantId) {
@@ -317,6 +341,7 @@ class MultiStreamManager {
     // Remove from maps
     this.audioStreams.delete(participantId);
     this.participants.delete(participantId);
+    this.sensitivity.delete(participantId);
 
     if (this.onStreamRemoved) {
       this.onStreamRemoved(participantId);

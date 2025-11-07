@@ -14,10 +14,12 @@ class MultiBabyUI {
     this.isMuted = new Map(); // babyId → mute state
     this.isManuallyMuted = new Map(); // babyId → manual mute override
     this.lastLevelChangeTime = new Map(); // babyId → timestamp
+    this.sensitivity = new Map(); // babyId → sensitivity multiplier (0.5-3.0, default 1.0)
 
     this.onMuteToggle = null;
     this.onSoloToggle = null;
     this.onVolumeChange = null;
+    this.onSensitivityChange = null;
 
     this.init();
   }
@@ -106,6 +108,11 @@ class MultiBabyUI {
           <input type="range" id="volume-${babyId}" min="0" max="100" value="100" />
           <span id="volume-value-${babyId}">100%</span>
         </div>
+        <div class="sensitivity-control">
+          <label title="Adjust sensitivity for different microphones and room noise levels">Sensitivity:</label>
+          <input type="range" id="sensitivity-${babyId}" min="50" max="300" value="100" step="10" />
+          <span id="sensitivity-value-${babyId}">1.0x</span>
+        </div>
       </div>
 
       <div class="baby-activity-log" id="log-${babyId}">
@@ -120,6 +127,7 @@ class MultiBabyUI {
     this.activityLogs.set(babyId, []);
     this.isMuted.set(babyId, true); // Start muted
     this.isManuallyMuted.set(babyId, false); // Not manually controlled yet
+    this.sensitivity.set(babyId, 1.0); // Default sensitivity (1.0x)
 
     // Add event listeners
     this.setupCardEventListeners(babyId);
@@ -193,6 +201,25 @@ class MultiBabyUI {
         this.onVolumeChange(babyId, value / 100);
       }
     });
+
+    // Sensitivity slider
+    const sensitivitySlider = document.getElementById(`sensitivity-${babyId}`);
+    const sensitivityValue = document.getElementById(`sensitivity-value-${babyId}`);
+
+    sensitivitySlider.addEventListener('input', (e) => {
+      const value = parseInt(e.target.value);
+      const sensitivity = value / 100; // Convert 50-300 to 0.5-3.0
+      this.sensitivity.set(babyId, sensitivity);
+      sensitivityValue.textContent = `${sensitivity.toFixed(1)}x`;
+
+      console.log(`${babyId}: Sensitivity adjusted to ${sensitivity.toFixed(1)}x`);
+      this.logActivity(babyId, `Sensitivity set to ${sensitivity.toFixed(1)}x`, 'info');
+
+      // Notify stream manager of sensitivity change if callback exists
+      if (this.onSensitivityChange) {
+        this.onSensitivityChange(babyId, sensitivity);
+      }
+    });
   }
 
   /**
@@ -216,6 +243,7 @@ class MultiBabyUI {
       this.isMuted.delete(babyId);
       this.isManuallyMuted.delete(babyId);
       this.lastLevelChangeTime.delete(babyId);
+      this.sensitivity.delete(babyId);
 
       this.updateBabyCount();
     }
@@ -677,6 +705,20 @@ class MultiBabyUI {
       }
 
       .volume-control input[type="range"] {
+        flex: 1;
+      }
+
+      .sensitivity-control {
+        display: flex;
+        align-items: center;
+        gap: 0.5em;
+      }
+
+      .sensitivity-control label {
+        cursor: help;
+      }
+
+      .sensitivity-control input[type="range"] {
         flex: 1;
       }
 

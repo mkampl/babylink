@@ -491,6 +491,10 @@
         multiStreamManager.setParticipantVolume(babyId, volume);
       };
 
+      multiBabyUI.onSensitivityChange = (babyId, sensitivity) => {
+        multiStreamManager.setSensitivity(babyId, sensitivity);
+      };
+
       multiBabyUI.onSoloToggle = (babyId) => {
         // Mute all except this one
         for (const [id] of multiBabyUI.babyCards) {
