@@ -145,12 +145,14 @@ class MultiStreamManager {
       const volume = peak;
 
       // Determine level based on peak volume
+      // Peak values are much higher than average, so we need higher thresholds
       let level = 'GREEN';
-      if (volume > 80) {
-        level = 'RED'; // Crying
-      } else if (volume > 30) {
-        level = 'YELLOW'; // Movement
+      if (volume > 180) {
+        level = 'RED'; // Crying/Loud noise
+      } else if (volume > 100) {
+        level = 'YELLOW'; // Movement/Talking
       }
+      // GREEN: 0-100 (quiet/background noise)
 
       // Always call the callback with current values (not just on change)
       if (this.onAudioLevelUpdate) {

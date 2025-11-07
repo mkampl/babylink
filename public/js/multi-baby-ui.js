@@ -141,10 +141,22 @@ class MultiBabyUI {
       const currentlyMuted = this.isMuted.get(babyId);
 
       if (currentlyMuted) {
-        // User wants to unmute
+        // User wants to unmute - clear manual flag to allow auto-mute to resume
         this.isManuallyMuted.set(babyId, false);
         this.unmuteBaby(babyId, 'manual');
-        this.logActivity(babyId, '🔊 Manually unmuted', 'manual');
+        this.logActivity(babyId, '🔊 Manually unmuted (auto-mute will resume)', 'manual');
+
+        // If currently quiet, immediately set auto-mute timer
+        const currentLevel = this.audioLevels.get(babyId);
+        if (currentLevel === 'GREEN') {
+          const timer = setTimeout(() => {
+            if (this.audioLevels.get(babyId) === 'GREEN' && !this.isManuallyMuted.get(babyId)) {
+              this.muteBaby(babyId, 'auto');
+              this.logActivity(babyId, '🔇 Auto-muted (quiet)', 'auto');
+            }
+          }, 5000);
+          this.autoMuteTimers.set(babyId, timer);
+        }
       } else {
         // User wants to mute
         this.isManuallyMuted.set(babyId, true);
@@ -271,8 +283,9 @@ class MultiBabyUI {
    * Handle automatic muting/unmuting based on audio levels
    */
   handleAutoMuteLogic(babyId, level, previousLevel) {
-    // Don't auto-mute if user has manually set mute state
-    if (this.isManuallyMuted.get(babyId)) {
+    // Don't auto-mute if user has manually muted (but crying overrides this)
+    if (this.isManuallyMuted.get(babyId) && level !== 'RED') {
+      console.log(`Auto-mute blocked for ${babyId}: manually muted`);
       return;
     }
 
@@ -290,10 +303,18 @@ class MultiBabyUI {
 
     if (level === 'RED') {
       // CRYING - Immediately unmute (override manual mute)
-      if (this.isMuted.get(babyId)) {
+      const wasMuted = this.isMuted.get(babyId);
+      const wasManuallyMuted = this.isManuallyMuted.get(babyId);
+
+      if (wasMuted) {
         this.unmuteBaby(babyId, 'auto');
-        this.logActivity(babyId, '🔊 Auto-unmuted (crying detected)', 'auto');
+        const message = wasManuallyMuted
+          ? '🔊 Auto-unmuted (crying detected - overriding manual mute)'
+          : '🔊 Auto-unmuted (crying detected)';
+        this.logActivity(babyId, message, 'auto');
+        console.log(`${babyId}: CRYING - Unmuted (was manually muted: ${wasManuallyMuted})`);
       }
+
       // Override manual mute when crying
       this.isManuallyMuted.set(babyId, false);
 
@@ -303,10 +324,14 @@ class MultiBabyUI {
     } else if (level === 'YELLOW') {
       // MOVEMENT - Unmute after brief delay
       if (this.isMuted.get(babyId)) {
+        console.log(`${babyId}: MOVEMENT - Setting unmute timer (2s)`);
         const timer = setTimeout(() => {
           if (this.audioLevels.get(babyId) !== 'GREEN' && !this.isManuallyMuted.get(babyId)) {
             this.unmuteBaby(babyId, 'auto');
             this.logActivity(babyId, '🔊 Auto-unmuted (movement detected)', 'auto');
+            console.log(`${babyId}: Auto-unmuted after movement`);
+          } else {
+            console.log(`${babyId}: Unmute timer cancelled (level changed or manually muted)`);
           }
         }, 2000); // 2 seconds delay
         this.autoMuteTimers.set(babyId, timer);
@@ -317,10 +342,15 @@ class MultiBabyUI {
       const wasCrying = previousLevel === 'RED';
       const muteDelay = wasCrying ? 10000 : 5000; // 10s after crying, 5s otherwise
 
+      console.log(`${babyId}: QUIET - Setting mute timer (${muteDelay/1000}s, was crying: ${wasCrying})`);
+
       const timer = setTimeout(() => {
         if (this.audioLevels.get(babyId) === 'GREEN' && !this.isManuallyMuted.get(babyId)) {
           this.muteBaby(babyId, 'auto');
           this.logActivity(babyId, '🔇 Auto-muted (quiet)', 'auto');
+          console.log(`${babyId}: Auto-muted after quiet period`);
+        } else {
+          console.log(`${babyId}: Mute timer cancelled (level changed or manually muted)`);
         }
       }, muteDelay);
       this.autoMuteTimers.set(babyId, timer);

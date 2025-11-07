@@ -42,12 +42,12 @@ const config = {
     roomIdPattern: /^[a-f0-9]{32}$/i, // Hex string validator
   },
 
-  // Audio Level Thresholds (0-255)
+  // Audio Level Thresholds (0-255) - Using peak values
   audio: {
     levels: {
-      quiet: { min: 0, max: 30, name: 'Quiet', color: '#4CAF50' },
-      movement: { min: 31, max: 80, name: 'Movement', color: '#FFC107' },
-      crying: { min: 81, max: 255, name: 'Crying', color: '#F44336' }
+      quiet: { min: 0, max: 100, name: 'Quiet', color: '#4CAF50' },
+      movement: { min: 101, max: 180, name: 'Movement', color: '#FFC107' },
+      crying: { min: 181, max: 255, name: 'Crying', color: '#F44336' }
     },
     timers: {
       yellowToMute: 5000,  // 5 seconds
