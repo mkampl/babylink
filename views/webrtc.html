@@ -216,6 +216,9 @@
 
   <!-- Audio element (hidden) -->
   <audio id="remoteAudio" autoplay playsinline style="display: none;"></audio>
+  <audio id="alarmAudio" loop style="display: none;">
+    <source src="data:audio/wav;base64,UklGRhYAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQIAAAAAAA==" type="audio/wav">
+  </audio>
 
   <script>
     // Global variables
@@ -229,6 +232,9 @@
     let multiBabyUI = null;
     let wakeLock = null;
     let localStream = null; // Store baby's microphone stream
+    let alarmTimeout = null; // Timeout for delayed alarm
+    let audioContext = null; // Web Audio API context for alarm beep
+    let isAlarmPlaying = false;
 
     // Wake Lock functionality
     async function requestWakeLock() {
@@ -328,6 +334,82 @@
 
     // Initialize wake lock status
     updateWakeLockStatus(false);
+
+    // Acoustic alarm functions for baby disconnection
+    function playAlarm() {
+      if (isAlarmPlaying) return;
+
+      console.log('🚨 Playing acoustic alarm - baby disconnected');
+      isAlarmPlaying = true;
+
+      // Initialize audio context if needed
+      if (!audioContext) {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      }
+
+      // Play repeating beep sound
+      playBeepSequence();
+    }
+
+    function playBeepSequence() {
+      if (!isAlarmPlaying || !audioContext) return;
+
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+
+      // Configure beep sound (higher frequency for urgency)
+      oscillator.frequency.value = 880; // A5 note
+      oscillator.type = 'sine';
+
+      // Beep pattern: 0.3s on, 0.3s off
+      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+
+      oscillator.start(audioContext.currentTime);
+      oscillator.stop(audioContext.currentTime + 0.3);
+
+      // Repeat beep every 600ms
+      if (isAlarmPlaying) {
+        setTimeout(playBeepSequence, 600);
+      }
+    }
+
+    function stopAlarm() {
+      if (!isAlarmPlaying) return;
+
+      console.log('✅ Stopping acoustic alarm - baby reconnected');
+      isAlarmPlaying = false;
+
+      // Clear any scheduled alarm
+      if (alarmTimeout) {
+        clearTimeout(alarmTimeout);
+        alarmTimeout = null;
+      }
+    }
+
+    function scheduleAlarm(delay = 5000) {
+      // Clear any existing alarm timeout
+      if (alarmTimeout) {
+        clearTimeout(alarmTimeout);
+      }
+
+      // Schedule alarm after delay (default 5 seconds)
+      alarmTimeout = setTimeout(() => {
+        // Only play if we're a parent and either:
+        // 1. Server is disconnected, OR
+        // 2. We have no babies connected
+        const noBabiesConnected = multiBabyUI && multiBabyUI.babyCards.size === 0;
+        if (role === 'parent' && (!socket.connected || noBabiesConnected)) {
+          playAlarm();
+        }
+        alarmTimeout = null;
+      }, delay);
+
+      console.log(`⏰ Acoustic alarm scheduled in ${delay/1000} seconds`);
+    }
 
     // Initialize based on role
     async function initialize() {
@@ -440,6 +522,9 @@
       document.getElementById('status').textContent = '✅ Connected - Rejoining room...';
       document.getElementById('alert').hidden = true;
 
+      // Stop acoustic alarm on reconnection
+      stopAlarm();
+
       // If we were disconnected, clean up old state before rejoining
       if (wasDisconnected && role === 'parent' && multiBabyUI) {
         console.log('🧹 Cleaning up old baby cards from previous connection...');
@@ -465,13 +550,17 @@
       wasDisconnected = true;
 
       // Show alert after 3 seconds (don't show immediately for quick reconnects)
-      // NOTE: No acoustic/audio alarm is played - only visual alert shown
       setTimeout(() => {
         if (!socket.connected) {
           document.getElementById('alert').textContent = '⚠️ Connection lost. Attempting to reconnect...';
           document.getElementById('alert').hidden = false;
         }
       }, 3000);
+
+      // Schedule acoustic alarm for server disconnection (only for parents)
+      if (role === 'parent') {
+        scheduleAlarm(5000); // Play alarm after 5 seconds if still disconnected
+      }
 
       // Mark all babies as disconnected if we're a parent
       if (role === 'parent' && multiBabyUI) {
@@ -509,6 +598,11 @@
             multiStreamManager.createPeerConnection(baby.socketId, baby);
           }
         });
+
+        // Stop alarm if we have babies connected after rejoining
+        if (babies.length > 0) {
+          stopAlarm();
+        }
       }
     });
 
@@ -530,6 +624,12 @@
       } else if (role === 'parent' && participantRole === 'baby') {
         multiBabyUI.addBaby(socketId, { socketId, role: participantRole, userName });
         multiStreamManager.createPeerConnection(socketId, { socketId, role: participantRole, userName });
+
+        // Stop alarm when a baby connects (if we have at least one baby)
+        const babyCount = multiBabyUI.babyCards.size;
+        if (babyCount > 0) {
+          stopAlarm();
+        }
       }
     });
 
@@ -546,6 +646,14 @@
       } else if (role === 'parent' && participantRole === 'baby') {
         multiBabyUI.removeBaby(socketId);
         multiStreamManager.removeParticipant(socketId);
+
+        // Play alarm immediately when a baby disconnects
+        // Check if we still have any babies left
+        const remainingBabies = multiBabyUI.babyCards.size;
+        if (remainingBabies === 0) {
+          console.log('🚨 All babies disconnected - playing alarm');
+          playAlarm();
+        }
       }
     });
 
