@@ -431,22 +431,41 @@
       document.getElementById('status').textContent = '👂 Listening for babies...';
     }
 
+    // Track reconnection state to handle cleanup
+    let wasDisconnected = false;
+
     // Socket event handlers
     socket.on('connect', () => {
       console.log('✅ Connected to server');
       document.getElementById('status').textContent = '✅ Connected - Rejoining room...';
       document.getElementById('alert').hidden = true;
 
+      // If we were disconnected, clean up old state before rejoining
+      if (wasDisconnected && role === 'parent' && multiBabyUI) {
+        console.log('🧹 Cleaning up old baby cards from previous connection...');
+        // Get all baby IDs before clearing
+        const babyIds = Array.from(multiBabyUI.babyCards.keys());
+        babyIds.forEach(babyId => {
+          multiBabyUI.removeBaby(babyId);
+          multiStreamManager.removeParticipant(babyId);
+        });
+        console.log(`🧹 Removed ${babyIds.length} old baby card(s)`);
+      }
+
       // Re-join the room after reconnection
       socket.emit('join', { roomId, role, userName });
       console.log('🔄 Rejoined room after reconnection');
+
+      wasDisconnected = false;
     });
 
     socket.on('disconnect', (reason) => {
       console.log('❌ Disconnected from server:', reason);
       document.getElementById('status').textContent = '❌ Disconnected - Reconnecting...';
+      wasDisconnected = true;
 
       // Show alert after 3 seconds (don't show immediately for quick reconnects)
+      // NOTE: No acoustic/audio alarm is played - only visual alert shown
       setTimeout(() => {
         if (!socket.connected) {
           document.getElementById('alert').textContent = '⚠️ Connection lost. Attempting to reconnect...';

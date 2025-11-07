@@ -289,15 +289,25 @@ class MultiBabyUI {
       return;
     }
 
-    // Clear any existing timer
-    const existingTimer = this.autoMuteTimers.get(babyId);
-    if (existingTimer) {
-      clearTimeout(existingTimer);
-      this.autoMuteTimers.delete(babyId);
+    // Only process if level actually changed or there's no existing timer
+    const levelChanged = level !== previousLevel;
+    const hasExistingTimer = this.autoMuteTimers.has(babyId);
+
+    // If level hasn't changed and we already have a timer, don't reset it
+    if (!levelChanged && hasExistingTimer) {
+      return;
     }
 
-    // Level changed
-    if (level !== previousLevel) {
+    // Clear any existing timer when level changes
+    if (levelChanged && hasExistingTimer) {
+      const existingTimer = this.autoMuteTimers.get(babyId);
+      clearTimeout(existingTimer);
+      this.autoMuteTimers.delete(babyId);
+      console.log(`${babyId}: Cleared existing timer due to level change (${previousLevel} → ${level})`);
+    }
+
+    // Track level change time
+    if (levelChanged) {
       this.lastLevelChangeTime.set(babyId, Date.now());
     }
 
@@ -318,12 +328,9 @@ class MultiBabyUI {
       // Override manual mute when crying
       this.isManuallyMuted.set(babyId, false);
 
-      // Auto-mute 10 seconds after returning to quiet
-      // (This will be set when level changes from RED)
-
     } else if (level === 'YELLOW') {
-      // MOVEMENT - Unmute after brief delay
-      if (this.isMuted.get(babyId)) {
+      // MOVEMENT - Unmute after brief delay (only if currently muted)
+      if (this.isMuted.get(babyId) && !hasExistingTimer) {
         console.log(`${babyId}: MOVEMENT - Setting unmute timer (2s)`);
         const timer = setTimeout(() => {
           if (this.audioLevels.get(babyId) !== 'GREEN' && !this.isManuallyMuted.get(babyId)) {
@@ -333,27 +340,31 @@ class MultiBabyUI {
           } else {
             console.log(`${babyId}: Unmute timer cancelled (level changed or manually muted)`);
           }
-        }, 2000); // 2 seconds delay
+          this.autoMuteTimers.delete(babyId);
+        }, 2000);
         this.autoMuteTimers.set(babyId, timer);
       }
 
     } else if (level === 'GREEN') {
-      // QUIET - Auto-mute after delay
-      const wasCrying = previousLevel === 'RED';
-      const muteDelay = wasCrying ? 10000 : 5000; // 10s after crying, 5s otherwise
+      // QUIET - Auto-mute after delay (only set timer on level change to GREEN)
+      if (levelChanged && !this.isMuted.get(babyId)) {
+        const wasCrying = previousLevel === 'RED';
+        const muteDelay = wasCrying ? 10000 : 5000; // 10s after crying, 5s otherwise
 
-      console.log(`${babyId}: QUIET - Setting mute timer (${muteDelay/1000}s, was crying: ${wasCrying})`);
+        console.log(`${babyId}: QUIET - Setting mute timer (${muteDelay/1000}s, was crying: ${wasCrying})`);
 
-      const timer = setTimeout(() => {
-        if (this.audioLevels.get(babyId) === 'GREEN' && !this.isManuallyMuted.get(babyId)) {
-          this.muteBaby(babyId, 'auto');
-          this.logActivity(babyId, '🔇 Auto-muted (quiet)', 'auto');
-          console.log(`${babyId}: Auto-muted after quiet period`);
-        } else {
-          console.log(`${babyId}: Mute timer cancelled (level changed or manually muted)`);
-        }
-      }, muteDelay);
-      this.autoMuteTimers.set(babyId, timer);
+        const timer = setTimeout(() => {
+          if (this.audioLevels.get(babyId) === 'GREEN' && !this.isManuallyMuted.get(babyId)) {
+            this.muteBaby(babyId, 'auto');
+            this.logActivity(babyId, '🔇 Auto-muted (quiet)', 'auto');
+            console.log(`${babyId}: Auto-muted after quiet period`);
+          } else {
+            console.log(`${babyId}: Mute timer cancelled (level changed or manually muted)`);
+          }
+          this.autoMuteTimers.delete(babyId);
+        }, muteDelay);
+        this.autoMuteTimers.set(babyId, timer);
+      }
     }
   }
 
