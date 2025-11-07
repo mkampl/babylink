@@ -142,24 +142,33 @@ class MultiStreamManager {
       // Find peak value for better sensitivity
       const peak = Math.max(...dataArray);
 
-      // Use peak for level detection (more responsive)
-      const volume = peak;
-
       // Get sensitivity for this participant (default 1.0 if not set)
       const sensitivity = this.sensitivity.get(participantId) || 1.0;
 
-      // Adjust thresholds based on sensitivity
-      // Higher sensitivity (e.g., 2.0) = lower thresholds (more sensitive)
-      // Lower sensitivity (e.g., 0.5) = higher thresholds (less sensitive)
-      const yellowThreshold = 100 / sensitivity;
-      const redThreshold = 180 / sensitivity;
+      // Adjust volume based on sensitivity
+      // Higher sensitivity (e.g., 2.0) = volume amplified (more sensitive)
+      // Lower sensitivity (e.g., 0.5) = volume attenuated (less sensitive)
+      const adjustedVolume = peak * sensitivity;
 
-      // Determine level based on peak volume with sensitivity adjustment
-      // Peak values are much higher than average, so we need higher thresholds
+      // Use adjusted volume for display (clamped to 0-255)
+      const volume = Math.min(255, adjustedVolume);
+
+      // Adjust thresholds for very low sensitivity to ensure RED is still reachable
+      // When sensitivity < 0.71, the max adjustedVolume (255 * 0.71 = 181) can't reach 180
+      let yellowThreshold = 100;
+      let redThreshold = 180;
+
+      if (sensitivity < 0.71) {
+        // Scale down thresholds proportionally to keep the full range accessible
+        yellowThreshold = 100 * sensitivity;
+        redThreshold = 180 * sensitivity;
+      }
+
+      // Determine level based on adjusted volume and thresholds
       let level = 'GREEN';
-      if (volume > redThreshold) {
+      if (adjustedVolume > redThreshold) {
         level = 'RED'; // Crying/Loud noise
-      } else if (volume > yellowThreshold) {
+      } else if (adjustedVolume > yellowThreshold) {
         level = 'YELLOW'; // Movement/Talking
       }
       // GREEN: 0-yellowThreshold (quiet/background noise)
