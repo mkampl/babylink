@@ -230,19 +230,34 @@ io.on('connection', (socket) => {
         return;
       }
 
+      const signalType = data.offer ? 'offer' : data.answer ? 'answer' : data.ice ? 'ice' : 'unknown';
+
       logger.logSocketEvent('signal', socket.id, {
-        type: data.type || 'unknown',
+        type: signalType,
         from: socket.role,
+        to: data.to,
         roomId: socket.roomId
       });
 
-      // Forward signal to all other participants in the room
-      socket.to(socket.roomId).emit('signal', {
-        ...data,
-        from: socket.role,
-        fromSocketId: socket.id,
-        fromUserName: socket.userName
-      });
+      // If 'to' is specified, send to that specific socket
+      if (data.to) {
+        io.to(data.to).emit('signal', {
+          ...data,
+          from: socket.role,
+          fromSocketId: socket.id,
+          fromUserName: socket.userName
+        });
+        logger.debug(`Signal routed to specific participant: ${data.to}`);
+      } else {
+        // Otherwise broadcast to all participants in the room (legacy behavior)
+        socket.to(socket.roomId).emit('signal', {
+          ...data,
+          from: socket.role,
+          fromSocketId: socket.id,
+          fromUserName: socket.userName
+        });
+        logger.debug('Signal broadcast to all room participants');
+      }
 
     } catch (error) {
       logger.error('Error in signal handler', { error: error.message, socketId: socket.id });

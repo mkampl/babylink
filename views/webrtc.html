@@ -228,6 +228,7 @@
     let multiStreamManager = null;
     let multiBabyUI = null;
     let wakeLock = null;
+    let localStream = null; // Store baby's microphone stream
 
     // Wake Lock functionality
     async function requestWakeLock() {
@@ -362,7 +363,7 @@
 
       // Request microphone access
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
         console.log('🎙️ Microphone access granted');
 
         // Get WebRTC config from server
@@ -371,6 +372,9 @@
 
         // Initialize multi-stream manager
         multiStreamManager = new MultiStreamManager(socket, webrtcConfig);
+
+        // Store the local stream in the manager for future peer connections
+        multiStreamManager.localStream = localStream;
 
         document.getElementById('status').textContent = '🎙️ Microphone active - streaming to parents';
 
@@ -450,6 +454,14 @@
         if (el) {
           el.textContent = `${parentCount} parent${parentCount !== 1 ? 's' : ''} monitoring`;
         }
+
+        // Create peer connections to all existing parents
+        const parents = participants.filter(p => p.role === 'parent');
+        parents.forEach(async (parent) => {
+          if (multiStreamManager && localStream) {
+            await createPeerConnectionToParent(parent);
+          }
+        });
       } else if (role === 'parent') {
         // Add any babies already in the room
         const babies = participants.filter(p => p.role === 'baby');
@@ -472,6 +484,11 @@
         const el = document.getElementById('parentCount');
         if (el) {
           el.textContent = `${parentCount} parent${parentCount !== 1 ? 's' : ''} monitoring`;
+        }
+
+        // Create peer connection to this new parent
+        if (multiStreamManager && localStream) {
+          createPeerConnectionToParent({ socketId, role: participantRole, userName });
         }
       } else if (role === 'parent' && participantRole === 'baby') {
         multiBabyUI.addBaby(socketId, { socketId, role: participantRole, userName });
@@ -506,6 +523,36 @@
       document.getElementById('alert').textContent = `⚠️ Error: ${data.message}`;
       document.getElementById('alert').hidden = false;
     });
+
+    // Helper function to create peer connection from baby to parent
+    async function createPeerConnectionToParent(parent) {
+      try {
+        console.log(`Creating peer connection to parent ${parent.socketId}`);
+
+        const peer = multiStreamManager.createPeerConnection(parent.socketId, parent);
+
+        // Add local audio tracks to the peer connection
+        if (localStream) {
+          localStream.getTracks().forEach(track => {
+            peer.addTrack(track, localStream);
+            console.log(`Added audio track to peer connection for ${parent.userName || parent.socketId}`);
+          });
+        }
+
+        // Create and send offer
+        const offer = await peer.createOffer();
+        await peer.setLocalDescription(offer);
+
+        socket.emit('signal', {
+          offer: offer,
+          to: parent.socketId
+        });
+
+        console.log(`Sent offer to parent ${parent.userName || parent.socketId}`);
+      } catch (error) {
+        console.error('Error creating peer connection to parent:', error);
+      }
+    }
 
     // Helper function to escape HTML
     function escapeHtml(text) {

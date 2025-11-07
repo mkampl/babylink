@@ -167,19 +167,28 @@ class MultiStreamManager {
    * Handle incoming WebRTC signal (offer/answer/ICE)
    */
   async handleSignal(data) {
-    const { from, fromSocketId, offer, answer, ice } = data;
+    const { from, fromSocketId, offer, answer, ice, to } = data;
 
     try {
+      // Get the peer connection for this participant
       let peer = this.peerConnections.get(fromSocketId);
 
-      // Create peer connection if it doesn't exist
-      if (!peer && (offer || answer)) {
+      // If we receive an offer and don't have a peer connection, create one
+      if (!peer && offer) {
         const participantInfo = {
           socketId: fromSocketId,
           role: from,
           userName: data.fromUserName || from
         };
         peer = this.createPeerConnection(fromSocketId, participantInfo);
+
+        // If we have a local stream (we're a baby), add tracks to this peer
+        if (this.localStream) {
+          this.localStream.getTracks().forEach(track => {
+            peer.addTrack(track, this.localStream);
+            console.log(`Added local track to peer for ${fromSocketId}`);
+          });
+        }
       }
 
       if (!peer) {
@@ -187,7 +196,7 @@ class MultiStreamManager {
         return;
       }
 
-      // Handle offer
+      // Handle offer (typically received by parent from baby)
       if (offer) {
         await peer.setRemoteDescription(new RTCSessionDescription(offer));
         const answer = await peer.createAnswer();
@@ -197,20 +206,24 @@ class MultiStreamManager {
           answer: answer,
           to: fromSocketId
         });
+
+        console.log(`Sent answer to ${fromSocketId}`);
       }
 
-      // Handle answer
+      // Handle answer (received by baby from parent)
       if (answer) {
         await peer.setRemoteDescription(new RTCSessionDescription(answer));
+        console.log(`Received answer from ${fromSocketId}`);
       }
 
       // Handle ICE candidate
       if (ice) {
         await peer.addIceCandidate(new RTCIceCandidate(ice));
+        console.log(`Added ICE candidate from ${fromSocketId}`);
       }
 
     } catch (error) {
-      console.error('Error handling signal:', error);
+      console.error('Error handling signal:', error, data);
     }
   }
 
