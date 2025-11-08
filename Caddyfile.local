@@ -1,0 +1,27 @@
+# Caddyfile.local - For local development with HTTPS
+
+localhost {
+    # Use Caddy's self-signed certificate for local development
+    tls internal
+
+    # Reverse proxy to BabyLink backend
+    reverse_proxy localhost:3001
+
+    # Enable compression
+    encode gzip
+
+    # Logging to stdout for development
+    log {
+        output stdout
+        format console
+        level DEBUG
+    }
+}
+
+# Alternative: Use a custom local domain
+# Add to /etc/hosts: 127.0.0.1 babylink.local
+babylink.local {
+    tls internal
+    reverse_proxy localhost:3001
+    encode gzip
+}
