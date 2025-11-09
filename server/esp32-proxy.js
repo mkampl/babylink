@@ -29,15 +29,32 @@ class ESP32AudioProxy {
       ws.on('message', (data) => {
         try {
           if (data instanceof Buffer) {
-            // Binary audio data (PCM format expected)
-            if (esp32Info) {
-              this.handleAudioData(esp32Info.id, data);
-            } else {
-              logger.warn('Received audio data before registration');
+            // Try to parse as JSON first
+            try {
+              const message = JSON.parse(data.toString());
+              logger.debug('ESP32 JSON message received:', message);
+
+              if (message.type === 'register') {
+                esp32Info = this.registerESP32(ws, message, clientIp);
+              } else if (message.type === 'ping') {
+                // Heartbeat response
+                ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
+              } else {
+                logger.warn(`Unknown message type: ${message.type}`);
+              }
+              return;
+            } catch (parseError) {
+              // Not JSON, treat as audio data
+              if (esp32Info) {
+                this.handleAudioData(esp32Info.id, data);
+              } else {
+                logger.warn('Received audio data before registration');
+              }
             }
           } else {
-            // JSON message (registration or control)
+            // String message
             const message = JSON.parse(data.toString());
+            logger.debug('ESP32 text message received:', message);
 
             if (message.type === 'register') {
               esp32Info = this.registerESP32(ws, message, clientIp);

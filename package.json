@@ -10,7 +10,8 @@
     "docker:run": "docker-compose up -d",
     "docker:stop": "docker-compose down",
     "docker:logs": "docker-compose logs -f",
-    "docker:restart": "docker-compose restart"
+    "docker:restart": "docker-compose restart",
+    "simulate:esp32": "node tools/esp32-simulator.js"
   },
   "keywords": ["webrtc", "baby-monitor", "socket.io", "voice-activation", "pwa"],
   "author": "Markus Kampl",
