@@ -1,4 +1,23 @@
-# ESP32 Baby Device Implementation Plan
+# ESP32 Baby Device Implementation
+
+> **Status: ✅ IMPLEMENTED** (Version 1.0 - MVP)
+>
+> **Datum**: 2025-01-09
+>
+> **Implementierte Features**:
+> - ✅ Server-seitiger WebSocket Audio-Proxy
+> - ✅ ESP32 Firmware (PlatformIO/Arduino)
+> - ✅ I2S Mikrofon Support (INMP441)
+> - ✅ Automatische Registrierung und Reconnection
+> - ✅ LED Status-Anzeige
+> - ✅ Statistik-Endpoint (`/api/esp32/status`)
+> - ✅ Dokumentation und Setup-Anleitung
+>
+> **Code Location**:
+> - Server: `server/esp32-proxy.js`
+> - Integration: `server.js` (Zeilen 17, 33-34, 355-366)
+> - Firmware: `esp32-firmware/` Verzeichnis
+> - Anleitung: `esp32-firmware/README.md`
 
 ## Übersicht
 
