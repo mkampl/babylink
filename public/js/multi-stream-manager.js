@@ -133,38 +133,38 @@ class MultiStreamManager {
       }
 
       const { analyser, dataArray } = this.analysers.get(participantId);
-      analyser.getByteFrequencyData(dataArray);
+      analyser.getByteTimeDomainData(dataArray); // Use time-domain for amplitude (0-255, center at 128)
 
-      // Calculate average volume (0-255 range)
-      const sum = dataArray.reduce((a, b) => a + b, 0);
-      const average = sum / dataArray.length;
+      // Calculate peak amplitude from waveform
+      // Time domain data is 0-255 with 128 as the center (silence)
+      // Find the maximum deviation from center
+      let maxDeviation = 0;
+      for (let i = 0; i < dataArray.length; i++) {
+        const deviation = Math.abs(dataArray[i] - 128);
+        if (deviation > maxDeviation) {
+          maxDeviation = deviation;
+        }
+      }
 
-      // Find peak value for better sensitivity
-      const peak = Math.max(...dataArray);
+      // Convert deviation (0-128) to full scale (0-255)
+      const peak = maxDeviation * 2;
 
       // Get sensitivity for this participant (default 1.0 if not set)
       const sensitivity = this.sensitivity.get(participantId) || 1.0;
 
-      // Adjust volume based on sensitivity
-      // Higher sensitivity (e.g., 2.0) = volume amplified (more sensitive)
-      // Lower sensitivity (e.g., 0.5) = volume attenuated (less sensitive)
+      // Amplify audio signal based on sensitivity
+      // Higher sensitivity (e.g., 2.0) = signal amplified 2x (quieter sounds become louder)
+      // Lower sensitivity (e.g., 0.5) = signal attenuated 0.5x (only loud sounds register)
       const adjustedVolume = peak * sensitivity;
 
       // Use adjusted volume for display (clamped to 0-255)
       const volume = Math.min(255, adjustedVolume);
 
-      // Adjust thresholds for very low sensitivity to ensure RED is still reachable
-      // When sensitivity < 0.71, the max adjustedVolume (255 * 0.71 = 181) can't reach 180
-      let yellowThreshold = 100;
-      let redThreshold = 180;
+      // Use FIXED thresholds (sensitivity amplifies the signal, not the thresholds)
+      const yellowThreshold = 100;
+      const redThreshold = 180;
 
-      if (sensitivity < 0.71) {
-        // Scale down thresholds proportionally to keep the full range accessible
-        yellowThreshold = 100 * sensitivity;
-        redThreshold = 180 * sensitivity;
-      }
-
-      // Determine level based on adjusted volume and thresholds
+      // Determine level based on amplified signal and fixed thresholds
       let level = 'GREEN';
       if (adjustedVolume > redThreshold) {
         level = 'RED'; // Crying/Loud noise
@@ -307,12 +307,12 @@ class MultiStreamManager {
   /**
    * Set sensitivity for a specific baby
    * @param {string} participantId - The baby's ID
-   * @param {number} sensitivity - Sensitivity multiplier (0.5-3.0, default 1.0)
+   * @param {number} sensitivity - Sensitivity multiplier (0.2-5.0, default 1.0)
    *   Higher = more sensitive (lower thresholds), Lower = less sensitive (higher thresholds)
    */
   setSensitivity(participantId, sensitivity) {
     // Clamp sensitivity to reasonable range
-    const clampedSensitivity = Math.max(0.5, Math.min(3.0, sensitivity));
+    const clampedSensitivity = Math.max(0.2, Math.min(5.0, sensitivity));
     this.sensitivity.set(participantId, clampedSensitivity);
     console.log(`Set sensitivity for ${participantId} to ${clampedSensitivity.toFixed(1)}x`);
     return true;

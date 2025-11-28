@@ -20,9 +20,30 @@ class ESP32AudioProxy {
   createWebSocketServer() {
     this.wss = new WebSocket.Server({ noServer: true });
 
+    // Periodic cleanup of dead connections
+    const cleanupInterval = setInterval(() => {
+      this.wss.clients.forEach((ws) => {
+        if (ws.isAlive === false) {
+          logger.warn('Terminating unresponsive ESP32 WebSocket');
+          return ws.terminate();
+        }
+        ws.isAlive = false;
+        ws.ping();
+      });
+    }, 30000); // Check every 30 seconds
+
+    this.wss.on('close', () => {
+      clearInterval(cleanupInterval);
+    });
+
     this.wss.on('connection', (ws, request) => {
       const clientIp = request.socket.remoteAddress;
       logger.info(`ESP32 WebSocket connection from ${clientIp}`);
+
+      ws.isAlive = true;
+      ws.on('pong', () => {
+        ws.isAlive = true;
+      });
 
       let esp32Info = null;
 

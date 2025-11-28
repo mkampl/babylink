@@ -48,27 +48,27 @@ function generateAudioData(level) {
 
     switch (level) {
       case 'quiet':
-        // Low amplitude noise (0-50)
-        sample = Math.floor(Math.random() * 50 - 25);
+        // Low amplitude noise (realistic quiet room: ±500)
+        sample = Math.floor(Math.random() * 1000 - 500);
         break;
 
       case 'movement':
-        // Medium amplitude noise with some tones (50-150)
+        // Medium amplitude noise with some tones (realistic baby movement: ±3000)
         const frequency = 200 + Math.random() * 100;
         const time = i / config.sampleRate;
         sample = Math.floor(
-          Math.sin(2 * Math.PI * frequency * time) * 100 +
-          Math.random() * 50 - 25
+          Math.sin(2 * Math.PI * frequency * time) * 2500 +
+          Math.random() * 1000 - 500
         );
         break;
 
       case 'crying':
-        // High amplitude noise with crying-like frequency (150-250)
+        // High amplitude noise with crying-like frequency (realistic crying: ±8000)
         const cryFreq = 300 + Math.random() * 200;
         const cryTime = i / config.sampleRate;
         sample = Math.floor(
-          Math.sin(2 * Math.PI * cryFreq * cryTime) * 200 +
-          Math.random() * 100 - 50
+          Math.sin(2 * Math.PI * cryFreq * cryTime) * 7000 +
+          Math.random() * 2000 - 1000
         );
         break;
     }

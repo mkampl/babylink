@@ -110,7 +110,7 @@ class MultiBabyUI {
         </div>
         <div class="sensitivity-control">
           <label title="Adjust sensitivity for different microphones and room noise levels">Sensitivity:</label>
-          <input type="range" id="sensitivity-${babyId}" min="50" max="300" value="100" step="10" />
+          <input type="range" id="sensitivity-${babyId}" min="20" max="500" value="100" step="10" />
           <span id="sensitivity-value-${babyId}">1.0x</span>
         </div>
       </div>

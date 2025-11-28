@@ -117,6 +117,10 @@ app.get('/:roomId', validateRoomId, validateRole, (req, res) => {
   const { role } = req.query;
 
   if (role === 'baby' || role === 'parent') {
+    // Disable caching for webrtc.html to ensure users get latest version
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
     res.sendFile(path.join(__dirname, 'views', 'webrtc.html'));
   } else {
     res.sendFile(path.join(__dirname, 'views', 'select-role.html'));
@@ -215,17 +219,20 @@ io.on('connection', (socket) => {
         totalParticipants: room.participants.length
       });
 
+      // Get all participants including ESP32 devices
+      const allParticipants = esp32Proxy.getRoomParticipants(roomId);
+
       // Notify all participants in the room about the new joiner
       socket.to(roomId).emit('participant-joined', {
         role,
         userName: socket.userName,
         socketId: socket.id,
-        participants: room.participants
+        participants: allParticipants
       });
 
       // Send current participants to the new joiner
       socket.emit('room-state', {
-        participants: room.participants
+        participants: allParticipants
       });
 
     } catch (error) {

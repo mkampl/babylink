@@ -5,7 +5,7 @@ services:
     build: .
     container_name: babylink-app
     ports:
-      - "127.0.0.1:3001:3001"  # Only expose on localhost for reverse proxy
+      - "3001:3001"  # Expose on all interfaces for ESP32 access
     volumes:
       - ./logs:/app/logs  # Mount for logs
     environment:

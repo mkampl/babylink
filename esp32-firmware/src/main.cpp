@@ -10,9 +10,9 @@
  * -----          -------
  * 3.3V    ----   VDD
  * GND     ----   GND
- * GPIO25  ----   SCK (Serial Clock)
- * GPIO33  ----   WS  (Word Select / LR)
- * GPIO32  ----   SD  (Serial Data)
+ * GPIO26  ----   SCK (Serial Clock)
+ * GPIO25  ----   WS  (Word Select / LR)
+ * GPIO18  ----   SD  (Serial Data)
  * GND     ----   L/R (connects to GND for left channel)
  *
  * Optional: LED on GPIO2 for status indication
@@ -20,6 +20,9 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <WebServer.h>
+#include <Preferences.h>
+#include <DNSServer.h>
 #include <WebSocketsClient.h>
 #include <ArduinoJson.h>
 #include <driver/i2s.h>
@@ -28,20 +31,39 @@
 // CONFIGURATION - EDIT THESE VALUES
 // =============================================================================
 
-// WiFi Credentials
-const char* WIFI_SSID = "YourWiFiSSID";
-const char* WIFI_PASSWORD = "YourWiFiPassword";
+// DEFAULT WiFi Credentials (fallback if no config saved)
+const char* DEFAULT_WIFI_SSID = "FRITZ!Box 7590 TK";
+const char* DEFAULT_WIFI_PASSWORD = "91058042730434816265";
 
-// BabyLink Server Configuration
-const char* SERVER_HOST = "192.168.1.100";  // Your BabyLink server IP
-const uint16_t SERVER_PORT = 3000;           // Server port
-const char* ROOM_ID = "your-room-id";        // Room ID to join
-const char* DEVICE_NAME = "ESP32 Bedroom";   // Name of this baby device
+// DEFAULT BabyLink Server Configuration
+const char* DEFAULT_SERVER_HOST = "192.168.178.39";  // Your BabyLink server IP
+const uint16_t DEFAULT_SERVER_PORT = 3001;            // Server port
+const char* DEFAULT_ROOM_ID = "bb399e2ff97ced101cbfb02779044338";  // Room ID to join
+const char* DEFAULT_DEVICE_NAME = "ESP32 Real Hardware";   // Name of this baby device
 
-// I2S Microphone Pins
-#define I2S_WS 33        // Word Select (LRCLK)
-#define I2S_SD 32        // Serial Data (SDIN)
-#define I2S_SCK 25       // Serial Clock (BCLK)
+// Configuration Portal Settings
+const char* AP_SSID = "BabyLink-Setup";      // Access Point name for configuration
+const char* AP_PASSWORD = "";                // No password for easy setup
+
+// Runtime configuration (loaded from preferences or defaults)
+String configWifiSsid;
+String configWifiPassword;
+String configServerHost;
+uint16_t configServerPort;
+String configRoomId;
+String configDeviceName;
+
+// Objects for configuration portal
+Preferences preferences;
+WebServer webServer(80);
+DNSServer dnsServer;
+bool isConfigMode = false;
+const byte DNS_PORT = 53;
+
+// I2S Microphone Pins (Updated to match your hardware)
+#define I2S_WS 25        // Word Select (LRCLK) - GPIO25
+#define I2S_SD 18        // Serial Data (SDIN) - GPIO18
+#define I2S_SCK 26       // Serial Clock (BCLK) - GPIO26
 #define I2S_PORT I2S_NUM_0
 
 // Audio Configuration
@@ -51,6 +73,9 @@ const char* DEVICE_NAME = "ESP32 Bedroom";   // Name of this baby device
 
 // Status LED Pin
 #define LED_PIN 2
+
+// INMP441 L/R Pin (connected to GPIO 5)
+#define I2S_LR_PIN 5
 
 // =============================================================================
 // GLOBAL VARIABLES
@@ -69,19 +94,300 @@ unsigned long lastStatsReport = 0;
 unsigned long connectionTime = 0;
 
 // =============================================================================
+// CONFIGURATION MANAGEMENT
+// =============================================================================
+
+/**
+ * Load configuration from flash storage (or use defaults)
+ */
+void loadConfiguration() {
+  preferences.begin("babylink", false);  // Open in read-write mode
+
+  // Load WiFi config (or use defaults)
+  configWifiSsid = preferences.getString("wifi_ssid", DEFAULT_WIFI_SSID);
+  configWifiPassword = preferences.getString("wifi_pass", DEFAULT_WIFI_PASSWORD);
+
+  // Load server config (or use defaults)
+  configServerHost = preferences.getString("server_host", DEFAULT_SERVER_HOST);
+  configServerPort = preferences.getUInt("server_port", DEFAULT_SERVER_PORT);
+  configRoomId = preferences.getString("room_id", DEFAULT_ROOM_ID);
+  configDeviceName = preferences.getString("device_name", DEFAULT_DEVICE_NAME);
+
+  preferences.end();
+
+  Serial.println("📋 Configuration loaded:");
+  Serial.printf("   WiFi: %s\n", configWifiSsid.c_str());
+  Serial.printf("   Server: %s:%d\n", configServerHost.c_str(), configServerPort);
+  Serial.printf("   Room: %s\n", configRoomId.c_str());
+  Serial.printf("   Device: %s\n", configDeviceName.c_str());
+}
+
+/**
+ * Save configuration to flash storage
+ */
+void saveConfiguration(String ssid, String password, String host, uint16_t port, String roomId, String deviceName) {
+  preferences.begin("babylink", false);
+
+  preferences.putString("wifi_ssid", ssid);
+  preferences.putString("wifi_pass", password);
+  preferences.putString("server_host", host);
+  preferences.putUInt("server_port", port);
+  preferences.putString("room_id", roomId);
+  preferences.putString("device_name", deviceName);
+
+  preferences.end();
+
+  Serial.println("💾 Configuration saved to flash!");
+}
+
+/**
+ * Clear saved configuration (reset to defaults)
+ */
+void clearConfiguration() {
+  preferences.begin("babylink", false);
+  preferences.clear();
+  preferences.end();
+  Serial.println("🗑️  Configuration cleared");
+}
+
+// =============================================================================
+// CONFIGURATION WEB PORTAL
+// =============================================================================
+
+const char CONFIG_HTML[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BabyLink Setup</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 500px;
+            width: 100%;
+            padding: 40px;
+        }
+        h1 {
+            color: #667eea;
+            text-align: center;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+            font-size: 14px;
+        }
+        input, select {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        input:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        .btn {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+        }
+        .btn:active {
+            transform: translateY(0);
+        }
+        .info {
+            background: #f0f4ff;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 13px;
+            color: #555;
+        }
+        .divider {
+            margin: 30px 0;
+            height: 1px;
+            background: #e0e0e0;
+        }
+        .scan-btn {
+            background: #28a745;
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🍼 BabyLink</h1>
+        <div class="subtitle">ESP32 Baby Monitor Setup</div>
+
+        <div class="info">
+            Connect this ESP32 to your WiFi network and configure your BabyLink server.
+        </div>
+
+        <form action="/save" method="POST">
+            <div class="form-group">
+                <label>WiFi Network</label>
+                <input type="text" name="wifi_ssid" placeholder="Network name (SSID)" required>
+            </div>
+
+            <div class="form-group">
+                <label>WiFi Password</label>
+                <input type="password" name="wifi_password" placeholder="Password">
+            </div>
+
+            <div class="divider"></div>
+
+            <div class="form-group">
+                <label>Server Address</label>
+                <input type="text" name="server_host" placeholder="IP address or hostname" required>
+            </div>
+
+            <div class="form-group">
+                <label>Server Port</label>
+                <input type="number" name="server_port" value="3001" required>
+            </div>
+
+            <div class="form-group">
+                <label>Room ID</label>
+                <input type="text" name="room_id" placeholder="Room identifier" required>
+            </div>
+
+            <div class="form-group">
+                <label>Device Name</label>
+                <input type="text" name="device_name" placeholder="Baby Monitor Name" required>
+            </div>
+
+            <button type="submit" class="btn">💾 Save & Connect</button>
+        </form>
+    </div>
+</body>
+</html>
+)rawliteral";
+
+/**
+ * Handle root page - show configuration form
+ */
+void handleRoot() {
+  webServer.send(200, "text/html", CONFIG_HTML);
+}
+
+/**
+ * Handle form submission - save config and restart
+ */
+void handleSave() {
+  String ssid = webServer.arg("wifi_ssid");
+  String password = webServer.arg("wifi_password");
+  String host = webServer.arg("server_host");
+  uint16_t port = webServer.arg("server_port").toInt();
+  String roomId = webServer.arg("room_id");
+  String deviceName = webServer.arg("device_name");
+
+  // Validate inputs
+  if (ssid.length() == 0 || host.length() == 0 || port == 0 || roomId.length() == 0) {
+    webServer.send(400, "text/html", "<html><body><h1>Error: All fields required!</h1><a href='/'>Go back</a></body></html>");
+    return;
+  }
+
+  // Save configuration
+  saveConfiguration(ssid, password, host, port, roomId, deviceName);
+
+  // Send success page
+  String html = "<html><body style='font-family: Arial; text-align: center; padding: 50px;'>";
+  html += "<h1 style='color: #667eea;'>✅ Configuration Saved!</h1>";
+  html += "<p>BabyLink will now restart and connect to your WiFi network.</p>";
+  html += "<p style='margin-top: 30px; color: #666;'>You can close this window.</p>";
+  html += "</body></html>";
+
+  webServer.send(200, "text/html", html);
+
+  delay(2000);
+  ESP.restart();  // Restart to apply new config
+}
+
+/**
+ * Start configuration web server
+ */
+void startConfigPortal() {
+  Serial.println("🌐 Starting configuration portal...");
+
+  // Start Access Point
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP(AP_SSID, AP_PASSWORD);
+
+  IPAddress IP = WiFi.softAPIP();
+  Serial.printf("   AP IP: %s\n", IP.toString().c_str());
+  Serial.printf("   AP SSID: %s\n", AP_SSID);
+  Serial.println("   Connect to this network and visit http://192.168.4.1");
+
+  // Setup DNS server for captive portal
+  dnsServer.start(DNS_PORT, "*", IP);
+
+  // Setup web server routes
+  webServer.on("/", handleRoot);
+  webServer.on("/save", HTTP_POST, handleSave);
+  webServer.onNotFound(handleRoot);  // Redirect all unknown requests to config page
+
+  webServer.begin();
+  isConfigMode = true;
+
+  Serial.println("✅ Configuration portal ready!");
+}
+
+// =============================================================================
 // I2S MICROPHONE SETUP
 // =============================================================================
 
 void setupI2S() {
   Serial.println("🎤 Initializing I2S microphone...");
 
-  // I2S configuration
+  // Control L/R pin via GPIO 5 (LOW = left channel, HIGH = right channel)
+  pinMode(I2S_LR_PIN, OUTPUT);
+  digitalWrite(I2S_LR_PIN, LOW);  // Set to LEFT channel
+  Serial.println("   L/R pin (GPIO 5) set to LEFT channel (LOW)");
+
+  // I2S configuration (matching working MicroPython config)
   i2s_config_t i2s_config = {
     .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
     .sample_rate = SAMPLE_RATE,
-    .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
-    .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
-    .communication_format = I2S_COMM_FORMAT_I2S,
+    .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,  // 16-bit like MicroPython
+    .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,   // MONO left channel
+    .communication_format = I2S_COMM_FORMAT_STAND_I2S, // Standard I2S format
     .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
     .dma_buf_count = 8,
     .dma_buf_len = BUFFER_SIZE,
@@ -126,10 +432,10 @@ void setupI2S() {
 
 void setupWiFi() {
   Serial.println("📡 Connecting to WiFi...");
-  Serial.printf("   SSID: %s\n", WIFI_SSID);
+  Serial.printf("   SSID: %s\n", configWifiSsid.c_str());
 
   WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  WiFi.begin(configWifiSsid.c_str(), configWifiPassword.c_str());
 
   int attempts = 0;
   while (WiFi.status() != WL_CONNECTED && attempts < 30) {
@@ -144,6 +450,8 @@ void setupWiFi() {
     Serial.printf("   Signal: %d dBm\n", WiFi.RSSI());
   } else {
     Serial.println("\n❌ WiFi connection failed");
+    Serial.println("⚠️  Starting configuration portal...");
+    startConfigPortal();
   }
 }
 
@@ -169,8 +477,8 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
         // Send registration message
         StaticJsonDocument<256> doc;
         doc["type"] = "register";
-        doc["roomId"] = ROOM_ID;
-        doc["name"] = DEVICE_NAME;
+        doc["roomId"] = configRoomId;
+        doc["name"] = configDeviceName;
         doc["sampleRate"] = SAMPLE_RATE;
         doc["channels"] = 1;
 
@@ -179,8 +487,8 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
         webSocket.sendTXT(json);
 
         Serial.println("📤 Sent registration request");
-        Serial.printf("   Room ID: %s\n", ROOM_ID);
-        Serial.printf("   Device Name: %s\n", DEVICE_NAME);
+        Serial.printf("   Room ID: %s\n", configRoomId.c_str());
+        Serial.printf("   Device Name: %s\n", configDeviceName.c_str());
       }
       break;
 
@@ -251,7 +559,7 @@ void processAudio() {
     return;
   }
 
-  // Read audio from I2S
+  // Read audio from I2S (16-bit samples, matching MicroPython)
   size_t bytesRead = 0;
   esp_err_t result = i2s_read(
     I2S_PORT,
@@ -262,12 +570,40 @@ void processAudio() {
   );
 
   if (result == ESP_OK && bytesRead > 0) {
-    // Optional: Calculate volume for local processing
-    // float volume = calculateVolume(audioBuffer, bytesRead / sizeof(int16_t));
+    int sampleCount = bytesRead / sizeof(int16_t);
 
-    // Send audio data via WebSocket (binary)
-    webSocket.sendBIN((uint8_t*)audioBuffer, bytesRead);
+    // Apply software amplification (50x gain)
+    // INMP441 has very low output levels, need significant boost
+    const int GAIN = 50;
+    for (int i = 0; i < sampleCount; i++) {
+      int32_t amplified = (int32_t)audioBuffer[i] * GAIN;
+      // Clamp to prevent overflow
+      if (amplified > 32767) amplified = 32767;
+      if (amplified < -32768) amplified = -32768;
+      audioBuffer[i] = (int16_t)amplified;
+    }
+
+    // Calculate audio level (after amplification)
+    int32_t sum = 0;
+    for (int i = 0; i < sampleCount; i++) {
+      sum += abs(audioBuffer[i]);
+    }
+    int avgLevel = sum / sampleCount;
+
+    // Send 16-bit audio data via WebSocket (binary)
+    webSocket.sendBIN((uint8_t*)audioBuffer, sampleCount * sizeof(int16_t));
     audioPacketsSent++;
+
+    // Debug: Print audio level every 50 packets
+    if (audioPacketsSent % 50 == 0) {
+      Serial.printf("🔊 Audio level: %d (avg of %d samples)\n", avgLevel, sampleCount);
+      // Print first 5 raw 16-bit samples for debugging
+      Serial.print("   Raw 16-bit samples: ");
+      for (int i = 0; i < 5 && i < sampleCount; i++) {
+        Serial.printf("%d ", audioBuffer[i]);
+      }
+      Serial.println();
+    }
 
     // Blink LED briefly when sending audio
     if (audioPacketsSent % 50 == 0) {
@@ -355,6 +691,9 @@ void setup() {
   Serial.println("╚════════════════════════════════════════╝");
   Serial.println();
 
+  // Load configuration from flash (or use defaults)
+  loadConfiguration();
+
   // Initialize LED
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
@@ -365,19 +704,24 @@ void setup() {
   // Connect to WiFi
   setupWiFi();
 
+  // If in config mode, don't continue to WebSocket setup
+  if (isConfigMode) {
+    Serial.println("⚙️  Configuration mode active - waiting for user setup...");
+    return;
+  }
+
   if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("❌ Cannot continue without WiFi. Restarting in 10 seconds...");
-    delay(10000);
-    ESP.restart();
+    Serial.println("❌ Cannot continue without WiFi. Check configuration.");
+    return;
   }
 
   // Connect to WebSocket
   Serial.println("🔌 Connecting to BabyLink server...");
-  Serial.printf("   Host: %s\n", SERVER_HOST);
-  Serial.printf("   Port: %d\n", SERVER_PORT);
+  Serial.printf("   Host: %s\n", configServerHost.c_str());
+  Serial.printf("   Port: %d\n", configServerPort);
   Serial.printf("   Endpoint: /esp32-baby\n");
 
-  webSocket.begin(SERVER_HOST, SERVER_PORT, "/esp32-baby");
+  webSocket.begin(configServerHost.c_str(), configServerPort, "/esp32-baby");
   webSocket.onEvent(webSocketEvent);
   webSocket.setReconnectInterval(5000);
   webSocket.enableHeartbeat(15000, 3000, 2);
@@ -392,6 +736,15 @@ void setup() {
 // =============================================================================
 
 void loop() {
+  // If in configuration mode, handle web server and DNS
+  if (isConfigMode) {
+    dnsServer.processNextRequest();
+    webServer.handleClient();
+    yield();
+    return;
+  }
+
+  // Normal operation mode
   // Handle WebSocket events
   webSocket.loop();
 
