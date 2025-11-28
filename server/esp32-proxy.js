@@ -22,6 +22,23 @@ class ESP32AudioProxy {
 
     // Periodic cleanup of dead connections with faster detection
     const cleanupInterval = setInterval(() => {
+      const now = Date.now();
+
+      // Check for stale ESP32 connections (no audio packets in last 10 seconds)
+      this.esp32Clients.forEach((client, esp32Id) => {
+        if (client.lastAudioPacket) {
+          const timeSinceLastPacket = now - client.lastAudioPacket.getTime();
+          if (timeSinceLastPacket > 10000) { // 10 seconds without audio = dead
+            logger.warn(`ESP32 ${esp32Id} (${client.name}) - no audio for ${Math.round(timeSinceLastPacket/1000)}s, removing`);
+            this.unregisterESP32(esp32Id);
+            if (client.ws && client.ws.readyState === WebSocket.OPEN) {
+              client.ws.terminate();
+            }
+          }
+        }
+      });
+
+      // Also check WebSocket ping/pong
       this.wss.clients.forEach((ws) => {
         if (ws.isAlive === false) {
           logger.warn('Terminating unresponsive ESP32 WebSocket (no pong received)');
