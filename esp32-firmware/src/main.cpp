@@ -36,9 +36,9 @@ const char* DEFAULT_WIFI_SSID = "FRITZ!Box 7590 TK";
 const char* DEFAULT_WIFI_PASSWORD = "91058042730434816265";
 
 // DEFAULT BabyLink Server Configuration
-const char* DEFAULT_SERVER_HOST = "192.168.178.39";  // Your BabyLink server IP
-const uint16_t DEFAULT_SERVER_PORT = 3001;            // Server port
-const char* DEFAULT_ROOM_ID = "bb399e2ff97ced101cbfb02779044338";  // Room ID to join
+const char* DEFAULT_SERVER_HOST = "babylink.itvoodoo.at";  // Your BabyLink server hostname
+const uint16_t DEFAULT_SERVER_PORT = 443;                   // HTTPS port
+const char* DEFAULT_ROOM_ID = "48080e150509dfc158c896919491becf";  // Room ID to join
 const char* DEFAULT_DEVICE_NAME = "ESP32 Real Hardware";   // Name of this baby device
 
 // Configuration Portal Settings
@@ -721,7 +721,15 @@ void setup() {
   Serial.printf("   Port: %d\n", configServerPort);
   Serial.printf("   Endpoint: /esp32-baby\n");
 
-  webSocket.begin(configServerHost.c_str(), configServerPort, "/esp32-baby");
+  // Use SSL if port is 443, otherwise plain WebSocket
+  if (configServerPort == 443) {
+    Serial.println("   Using secure WebSocket (WSS)");
+    webSocket.beginSSL(configServerHost.c_str(), configServerPort, "/esp32-baby");
+  } else {
+    Serial.println("   Using plain WebSocket (WS)");
+    webSocket.begin(configServerHost.c_str(), configServerPort, "/esp32-baby");
+  }
+
   webSocket.onEvent(webSocketEvent);
   webSocket.setReconnectInterval(5000);
   webSocket.enableHeartbeat(15000, 3000, 2);

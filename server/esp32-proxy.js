@@ -20,17 +20,23 @@ class ESP32AudioProxy {
   createWebSocketServer() {
     this.wss = new WebSocket.Server({ noServer: true });
 
-    // Periodic cleanup of dead connections
+    // Periodic cleanup of dead connections with faster detection
     const cleanupInterval = setInterval(() => {
       this.wss.clients.forEach((ws) => {
         if (ws.isAlive === false) {
-          logger.warn('Terminating unresponsive ESP32 WebSocket');
+          logger.warn('Terminating unresponsive ESP32 WebSocket (no pong received)');
+
+          // Find and unregister this ESP32
+          if (ws.esp32Id) {
+            this.unregisterESP32(ws.esp32Id);
+          }
+
           return ws.terminate();
         }
         ws.isAlive = false;
         ws.ping();
       });
-    }, 30000); // Check every 30 seconds
+    }, 5000); // Check every 5 seconds for faster disconnection detection
 
     this.wss.on('close', () => {
       clearInterval(cleanupInterval);
@@ -40,9 +46,25 @@ class ESP32AudioProxy {
       const clientIp = request.socket.remoteAddress;
       logger.info(`ESP32 WebSocket connection from ${clientIp}`);
 
+      // Enable TCP keepalive for faster disconnection detection
+      const socket = request.socket;
+      socket.setKeepAlive(true, 10000); // Send keepalive probes every 10 seconds
+      socket.setTimeout(15000); // Timeout after 15 seconds of inactivity
+
       ws.isAlive = true;
+      ws.esp32Id = null; // Will be set during registration
+
       ws.on('pong', () => {
         ws.isAlive = true;
+      });
+
+      // Handle socket timeout
+      socket.on('timeout', () => {
+        logger.warn(`ESP32 socket timeout from ${clientIp}`);
+        if (ws.esp32Id) {
+          this.unregisterESP32(ws.esp32Id);
+        }
+        ws.terminate();
       });
 
       let esp32Info = null;
@@ -137,6 +159,9 @@ class ESP32AudioProxy {
     };
 
     this.esp32Clients.set(esp32Id, esp32Info);
+
+    // Store ESP32 ID on WebSocket for cleanup
+    ws.esp32Id = esp32Id;
 
     // Send registration confirmation
     ws.send(JSON.stringify({
