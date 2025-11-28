@@ -11,6 +11,8 @@
 
 ### 🆕 New in This Version
 
+- **ESP32 Hardware Support** - Use ESP32 with INMP441 I2S microphone as baby device
+- **Web Configuration Portal** - Configure WiFi and server settings via captive portal
 - **Multi-Baby/Multi-Parent Support** - Monitor multiple babies from one or more parent devices
 - **Named Participants** - Give each baby a name for easy identification
 - **Individual Controls** - Mute/unmute and volume control for each baby independently
@@ -83,10 +85,17 @@ Open your browser to **http://localhost:3001**
 
 ### Joining as Baby Device
 
+**Browser/Phone:**
 1. Click "Baby Device"
 2. Enter baby's name (e.g., "Emma", "Room 1")
 3. Grant microphone access
 4. Device will stream audio to all connected parents
+
+**ESP32 Hardware:**
+1. Power on ESP32 with INMP441 microphone
+2. If unconfigured, connect to `BabyLink-Setup` WiFi network
+3. Configure WiFi, server address, and room ID via web portal
+4. ESP32 automatically connects and streams audio
 
 ### Joining as Parent Device
 
@@ -115,6 +124,52 @@ Open your browser to **http://localhost:3001**
 - 2 baby devices (Emma's phone, Liam's tablet)
 - 2 parent devices (Mom's phone, Dad's tablet)
 - All parents monitor all children
+
+---
+
+## 🎛️ ESP32 Baby Device
+
+### Hardware Requirements
+- ESP32 DevKit (ESP32-WROOM-32 or similar)
+- INMP441 I2S MEMS Microphone
+- USB cable for power/programming
+
+### Wiring
+```
+ESP32 Pin    →    INMP441 Pin
+---------          -----------
+3.3V         →    VDD
+GND          →    GND
+GPIO 26      →    SCK (Serial Clock)
+GPIO 25      →    WS  (Word Select)
+GPIO 18      →    SD  (Serial Data)
+GPIO 5       →    L/R (Left/Right Select)
+```
+
+### Firmware Setup
+See [`esp32-firmware/`](esp32-firmware/) directory for build instructions.
+
+### First-Time Configuration
+1. Flash ESP32 firmware using PlatformIO
+2. On first boot, ESP32 creates `BabyLink-Setup` WiFi network
+3. Connect phone to this network
+4. Web portal opens automatically (or visit `http://192.168.4.1`)
+5. Configure:
+   - WiFi network credentials
+   - BabyLink server address (IP or hostname)
+   - Server port (default: 3001)
+   - Room ID (from BabyLink web interface)
+   - Device name
+6. Click "Save & Connect"
+7. ESP32 reboots and connects automatically
+
+### Features
+- **50x Audio Amplification** - Optimized for INMP441 sensitivity
+- **Persistent Configuration** - Settings saved to flash memory
+- **Auto-Reconnect** - Automatic WiFi and server reconnection
+- **Status LED** - Visual connection indicator (GPIO 2)
+- **Low Latency** - ~200ms audio delay
+- **Auto-Config Mode** - Fallback to setup portal if WiFi fails
 
 ---
 

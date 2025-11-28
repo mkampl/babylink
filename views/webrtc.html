@@ -221,6 +221,8 @@
   </audio>
 
   <script>
+    console.log('🔄 [WEBRTC.HTML VERSION 2.0 LOADED] - Sensitivity slider fix included');
+
     // Global variables
     const socket = io();
     const params = new URLSearchParams(window.location.search);
@@ -485,15 +487,51 @@
       // Set up event handlers
       multiBabyUI.onMuteToggle = (babyId, mute) => {
         multiStreamManager.muteParticipant(babyId, mute);
+
+        // Also control ESP32 audio if it's an ESP32 device
+        if (esp32AudioContexts.has(babyId)) {
+          const ctx = esp32AudioContexts.get(babyId);
+          ctx.gainNode.gain.value = mute ? 0 : (ctx.volume || 1.0);
+          console.log(`🔇 ESP32 ${mute ? 'muted' : 'unmuted'} (volume: ${ctx.volume}x)`);
+        }
       };
 
       multiBabyUI.onVolumeChange = (babyId, volume) => {
         multiStreamManager.setParticipantVolume(babyId, volume);
+
+        // Also control ESP32 audio volume if it's an ESP32 device
+        if (esp32AudioContexts.has(babyId)) {
+          const ctx = esp32AudioContexts.get(babyId);
+          // Volume slider controls 0-1x gain (ESP32 firmware already does 50x)
+          ctx.volume = volume;
+          ctx.gainNode.gain.value = volume;
+          console.log(`🔊 ESP32 volume set to ${volume.toFixed(2)}x (slider: ${Math.round(volume * 100)}%)`);
+        }
       };
 
       multiBabyUI.onSensitivityChange = (babyId, sensitivity) => {
+        console.log(`🎚️ [WEBRTC.HTML] onSensitivityChange called: babyId=${babyId}, sensitivity=${sensitivity}`);
+        console.log(`   esp32AudioContexts has this device: ${esp32AudioContexts.has(babyId)}`);
+
         multiStreamManager.setSensitivity(babyId, sensitivity);
+
+        // Also adjust ESP32 audio gain based on sensitivity if it's an ESP32 device
+        if (esp32AudioContexts.has(babyId)) {
+          const ctx = esp32AudioContexts.get(babyId);
+          // Store sensitivity for audio amplification (0.2x to 5.0x)
+          ctx.sensitivity = sensitivity;
+          // Apply sensitivity as gain multiplier (doesn't affect volume slider)
+          // This amplifies the audio signal before threshold detection
+          ctx.sensitivityGain = sensitivity;
+
+          console.log(`   ✅ ESP32 sensitivity set to ${sensitivity.toFixed(1)}x`);
+          console.log(`   Audio will be amplified by ${sensitivity.toFixed(1)}x before threshold detection`);
+        } else {
+          console.log(`   ⚠️ Not an ESP32 device or audio context not created yet`);
+        }
       };
+
+      console.log(`✅ [VERSION 3.0 - UNIFIED SENSITIVITY] onSensitivityChange callback registered. Type: ${typeof multiBabyUI.onSensitivityChange}`);
 
       multiBabyUI.onSoloToggle = (babyId) => {
         // Mute all except this one
@@ -671,6 +709,161 @@
       console.error('❌ Server error:', data);
       document.getElementById('alert').textContent = `⚠️ Error: ${data.message}`;
       document.getElementById('alert').hidden = false;
+    });
+
+    // ESP32 Audio Handler
+    let esp32AudioContexts = new Map(); // Map of esp32Id -> { audioContext, sourceNode, gainNode }
+    let esp32AudioEnabled = false; // Track if user has enabled audio playback
+
+    // Function to enable ESP32 audio (must be called from user gesture)
+    function enableESP32Audio() {
+      esp32AudioEnabled = true;
+      console.log('🎧 ESP32 audio playback enabled');
+
+      // Resume any existing audio contexts
+      esp32AudioContexts.forEach(ctx => {
+        if (ctx.audioContext.state === 'suspended') {
+          ctx.audioContext.resume();
+        }
+      });
+    }
+
+    socket.on('esp32-audio', (data) => {
+      if (role !== 'parent') return; // Only parents should play ESP32 audio
+
+      const { fromId, fromName, audio, sampleRate, channels } = data;
+
+      try {
+        // Get or create audio context for this ESP32 device
+        if (!esp32AudioContexts.has(fromId)) {
+          const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+          const gainNode = audioContext.createGain();
+          gainNode.gain.value = 1.0; // Default 1x (ESP32 firmware already does 50x)
+          gainNode.connect(audioContext.destination);
+
+          esp32AudioContexts.set(fromId, {
+            audioContext,
+            gainNode,
+            sampleRate: sampleRate || 16000,
+            channels: channels || 1,
+            volume: 1.0, // Default volume 1x (100% slider = 1x, controlled by volume slider)
+            buffer: []
+          });
+
+          console.log(`🎧 Created audio context for ESP32: ${fromName} (${fromId})`);
+          console.log(`   Initial gain: ${gainNode.gain.value}x`);
+
+          // Show notification to enable audio if not already enabled
+          if (!esp32AudioEnabled && audioContext.state === 'suspended') {
+            const alert = document.getElementById('alert');
+            alert.innerHTML = '🔊 Click anywhere on the page to enable audio playback';
+            alert.hidden = false;
+
+            // Auto-enable on any user interaction
+            const enableOnClick = () => {
+              enableESP32Audio();
+              alert.hidden = true;
+              document.removeEventListener('click', enableOnClick);
+            };
+            document.addEventListener('click', enableOnClick, { once: true });
+          }
+        }
+
+        // Skip audio playback if contexts are suspended
+        const ctx = esp32AudioContexts.get(fromId);
+        if (ctx.audioContext.state === 'suspended') {
+          return; // Audio will play once user interacts
+        }
+
+        // Convert Buffer/ArrayBuffer to Int16Array (PCM data)
+        let pcmData;
+        if (audio.data) {
+          // Socket.IO sends Buffer as {type: 'Buffer', data: [...]}
+          pcmData = new Int16Array(audio.data);
+        } else if (audio instanceof ArrayBuffer) {
+          pcmData = new Int16Array(audio);
+        } else if (Array.isArray(audio)) {
+          pcmData = new Int16Array(audio);
+        } else {
+          console.warn('Unknown audio data format:', typeof audio);
+          return;
+        }
+
+        // Convert Int16 PCM to Float32 for Web Audio API
+        const floatData = new Float32Array(pcmData.length);
+        for (let i = 0; i < pcmData.length; i++) {
+          floatData[i] = pcmData[i] / 32768.0; // Convert to -1.0 to 1.0 range
+        }
+
+        // Apply sensitivity gain to amplify the signal (0.2x to 5.0x)
+        const sensitivityGain = ctx.sensitivityGain || 1.0;
+        const amplifiedData = new Float32Array(floatData.length);
+        for (let i = 0; i < floatData.length; i++) {
+          amplifiedData[i] = Math.max(-1.0, Math.min(1.0, floatData[i] * sensitivityGain)); // Clamp to prevent clipping
+        }
+
+        // Debug: Log sample values occasionally
+        if (Math.random() < 0.02) {
+          const first5 = Array.from(pcmData.slice(0, 5));
+          const max = Math.max(...pcmData.map(Math.abs));
+          console.log(`📊 Raw PCM samples: [${first5.join(', ')}], max: ${max}, sensitivityGain: ${sensitivityGain}x, volumeGain: ${ctx.gainNode.gain.value}x`);
+        }
+
+        // Create audio buffer
+        const audioBuffer = ctx.audioContext.createBuffer(
+          ctx.channels,
+          amplifiedData.length,
+          ctx.sampleRate
+        );
+
+        // Copy amplified data to buffer
+        audioBuffer.getChannelData(0).set(amplifiedData);
+
+        // Create buffer source and play
+        const source = ctx.audioContext.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(ctx.gainNode);
+        source.start();
+
+        // Update audio level visualization if multiBabyUI exists
+        if (multiBabyUI && multiBabyUI.babyCards.has(fromId)) {
+          // Calculate RMS for audio level from AMPLIFIED data
+          let sumSquares = 0;
+          for (let i = 0; i < amplifiedData.length; i++) {
+            sumSquares += amplifiedData[i] * amplifiedData[i];
+          }
+          const rms = Math.sqrt(sumSquares / amplifiedData.length);
+
+          // Scale RMS to 0-255 range
+          // RMS values are typically 0.0-0.3 for normal audio
+          // Multiply by 500 to get good visual range (0.01 RMS = 5, 0.2 RMS = 100, 0.5 RMS = 250)
+          const numericLevel = Math.min(255, Math.floor(rms * 500));
+
+          // Convert numeric level to color string (matching multi-baby-ui.js expectations)
+          // Use fixed thresholds (sensitivity affects the signal amplification, not thresholds)
+          const redThreshold = 120;
+          const yellowThreshold = 40;
+
+          let levelColor;
+          if (numericLevel > redThreshold) {
+            levelColor = 'RED';    // Crying - high bars
+          } else if (numericLevel > yellowThreshold) {
+            levelColor = 'YELLOW'; // Movement - medium bars
+          } else {
+            levelColor = 'GREEN';  // Quiet - low bars
+          }
+
+          // Debug log (remove after testing)
+          if (Math.random() < 0.01) { // Log 1% of packets to avoid spam
+            console.log(`Audio level - ${fromName}: numeric=${numericLevel}, color=${levelColor}, rms=${rms.toFixed(4)}, sensitivityGain=${sensitivityGain.toFixed(1)}x, thresholds: Y>${yellowThreshold} R>${redThreshold}`);
+          }
+
+          multiBabyUI.updateAudioLevel(fromId, levelColor, numericLevel);
+        }
+
+      } catch (error) {
+        console.error('Error playing ESP32 audio:', error);
+      }
     });
 
     // Helper function to create peer connection from baby to parent

@@ -14,6 +14,7 @@ const { Server } = require('socket.io');
 const config = require('./config');
 const logger = require('./utils/logger');
 const { validateRoomId, validateRole, validateSocketJoinData } = require('./middleware/validation');
+const ESP32AudioProxy = require('./server/esp32-proxy');
 
 // Initialize Express app
 const app = express();
@@ -27,6 +28,10 @@ const io = new Server(server, {
 
 // Track rooms and their participants
 const rooms = new Map();
+
+// Initialize ESP32 Audio Proxy
+const esp32Proxy = new ESP32AudioProxy(io);
+esp32Proxy.createWebSocketServer();
 
 // =============================================================================
 // MIDDLEWARE
@@ -91,8 +96,15 @@ app.get('/health', (req, res) => {
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
     rooms: rooms.size,
+    esp32Devices: esp32Proxy.esp32Clients.size,
     version: require('./package.json').version
   });
+});
+
+// ESP32 status endpoint
+app.get('/api/esp32/status', (req, res) => {
+  const stats = esp32Proxy.getStatistics();
+  res.json(stats);
 });
 
 // API endpoint to get WebRTC configuration
@@ -105,6 +117,10 @@ app.get('/:roomId', validateRoomId, validateRole, (req, res) => {
   const { role } = req.query;
 
   if (role === 'baby' || role === 'parent') {
+    // Disable caching for webrtc.html to ensure users get latest version
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
     res.sendFile(path.join(__dirname, 'views', 'webrtc.html'));
   } else {
     res.sendFile(path.join(__dirname, 'views', 'select-role.html'));
@@ -203,17 +219,20 @@ io.on('connection', (socket) => {
         totalParticipants: room.participants.length
       });
 
+      // Get all participants including ESP32 devices
+      const allParticipants = esp32Proxy.getRoomParticipants(roomId);
+
       // Notify all participants in the room about the new joiner
       socket.to(roomId).emit('participant-joined', {
         role,
         userName: socket.userName,
         socketId: socket.id,
-        participants: room.participants
+        participants: allParticipants
       });
 
       // Send current participants to the new joiner
       socket.emit('room-state', {
-        participants: room.participants
+        participants: allParticipants
       });
 
     } catch (error) {
@@ -341,6 +360,24 @@ setInterval(() => {
   };
   logger.info('Room statistics', stats);
 }, 300000); // Every 5 minutes
+
+// =============================================================================
+// ESP32 WEBSOCKET UPGRADE HANDLER
+// =============================================================================
+
+// Handle WebSocket upgrade for ESP32 devices
+server.on('upgrade', (request, socket, head) => {
+  const pathname = new URL(request.url, `http://${request.headers.host}`).pathname;
+
+  if (pathname === '/esp32-baby') {
+    logger.info(`ESP32 WebSocket upgrade request from ${socket.remoteAddress}`);
+    esp32Proxy.handleUpgrade(request, socket, head);
+  } else {
+    // Not an ESP32 endpoint, destroy the socket
+    logger.warn(`Invalid WebSocket upgrade path: ${pathname}`);
+    socket.destroy();
+  }
+});
 
 // =============================================================================
 // SERVER STARTUP
