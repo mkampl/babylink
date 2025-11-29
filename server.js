@@ -15,6 +15,8 @@ const config = require('./config');
 const logger = require('./utils/logger');
 const { validateRoomId, validateRole, validateSocketJoinData } = require('./middleware/validation');
 const ESP32AudioProxy = require('./server/esp32-proxy');
+const roomConfig = require('./server/room-config');
+const notificationService = require('./server/notification-service');
 
 // Initialize Express app
 const app = express();
@@ -401,11 +403,15 @@ process.on('SIGINT', () => {
 });
 
 // Start server
-server.listen(config.server.port, () => {
-  logger.info(`🚀 BabyLink HTTP Server running at http://localhost:${config.server.port}`);
-  logger.info(`📡 Environment: ${config.server.nodeEnv}`);
-  logger.info(`🔒 Use a reverse proxy (Caddy/Nginx) for HTTPS in production`);
-  logger.info(`🎯 Multi-baby mode: ${config.features.multiBaby ? 'Enabled' : 'Disabled'}`);
+(async () => {
+  // Load room configurations
+  await roomConfig.load();
+
+  server.listen(config.server.port, () => {
+    logger.info(`🚀 BabyLink HTTP Server running at http://localhost:${config.server.port}`);
+    logger.info(`📡 Environment: ${config.server.nodeEnv}`);
+    logger.info(`🔒 Use a reverse proxy (Caddy/Nginx) for HTTPS in production`);
+    logger.info(`🎯 Multi-baby mode: ${config.features.multiBaby ? 'Enabled' : 'Disabled'}`);
 
   // Log configuration summary
   if (config.server.isDevelopment) {
@@ -417,6 +423,7 @@ server.listen(config.server.port, () => {
       logLevel: config.logging.level
     });
   }
-});
+  });
+})();
 
 module.exports = { app, server, io };
