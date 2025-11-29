@@ -4,6 +4,8 @@
 
 const WebSocket = require('ws');
 const logger = require('../utils/logger');
+const roomConfig = require('./room-config');
+const notificationService = require('./notification-service');
 
 class ESP32AudioProxy {
   constructor(io) {
@@ -11,7 +13,13 @@ class ESP32AudioProxy {
     this.esp32Clients = new Map(); // esp32Id -> client info
     this.wss = null;
 
+    // Crying detection configuration
+    this.cryingThreshold = parseInt(process.env.CRYING_THRESHOLD) || 3000; // RMS amplitude threshold
+    this.cryingDuration = parseInt(process.env.CRYING_DURATION) || 3000;   // ms of sustained crying needed
+    this.cryingState = new Map(); // esp32Id -> { isCrying, cryingStart, lastCheck }
+
     logger.info('ESP32AudioProxy initialized');
+    logger.info(`Crying detection: threshold=${this.cryingThreshold}, duration=${this.cryingDuration}ms`);
   }
 
   /**
@@ -204,6 +212,92 @@ class ESP32AudioProxy {
   /**
    * Handle incoming audio data from ESP32
    */
+  /**
+   * Calculate RMS (Root Mean Square) amplitude from audio buffer
+   * @param {Buffer} audioData - 16-bit PCM audio data
+   * @returns {number} RMS amplitude
+   */
+  calculateRMS(audioData) {
+    if (audioData.length < 2) return 0;
+
+    let sum = 0;
+    const sampleCount = audioData.length / 2; // 2 bytes per 16-bit sample
+
+    for (let i = 0; i < audioData.length; i += 2) {
+      const sample = audioData.readInt16LE(i);
+      sum += sample * sample;
+    }
+
+    return Math.sqrt(sum / sampleCount);
+  }
+
+  /**
+   * Detect crying in audio data and trigger notifications
+   * @param {string} esp32Id - ESP32 device ID
+   * @param {Buffer} audioData - Audio data buffer
+   * @param {object} client - Client info
+   */
+  async detectCrying(esp32Id, audioData, client) {
+    // Calculate RMS amplitude
+    const rms = this.calculateRMS(audioData);
+
+    // Get or initialize crying state
+    let state = this.cryingState.get(esp32Id);
+    if (!state) {
+      state = { isCrying: false, cryingStart: null, lastCheck: Date.now() };
+      this.cryingState.set(esp32Id, state);
+    }
+
+    const now = Date.now();
+    const isCryingNow = rms > this.cryingThreshold;
+
+    if (isCryingNow) {
+      if (!state.cryingStart) {
+        // Crying just started
+        state.cryingStart = now;
+        logger.debug(`ESP32 ${esp32Id}: Crying detected (RMS: ${Math.round(rms)})`);
+      } else {
+        // Crying continues
+        const cryingDuration = now - state.cryingStart;
+
+        // If crying for long enough and not already notified
+        if (cryingDuration >= this.cryingDuration && !state.isCrying) {
+          state.isCrying = true;
+
+          // Check if room has notifications enabled
+          const config = roomConfig.getConfig(client.roomId);
+          if (config.ntfyEnabled && config.ntfyTopic && config.notifyOnCrying) {
+            logger.info(`Sending crying alert for ${client.name} in room ${client.roomId}`);
+
+            // Get server URL for click action
+            const serverUrl = process.env.SERVER_URL || `http://localhost:${process.env.PORT || 3001}`;
+
+            await notificationService.sendCryingAlert(
+              config.ntfyTopic,
+              client.roomId,
+              client.name,
+              serverUrl
+            );
+          }
+        }
+      }
+    } else {
+      // Not crying or below threshold
+      if (state.cryingStart) {
+        const cryingDuration = now - state.cryingStart;
+        if (cryingDuration < this.cryingDuration) {
+          logger.debug(`ESP32 ${esp32Id}: Crying stopped (duration: ${cryingDuration}ms, too short to notify)`);
+        }
+      }
+
+      // Reset crying state
+      state.isCrying = false;
+      state.cryingStart = null;
+    }
+
+    state.lastCheck = now;
+  }
+
   handleAudioData(esp32Id, audioData) {
     const client = this.esp32Clients.get(esp32Id);
     if (!client) {
@@ -213,6 +307,11 @@ class ESP32AudioProxy {
 
     client.audioPacketsReceived++;
     client.lastAudioPacket = new Date();
+
+    // Detect crying in audio data
+    this.detectCrying(esp32Id, audioData, client).catch(err => {
+      logger.error(`Error detecting crying for ESP32 ${esp32Id}:`, err);
+    });
 
     // Forward audio data to all parents in the room via Socket.IO
     // Parents will need to handle this with a custom audio handler
