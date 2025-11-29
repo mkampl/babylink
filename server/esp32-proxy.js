@@ -337,6 +337,18 @@ class ESP32AudioProxy {
     const client = this.esp32Clients.get(esp32Id);
     if (!client) return;
 
+    // Send disconnect notification if configured
+    const config = roomConfig.getConfig(client.roomId);
+    if (config.ntfyEnabled && config.ntfyTopic && config.notifyOnDisconnect) {
+      notificationService.sendDisconnectAlert(
+        config.ntfyTopic,
+        client.roomId,
+        client.name
+      ).catch(err => {
+        logger.error(`Failed to send disconnect notification for ${client.name}:`, err);
+      });
+    }
+
     // Notify Socket.IO room that baby left
     this.io.to(client.roomId).emit('participant-left', {
       socketId: esp32Id,
@@ -344,6 +356,9 @@ class ESP32AudioProxy {
       participants: this.getRoomParticipants(client.roomId),
       source: 'esp32'
     });
+
+    // Clean up crying state
+    this.cryingState.delete(esp32Id);
 
     this.esp32Clients.delete(esp32Id);
 
