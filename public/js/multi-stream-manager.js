@@ -44,16 +44,20 @@ class MultiStreamManager {
 
     // Handle incoming tracks
     peer.ontrack = (event) => {
-      console.log(`Received track from ${participantInfo.userName}`);
+      console.log(`🎵 Received track from ${participantInfo.userName}:`, event);
+      console.log(`  Track kind: ${event.track.kind}, enabled: ${event.track.enabled}, muted: ${event.track.muted}, readyState: ${event.track.readyState}`);
       const [stream] = event.streams;
 
       if (stream) {
+        console.log(`  Stream has ${stream.getTracks().length} track(s)`);
         this.audioStreams.set(participantId, stream);
         this.createAudioElement(participantId, stream, participantInfo);
 
         if (this.onStreamAdded) {
           this.onStreamAdded(participantId, stream, participantInfo);
         }
+      } else {
+        console.warn(`  No stream in track event!`);
       }
     };
 
@@ -74,13 +78,16 @@ class MultiStreamManager {
    * Create audio element for a participant's stream
    */
   createAudioElement(participantId, stream, participantInfo) {
+    console.log(`🔊 Creating audio element for ${participantInfo.userName}`);
     const audio = document.createElement('audio');
     audio.id = `audio-${participantId}`;
     audio.autoplay = true;
     audio.playsInline = true;
     audio.srcObject = stream;
     audio.volume = 1.0;
-    audio.muted = true; // Start muted, will be controlled by voice detection
+    audio.muted = false; // START UNMUTED for debugging - was: true
+
+    console.log(`  Audio element created: autoplay=${audio.autoplay}, volume=${audio.volume}, muted=${audio.muted}`);
 
     // Hide audio element (we'll control it via UI)
     audio.style.display = 'none';
@@ -91,6 +98,7 @@ class MultiStreamManager {
     // Initialize audio analysis
     this.initializeAudioAnalysis(participantId, stream, participantInfo);
 
+    console.log(`✅ Audio element ready for ${participantInfo.userName}`);
     return audio;
   }
 
@@ -203,9 +211,11 @@ class MultiStreamManager {
     try {
       // Get the peer connection for this participant
       let peer = this.peerConnections.get(fromSocketId);
+      console.log(`📡 handleSignal from ${fromSocketId}:`, { hasOffer: !!offer, hasAnswer: !!answer, hasIce: !!ice, peerExists: !!peer });
 
       // If we receive an offer and don't have a peer connection, create one
       if (!peer && offer) {
+        console.log(`🆕 Creating new peer connection for incoming offer from ${data.fromUserName || fromSocketId}`);
         const participantInfo = {
           socketId: fromSocketId,
           role: from,
@@ -217,44 +227,49 @@ class MultiStreamManager {
         if (this.localStream) {
           this.localStream.getTracks().forEach(track => {
             peer.addTrack(track, this.localStream);
-            console.log(`Added local track to peer for ${fromSocketId}`);
+            console.log(`  ➕ Added local ${track.kind} track to peer for ${fromSocketId}`);
           });
         }
       }
 
       if (!peer) {
-        console.warn('No peer connection for signal', fromSocketId);
+        console.warn('❌ No peer connection for signal', fromSocketId);
         return;
       }
 
       // Handle offer (typically received by parent from baby)
       if (offer) {
+        console.log(`📥 Processing offer from ${fromSocketId}, current state: ${peer.signalingState}`);
         await peer.setRemoteDescription(new RTCSessionDescription(offer));
+        console.log(`  Remote description set, new state: ${peer.signalingState}`);
         const answer = await peer.createAnswer();
         await peer.setLocalDescription(answer);
+        console.log(`  Answer created and set, final state: ${peer.signalingState}`);
 
         this.socket.emit('signal', {
           answer: answer,
           to: fromSocketId
         });
 
-        console.log(`Sent answer to ${fromSocketId}`);
+        console.log(`📤 Sent answer to ${fromSocketId}`);
       }
 
       // Handle answer (received by baby from parent)
       if (answer) {
+        console.log(`📥 Processing answer from ${fromSocketId}, current state: ${peer.signalingState}`);
         await peer.setRemoteDescription(new RTCSessionDescription(answer));
-        console.log(`Received answer from ${fromSocketId}`);
+        console.log(`  Answer set, new state: ${peer.signalingState}`);
       }
 
       // Handle ICE candidate
       if (ice) {
         await peer.addIceCandidate(new RTCIceCandidate(ice));
-        console.log(`Added ICE candidate from ${fromSocketId}`);
+        console.log(`🧊 Added ICE candidate from ${fromSocketId}`);
       }
 
     } catch (error) {
-      console.error('Error handling signal:', error, data);
+      console.error('❌ Error handling signal:', error, data);
+      console.error('  Error stack:', error.stack);
     }
   }
 

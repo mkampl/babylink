@@ -97,8 +97,8 @@ class MultiBabyUI {
       </div>
 
       <div class="baby-controls">
-        <button class="btn btn-mute" id="mute-${babyId}" data-muted="true">
-          🔇 Muted
+        <button class="btn btn-mute" id="mute-${babyId}" data-muted="false">
+          🔊 Unmuted
         </button>
         <button class="btn btn-solo" id="solo-${babyId}" title="Listen to only this baby">
           🎧 Solo
@@ -125,7 +125,7 @@ class MultiBabyUI {
     this.babyCards.set(babyId, card);
     this.audioLevels.set(babyId, 'GREEN');
     this.activityLogs.set(babyId, []);
-    this.isMuted.set(babyId, true); // Start muted
+    this.isMuted.set(babyId, false); // START UNMUTED for debugging - was: true
     this.isManuallyMuted.set(babyId, false); // Not manually controlled yet
     this.sensitivity.set(babyId, 1.0); // Default sensitivity (1.0x)
 

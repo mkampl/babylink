@@ -447,23 +447,33 @@
 
       // Request microphone access
       try {
+        console.log('🎙️ Requesting microphone access...');
         localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        console.log('🎙️ Microphone access granted');
+        console.log('✅ Microphone access granted!');
+        console.log(`  Stream has ${localStream.getTracks().length} track(s)`);
+        localStream.getTracks().forEach(track => {
+          console.log(`    - ${track.kind} track: enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`);
+        });
 
         // Get WebRTC config from server
+        console.log('📡 Fetching WebRTC config from server...');
         const configResponse = await fetch('/api/config/webrtc');
         const webrtcConfig = await configResponse.json();
+        console.log('✅ WebRTC config received:', webrtcConfig);
 
         // Initialize multi-stream manager
         multiStreamManager = new MultiStreamManager(socket, webrtcConfig);
+        console.log('✅ MultiStreamManager initialized');
 
         // Store the local stream in the manager for future peer connections
         multiStreamManager.localStream = localStream;
+        console.log('✅ Local stream stored in manager');
 
         document.getElementById('status').textContent = '🎙️ Microphone active - streaming to parents';
 
       } catch (err) {
         console.error('❌ Microphone error:', err);
+        console.error('  Error details:', err.name, err.message);
         document.getElementById('status').textContent = '❌ Microphone access denied';
         document.getElementById('alert').textContent = 'Please allow microphone access to use baby monitor';
         document.getElementById('alert').hidden = false;
@@ -625,19 +635,24 @@
 
         // Create peer connections to all existing parents
         const parents = participants.filter(p => p.role === 'parent');
+        console.log(`🔗 Baby creating peer connections to ${parents.length} parent(s)`, { multiStreamManager: !!multiStreamManager, localStream: !!localStream });
         parents.forEach(async (parent) => {
           if (multiStreamManager && localStream) {
             await createPeerConnectionToParent(parent);
+          } else {
+            console.error(`❌ Cannot create peer connection - multiStreamManager: ${!!multiStreamManager}, localStream: ${!!localStream}`);
           }
         });
       } else if (role === 'parent') {
         // Add any babies already in the room
         const babies = participants.filter(p => p.role === 'baby');
+        console.log(`👶 Parent found ${babies.length} existing baby/babies`);
         babies.forEach(baby => {
           if (!multiBabyUI.babyCards.has(baby.socketId)) {
+            console.log(`➕ Adding baby card for ${baby.userName} (${baby.socketId})`);
             multiBabyUI.addBaby(baby.socketId, baby);
-            // Create peer connection for this baby
-            multiStreamManager.createPeerConnection(baby.socketId, baby);
+            // Don't create peer connection yet - wait for baby's offer
+            console.log(`⏳ Waiting for offer from baby ${baby.userName}`);
           }
         });
 
@@ -660,12 +675,17 @@
         }
 
         // Create peer connection to this new parent
+        console.log(`🔗 Baby creating peer connection to new parent ${userName}`, { multiStreamManager: !!multiStreamManager, localStream: !!localStream });
         if (multiStreamManager && localStream) {
           createPeerConnectionToParent({ socketId, role: participantRole, userName });
+        } else {
+          console.error(`❌ Cannot create peer connection - multiStreamManager: ${!!multiStreamManager}, localStream: ${!!localStream}`);
         }
       } else if (role === 'parent' && participantRole === 'baby') {
+        console.log(`👶 New baby joined: ${userName} (${socketId})`);
         multiBabyUI.addBaby(socketId, { socketId, role: participantRole, userName });
-        multiStreamManager.createPeerConnection(socketId, { socketId, role: participantRole, userName });
+        // Don't create peer connection yet - wait for baby's offer
+        console.log(`⏳ Waiting for offer from baby ${userName}`);
 
         // Stop alarm when a baby connects (if we have at least one baby)
         const babyCount = multiBabyUI.babyCards.size;
