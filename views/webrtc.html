@@ -237,6 +237,8 @@
     let alarmTimeout = null; // Timeout for delayed alarm
     let audioContext = null; // Web Audio API context for alarm beep
     let isAlarmPlaying = false;
+    let hasJoinedRoom = false; // Track if we've already joined to prevent duplicates
+    let isInitialized = false; // Track if initialization is complete
 
     // Wake Lock functionality
     async function requestWakeLock() {
@@ -423,11 +425,29 @@
         await initializeParentDevice();
       }
 
-      // Join the room
-      socket.emit('join', { roomId, role, userName });
+      isInitialized = true;
+      console.log('✅ Initialization complete');
+
+      // Join the room if socket is already connected
+      if (socket.connected && !hasJoinedRoom) {
+        console.log('🔗 Socket already connected, joining room now');
+        joinRoom();
+      }
 
       // Auto-request wake lock
       setTimeout(autoRequestWakeLock, 1000);
+    }
+
+    // Helper function to join the room (called once)
+    function joinRoom() {
+      if (hasJoinedRoom) {
+        console.log('⚠️ Already joined room, skipping duplicate join');
+        return;
+      }
+
+      console.log('🔗 Joining room:', roomId);
+      socket.emit('join', { roomId, role, userName });
+      hasJoinedRoom = true;
     }
 
     // Initialize baby device
@@ -526,6 +546,13 @@
 
       multiStreamManager.onStreamAdded = (participantId, stream, participantInfo) => {
         multiBabyUI.addBaby(participantId, participantInfo);
+
+        // Show audio enable prompt if not already enabled
+        if (!webrtcAudioEnabled && role === 'parent') {
+          const alert = document.getElementById('alert');
+          alert.innerHTML = '🔊 <button onclick="enableAllAudio()" style="padding: 0.5em 1em; font-size: 1em; cursor: pointer; background: #4CAF50; color: white; border: none; border-radius: 4px;">Click to Enable Audio</button>';
+          alert.hidden = false;
+        }
       };
 
       multiStreamManager.onStreamRemoved = (participantId) => {
@@ -552,22 +579,29 @@
       stopAlarm();
 
       // If we were disconnected, clean up old state before rejoining
-      if (wasDisconnected && role === 'parent' && multiBabyUI) {
-        console.log('🧹 Cleaning up old baby cards from previous connection...');
-        // Get all baby IDs before clearing
-        const babyIds = Array.from(multiBabyUI.babyCards.keys());
-        babyIds.forEach(babyId => {
-          multiBabyUI.removeBaby(babyId);
-          multiStreamManager.removeParticipant(babyId);
-        });
-        console.log(`🧹 Removed ${babyIds.length} old baby card(s)`);
+      if (wasDisconnected) {
+        console.log('🔄 This is a reconnection');
+        hasJoinedRoom = false; // Reset flag to allow rejoin
+
+        if (role === 'parent' && multiBabyUI) {
+          console.log('🧹 Cleaning up old baby cards from previous connection...');
+          // Get all baby IDs before clearing
+          const babyIds = Array.from(multiBabyUI.babyCards.keys());
+          babyIds.forEach(babyId => {
+            multiBabyUI.removeBaby(babyId);
+            multiStreamManager.removeParticipant(babyId);
+          });
+          console.log(`🧹 Removed ${babyIds.length} old baby card(s)`);
+        }
+
+        wasDisconnected = false;
       }
 
-      // Re-join the room after reconnection
-      socket.emit('join', { roomId, role, userName });
-      console.log('🔄 Rejoined room after reconnection');
-
-      wasDisconnected = false;
+      // Join the room once initialization is complete
+      if (isInitialized) {
+        joinRoom();
+      }
+      // If not initialized yet, initialize() will call joinRoom() when ready
     });
 
     socket.on('disconnect', (reason) => {
@@ -697,18 +731,41 @@
     // ESP32 Audio Handler
     let esp32AudioContexts = new Map(); // Map of esp32Id -> { audioContext, sourceNode, gainNode }
     let esp32AudioEnabled = false; // Track if user has enabled audio playback
+    let webrtcAudioEnabled = false; // Track if WebRTC audio has been enabled
 
-    // Function to enable ESP32 audio (must be called from user gesture)
-    function enableESP32Audio() {
+    // Function to enable all audio (WebRTC + ESP32) - must be called from user gesture
+    function enableAllAudio() {
+      // Enable ESP32 audio
       esp32AudioEnabled = true;
       console.log('🎧 ESP32 audio playback enabled');
 
-      // Resume any existing audio contexts
+      // Resume any existing ESP32 audio contexts
       esp32AudioContexts.forEach(ctx => {
         if (ctx.audioContext.state === 'suspended') {
           ctx.audioContext.resume();
         }
       });
+
+      // Enable WebRTC audio - resume all audio contexts created by MultiStreamManager
+      webrtcAudioEnabled = true;
+      console.log('🎧 WebRTC audio playback enabled');
+
+      if (multiStreamManager && multiStreamManager.analysers) {
+        multiStreamManager.analysers.forEach(analyser => {
+          if (analyser.audioContext && analyser.audioContext.state === 'suspended') {
+            console.log('🎧 Resuming suspended AudioContext for WebRTC');
+            analyser.audioContext.resume();
+          }
+        });
+      }
+
+      // Hide the alert
+      document.getElementById('alert').hidden = true;
+    }
+
+    // Legacy function for backward compatibility
+    function enableESP32Audio() {
+      enableAllAudio();
     }
 
     socket.on('esp32-audio', (data) => {
@@ -739,16 +796,8 @@
           // Show notification to enable audio if not already enabled
           if (!esp32AudioEnabled && audioContext.state === 'suspended') {
             const alert = document.getElementById('alert');
-            alert.innerHTML = '🔊 Click anywhere on the page to enable audio playback';
+            alert.innerHTML = '🔊 <button onclick="enableAllAudio()" style="padding: 0.5em 1em; font-size: 1em; cursor: pointer; background: #4CAF50; color: white; border: none; border-radius: 4px;">Click to Enable Audio</button>';
             alert.hidden = false;
-
-            // Auto-enable on any user interaction
-            const enableOnClick = () => {
-              enableESP32Audio();
-              alert.hidden = true;
-              document.removeEventListener('click', enableOnClick);
-            };
-            document.addEventListener('click', enableOnClick, { once: true });
           }
         }
 
@@ -852,30 +901,68 @@
     // Helper function to create peer connection from baby to parent
     async function createPeerConnectionToParent(parent) {
       try {
-        console.log(`Creating peer connection to parent ${parent.socketId}`);
+        console.log(`🔵 [BABY] Creating peer connection to parent ${parent.socketId}`);
+
+        // Check if peer connection already exists - if so, skip
+        if (multiStreamManager.peerConnections.has(parent.socketId)) {
+          console.log(`🔵 [BABY] ⚠️ Peer connection already exists for ${parent.socketId}, skipping`);
+          return;
+        }
 
         const peer = multiStreamManager.createPeerConnection(parent.socketId, parent);
 
         // Add local audio tracks to the peer connection
         if (localStream) {
+          console.log(`🔵 [BABY] LocalStream exists:`, {
+            id: localStream.id,
+            active: localStream.active,
+            tracks: localStream.getTracks().map(t => ({
+              kind: t.kind,
+              enabled: t.enabled,
+              muted: t.muted,
+              readyState: t.readyState,
+              label: t.label
+            }))
+          });
+
           localStream.getTracks().forEach(track => {
             peer.addTrack(track, localStream);
-            console.log(`Added audio track to peer connection for ${parent.userName || parent.socketId}`);
+            console.log(`🔵 [BABY] ✅ Added ${track.kind} track to peer connection for ${parent.userName || parent.socketId}`, {
+              trackId: track.id,
+              enabled: track.enabled,
+              muted: track.muted,
+              readyState: track.readyState
+            });
           });
+        } else {
+          console.error(`🔵 [BABY] ❌ No localStream available! Cannot add tracks to peer connection!`);
         }
 
         // Create and send offer
         const offer = await peer.createOffer();
         await peer.setLocalDescription(offer);
 
+        // Check if SDP contains audio tracks
+        const hasAudioInSdp = offer.sdp.includes('m=audio');
+        const audioLines = offer.sdp.split('\n').filter(line => line.includes('audio') || line.includes('a=mid:'));
+
+        console.log(`🔵 [BABY] Created offer:`, {
+          type: offer.type,
+          sdpLength: offer.sdp.length,
+          hasSdp: !!offer.sdp,
+          hasAudioInSdp,
+          audioLines,
+          sdpPreview: offer.sdp.substring(0, 300) + '...'
+        });
+
         socket.emit('signal', {
           offer: offer,
           to: parent.socketId
         });
 
-        console.log(`Sent offer to parent ${parent.userName || parent.socketId}`);
+        console.log(`🔵 [BABY] ✅ Sent offer to parent ${parent.userName || parent.socketId}`);
       } catch (error) {
-        console.error('Error creating peer connection to parent:', error);
+        console.error('🔵 [BABY] ❌ Error creating peer connection to parent:', error);
       }
     }
 

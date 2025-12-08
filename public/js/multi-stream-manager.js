@@ -44,16 +44,39 @@ class MultiStreamManager {
 
     // Handle incoming tracks
     peer.ontrack = (event) => {
-      console.log(`Received track from ${participantInfo.userName}`);
+      console.log(`🟣 [STREAM-MGR] ontrack event from ${participantInfo.userName}:`, {
+        participantId,
+        track: {
+          kind: event.track.kind,
+          id: event.track.id,
+          enabled: event.track.enabled,
+          muted: event.track.muted,
+          readyState: event.track.readyState
+        },
+        streams: event.streams.length,
+        streamIds: event.streams.map(s => s.id)
+      });
       const [stream] = event.streams;
 
       if (stream) {
+        console.log(`🟣 [STREAM-MGR] ✅ Stream received:`, {
+          id: stream.id,
+          active: stream.active,
+          tracks: stream.getTracks().map(t => ({
+            kind: t.kind,
+            enabled: t.enabled,
+            readyState: t.readyState
+          }))
+        });
+
         this.audioStreams.set(participantId, stream);
         this.createAudioElement(participantId, stream, participantInfo);
 
         if (this.onStreamAdded) {
           this.onStreamAdded(participantId, stream, participantInfo);
         }
+      } else {
+        console.error(`🟣 [STREAM-MGR] ❌ No stream in ontrack event!`);
       }
     };
 
@@ -201,11 +224,21 @@ class MultiStreamManager {
     const { from, fromSocketId, offer, answer, ice, to } = data;
 
     try {
+      console.log(`🟢 [STREAM-MGR] handleSignal called:`, {
+        from,
+        fromSocketId,
+        hasOffer: !!offer,
+        hasAnswer: !!answer,
+        hasIce: !!ice,
+        to
+      });
+
       // Get the peer connection for this participant
       let peer = this.peerConnections.get(fromSocketId);
 
       // If we receive an offer and don't have a peer connection, create one
       if (!peer && offer) {
+        console.log(`🟢 [STREAM-MGR] No peer exists for ${fromSocketId}, creating new peer (PARENT side)`);
         const participantInfo = {
           socketId: fromSocketId,
           role: from,
@@ -215,46 +248,56 @@ class MultiStreamManager {
 
         // If we have a local stream (we're a baby), add tracks to this peer
         if (this.localStream) {
+          console.log(`🟢 [STREAM-MGR] Have localStream, adding tracks to peer`);
           this.localStream.getTracks().forEach(track => {
             peer.addTrack(track, this.localStream);
-            console.log(`Added local track to peer for ${fromSocketId}`);
+            console.log(`🟢 [STREAM-MGR] Added local ${track.kind} track to peer for ${fromSocketId}`);
           });
+        } else {
+          console.log(`🟢 [STREAM-MGR] No localStream (this is expected for parent receiving offer)`);
         }
       }
 
       if (!peer) {
-        console.warn('No peer connection for signal', fromSocketId);
+        console.warn('🟢 [STREAM-MGR] ⚠️ No peer connection for signal', fromSocketId);
         return;
       }
 
       // Handle offer (typically received by parent from baby)
       if (offer) {
+        console.log(`🟢 [STREAM-MGR] Processing offer from ${fromSocketId}`);
         await peer.setRemoteDescription(new RTCSessionDescription(offer));
         const answer = await peer.createAnswer();
         await peer.setLocalDescription(answer);
+
+        console.log(`🟢 [STREAM-MGR] Created answer:`, {
+          type: answer.type,
+          sdpLength: answer.sdp.length
+        });
 
         this.socket.emit('signal', {
           answer: answer,
           to: fromSocketId
         });
 
-        console.log(`Sent answer to ${fromSocketId}`);
+        console.log(`🟢 [STREAM-MGR] ✅ Sent answer to ${fromSocketId}`);
       }
 
       // Handle answer (received by baby from parent)
       if (answer) {
+        console.log(`🟢 [STREAM-MGR] Processing answer from ${fromSocketId}`);
         await peer.setRemoteDescription(new RTCSessionDescription(answer));
-        console.log(`Received answer from ${fromSocketId}`);
+        console.log(`🟢 [STREAM-MGR] ✅ Set remote description (answer) for ${fromSocketId}`);
       }
 
       // Handle ICE candidate
       if (ice) {
         await peer.addIceCandidate(new RTCIceCandidate(ice));
-        console.log(`Added ICE candidate from ${fromSocketId}`);
+        console.log(`🟢 [STREAM-MGR] ✅ Added ICE candidate from ${fromSocketId}`);
       }
 
     } catch (error) {
-      console.error('Error handling signal:', error, data);
+      console.error('🟢 [STREAM-MGR] ❌ Error handling signal:', error, data);
     }
   }
 
