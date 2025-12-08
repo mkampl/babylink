@@ -447,8 +447,29 @@
 
       // Request microphone access
       try {
-        console.log('🎙️ Requesting microphone access...');
-        localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        console.log('🎙️ Listing available audio input devices...');
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const audioInputs = devices.filter(d => d.kind === 'audioinput');
+
+        console.log(`Found ${audioInputs.length} audio input device(s):`);
+        audioInputs.forEach((device, idx) => {
+          console.log(`  ${idx + 1}. ${device.label || 'Unknown Device'} (${device.deviceId})`);
+        });
+
+        // Request microphone with better constraints
+        console.log('🎙️ Requesting microphone access with enhanced settings...');
+        const constraints = {
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            // Try to request a specific sample rate
+            sampleRate: { ideal: 48000 },
+            channelCount: { ideal: 1 }
+          }
+        };
+
+        localStream = await navigator.mediaDevices.getUserMedia(constraints);
         console.log('✅ Microphone access granted!');
         console.log(`  Stream has ${localStream.getTracks().length} track(s)`);
         localStream.getTracks().forEach(track => {
@@ -456,9 +477,28 @@
           console.log(`      Settings:`, track.getSettings());
 
           // Listen for track mute/unmute events
-          track.onmute = () => console.warn(`⚠️ Track ${track.id} MUTED (not producing audio)`);
-          track.onunmute = () => console.log(`✅ Track ${track.id} UNMUTED (producing audio)`);
-          track.onended = () => console.error(`❌ Track ${track.id} ENDED`);
+          track.onmute = () => {
+            console.warn(`⚠️ Track ${track.id} MUTED (not producing audio)`);
+            document.getElementById('status').textContent = '⚠️ Microphone muted - check Windows settings';
+          };
+          track.onunmute = () => {
+            console.log(`✅ Track ${track.id} UNMUTED (producing audio)`);
+            document.getElementById('status').textContent = '🎙️ Microphone active - streaming to parents';
+          };
+          track.onended = () => {
+            console.error(`❌ Track ${track.id} ENDED - microphone access lost!`);
+            document.getElementById('status').textContent = '❌ Microphone stopped - please refresh';
+            document.getElementById('alert').innerHTML = `
+              ❌ Microphone stopped working!<br>
+              <strong>Possible causes:</strong><br>
+              • Another app is using the microphone (close Skype, Teams, Discord, etc.)<br>
+              • Microphone was disconnected<br>
+              • Windows privacy settings blocked access<br>
+              <br>
+              <strong>Solution:</strong> Close other apps and refresh this page.
+            `;
+            document.getElementById('alert').hidden = false;
+          };
         });
 
         // Test if microphone is actually capturing audio
@@ -484,12 +524,33 @@
           if (testCount >= 5) {
             clearInterval(testInterval);
             if (avgDeviation < 1) {
-              console.warn(`⚠️ WARNING: Microphone appears to be producing no audio! Check if:
-  - Microphone is muted in Windows/OS settings
-  - Correct microphone is selected
-  - Microphone volume is turned up`);
+              console.error(`❌ MICROPHONE NOT CAPTURING AUDIO!`);
+              console.error(`This means the browser has permission but isn't receiving audio from the hardware.`);
+              console.error(`\nTroubleshooting steps:`);
+              console.error(`1. Close ANY other app that might use the microphone:`);
+              console.error(`   - Skype, Teams, Discord, Zoom, OBS, etc.`);
+              console.error(`2. Check Windows Settings > Privacy > Microphone:`);
+              console.error(`   - "Let apps access your microphone" = ON`);
+              console.error(`   - "Let desktop apps access your microphone" = ON`);
+              console.error(`3. Check Windows Sound Settings:`);
+              console.error(`   - Right-click speaker icon > Sounds > Recording tab`);
+              console.error(`   - Select your microphone > Properties > Levels`);
+              console.error(`   - Make sure volume is NOT at 0 and NOT muted`);
+              console.error(`4. Try a different browser (Chrome, Edge, Firefox)`);
+
+              document.getElementById('alert').innerHTML = `
+                ❌ <strong>Microphone Not Working!</strong><br><br>
+                The browser has permission but is NOT receiving audio from your microphone.<br><br>
+                <strong>Please:</strong><br>
+                1. <strong>Close all apps that use the microphone</strong> (Skype, Teams, Discord, Zoom, etc.)<br>
+                2. Check Windows Sound Settings - ensure microphone volume is up and not muted<br>
+                3. Refresh this page<br><br>
+                If still not working, try a different browser or restart your computer.
+              `;
+              document.getElementById('alert').hidden = false;
+              document.getElementById('status').textContent = '❌ Microphone not capturing audio';
             } else {
-              console.log(`✅ Microphone is capturing audio successfully`);
+              console.log(`✅ Microphone is capturing audio successfully (level: ${avgDeviation.toFixed(2)})`);
             }
           }
         }, 500);
