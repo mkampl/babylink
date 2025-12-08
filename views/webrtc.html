@@ -620,8 +620,7 @@
         babies.forEach(baby => {
           if (!multiBabyUI.babyCards.has(baby.socketId)) {
             multiBabyUI.addBaby(baby.socketId, baby);
-            // Create peer connection for this baby
-            multiStreamManager.createPeerConnection(baby.socketId, baby);
+            // Don't create peer connection yet - baby will send offer
           }
         });
 
@@ -649,7 +648,7 @@
         }
       } else if (role === 'parent' && participantRole === 'baby') {
         multiBabyUI.addBaby(socketId, { socketId, role: participantRole, userName });
-        multiStreamManager.createPeerConnection(socketId, { socketId, role: participantRole, userName });
+        // Don't create peer connection yet - baby will send offer
 
         // Stop alarm when a baby connects (if we have at least one baby)
         const babyCount = multiBabyUI.babyCards.size;
