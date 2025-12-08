@@ -77,11 +77,19 @@ class MultiStreamManager {
 
     // Handle connection state changes
     peer.onconnectionstatechange = () => {
-      console.log(`Connection state for ${participantInfo.userName}: ${peer.connectionState}`);
+      console.log(`🔌 Connection state for ${participantInfo.userName}: ${peer.connectionState}`);
 
-      if (peer.connectionState === 'disconnected' || peer.connectionState === 'failed') {
-        console.warn(`Connection ${peer.connectionState} for ${participantInfo.userName}`);
-        // Could trigger reconnection logic here
+      if (peer.connectionState === 'connected') {
+        console.log(`  ✅ Peer connection fully established!`);
+        // Log all transceivers to see track status
+        peer.getTransceivers().forEach((transceiver, idx) => {
+          const track = transceiver.receiver?.track;
+          if (track) {
+            console.log(`    Transceiver ${idx}: ${track.kind} track, enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`);
+          }
+        });
+      } else if (peer.connectionState === 'disconnected' || peer.connectionState === 'failed') {
+        console.warn(`  ❌ Connection ${peer.connectionState} for ${participantInfo.userName}`);
       }
     };
 
@@ -103,11 +111,37 @@ class MultiStreamManager {
 
     console.log(`  Audio element created: autoplay=${audio.autoplay}, volume=${audio.volume}, muted=${audio.muted} (will unmute on user click)`);
 
+    // Listen to audio element events for debugging
+    audio.onplay = () => console.log(`  🎵 Audio element ${audio.id} started playing`);
+    audio.onpause = () => console.log(`  ⏸️ Audio element ${audio.id} paused`);
+    audio.onerror = (e) => console.error(`  ❌ Audio element ${audio.id} error:`, e);
+    audio.onloadedmetadata = () => console.log(`  📊 Audio element ${audio.id} metadata loaded`);
+
     // Hide audio element (we'll control it via UI)
     audio.style.display = 'none';
     document.body.appendChild(audio);
 
     this.audioElements.set(participantId, audio);
+
+    // Periodically check if audio is flowing (debugging aid)
+    let checkCount = 0;
+    const checkInterval = setInterval(() => {
+      if (checkCount++ > 10) {
+        clearInterval(checkInterval); // Stop after 10 checks
+        return;
+      }
+      const stream = audio.srcObject;
+      if (stream) {
+        const tracks = stream.getTracks();
+        console.log(`  📊 [Check ${checkCount}] Audio tracks:`, tracks.map(t => ({
+          kind: t.kind,
+          enabled: t.enabled,
+          muted: t.muted,
+          readyState: t.readyState
+        })));
+        console.log(`  📊 [Check ${checkCount}] Audio element: paused=${audio.paused}, muted=${audio.muted}, volume=${audio.volume}`);
+      }
+    }, 2000);
 
     // Initialize audio analysis
     this.initializeAudioAnalysis(participantId, stream, participantInfo);

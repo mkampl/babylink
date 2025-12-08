@@ -899,30 +899,59 @@
     // Helper function to create peer connection from baby to parent
     async function createPeerConnectionToParent(parent) {
       try {
-        console.log(`Creating peer connection to parent ${parent.socketId}`);
+        console.log(`🔗 Creating peer connection to parent ${parent.socketId}`);
+
+        // Check if peer connection already exists
+        if (multiStreamManager.peerConnections.has(parent.socketId)) {
+          console.log(`  ⚠️ Peer connection already exists for ${parent.socketId}, skipping`);
+          return;
+        }
 
         const peer = multiStreamManager.createPeerConnection(parent.socketId, parent);
 
         // Add local audio tracks to the peer connection
         if (localStream) {
-          localStream.getTracks().forEach(track => {
-            peer.addTrack(track, localStream);
-            console.log(`Added audio track to peer connection for ${parent.userName || parent.socketId}`);
+          console.log(`  📤 Adding tracks from localStream:`, {
+            streamId: localStream.id,
+            trackCount: localStream.getTracks().length
           });
+
+          localStream.getTracks().forEach(track => {
+            const sender = peer.addTrack(track, localStream);
+            console.log(`    ✅ Added ${track.kind} track:`, {
+              trackId: track.id,
+              enabled: track.enabled,
+              muted: track.muted,
+              readyState: track.readyState,
+              label: track.label
+            });
+            console.log(`    Sender:`, sender);
+          });
+        } else {
+          console.error(`  ❌ No localStream available!`);
         }
 
         // Create and send offer
+        console.log(`  📝 Creating offer...`);
         const offer = await peer.createOffer();
         await peer.setLocalDescription(offer);
+
+        // Log offer details
+        console.log(`  📋 Offer created:`, {
+          type: offer.type,
+          sdpHasAudio: offer.sdp.includes('m=audio'),
+          transceivers: peer.getTransceivers().length
+        });
 
         socket.emit('signal', {
           offer: offer,
           to: parent.socketId
         });
 
-        console.log(`Sent offer to parent ${parent.userName || parent.socketId}`);
+        console.log(`  📤 Sent offer to parent ${parent.userName || parent.socketId}`);
       } catch (error) {
-        console.error('Error creating peer connection to parent:', error);
+        console.error('❌ Error creating peer connection to parent:', error);
+        console.error('  Stack:', error.stack);
       }
     }
 
