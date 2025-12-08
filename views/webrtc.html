@@ -453,7 +453,46 @@
         console.log(`  Stream has ${localStream.getTracks().length} track(s)`);
         localStream.getTracks().forEach(track => {
           console.log(`    - ${track.kind} track: enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`);
+          console.log(`      Settings:`, track.getSettings());
+
+          // Listen for track mute/unmute events
+          track.onmute = () => console.warn(`⚠️ Track ${track.id} MUTED (not producing audio)`);
+          track.onunmute = () => console.log(`✅ Track ${track.id} UNMUTED (producing audio)`);
+          track.onended = () => console.error(`❌ Track ${track.id} ENDED`);
         });
+
+        // Test if microphone is actually capturing audio
+        console.log('🎤 Testing microphone audio capture...');
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const analyser = audioContext.createAnalyser();
+        const source = audioContext.createMediaStreamSource(localStream);
+        source.connect(analyser);
+        analyser.fftSize = 256;
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+        let testCount = 0;
+        const testInterval = setInterval(() => {
+          analyser.getByteTimeDomainData(dataArray);
+          let sum = 0;
+          for (let i = 0; i < dataArray.length; i++) {
+            sum += Math.abs(dataArray[i] - 128);
+          }
+          const avgDeviation = sum / dataArray.length;
+
+          console.log(`  [Mic Test ${++testCount}/5] Audio level: ${avgDeviation.toFixed(2)} (should be >0 when speaking)`);
+
+          if (testCount >= 5) {
+            clearInterval(testInterval);
+            if (avgDeviation < 1) {
+              console.warn(`⚠️ WARNING: Microphone appears to be producing no audio! Check if:
+  - Microphone is muted in Windows/OS settings
+  - Correct microphone is selected
+  - Microphone volume is turned up`);
+            } else {
+              console.log(`✅ Microphone is capturing audio successfully`);
+            }
+          }
+        }, 500);
 
         // Get WebRTC config from server
         console.log('📡 Fetching WebRTC config from server...');
