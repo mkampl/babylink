@@ -447,133 +447,23 @@
 
       // Request microphone access
       try {
-        console.log('🎙️ Listing available audio input devices...');
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        const audioInputs = devices.filter(d => d.kind === 'audioinput');
-
-        console.log(`Found ${audioInputs.length} audio input device(s):`);
-        audioInputs.forEach((device, idx) => {
-          console.log(`  ${idx + 1}. ${device.label || 'Unknown Device'} (${device.deviceId})`);
-        });
-
-        // Request microphone with better constraints
-        console.log('🎙️ Requesting microphone access with enhanced settings...');
-        const constraints = {
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
-            // Try to request a specific sample rate
-            sampleRate: { ideal: 48000 },
-            channelCount: { ideal: 1 }
-          }
-        };
-
-        localStream = await navigator.mediaDevices.getUserMedia(constraints);
-        console.log('✅ Microphone access granted!');
-        console.log(`  Stream has ${localStream.getTracks().length} track(s)`);
-        localStream.getTracks().forEach(track => {
-          console.log(`    - ${track.kind} track: enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`);
-          console.log(`      Settings:`, track.getSettings());
-
-          // Listen for track mute/unmute events
-          track.onmute = () => {
-            console.warn(`⚠️ Track ${track.id} MUTED (not producing audio)`);
-            document.getElementById('status').textContent = '⚠️ Microphone muted - check Windows settings';
-          };
-          track.onunmute = () => {
-            console.log(`✅ Track ${track.id} UNMUTED (producing audio)`);
-            document.getElementById('status').textContent = '🎙️ Microphone active - streaming to parents';
-          };
-          track.onended = () => {
-            console.error(`❌ Track ${track.id} ENDED - microphone access lost!`);
-            document.getElementById('status').textContent = '❌ Microphone stopped - please refresh';
-            document.getElementById('alert').innerHTML = `
-              ❌ Microphone stopped working!<br>
-              <strong>Possible causes:</strong><br>
-              • Another app is using the microphone (close Skype, Teams, Discord, etc.)<br>
-              • Microphone was disconnected<br>
-              • Windows privacy settings blocked access<br>
-              <br>
-              <strong>Solution:</strong> Close other apps and refresh this page.
-            `;
-            document.getElementById('alert').hidden = false;
-          };
-        });
-
-        // Test if microphone is actually capturing audio
-        console.log('🎤 Testing microphone audio capture...');
-        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        const analyser = audioContext.createAnalyser();
-        const source = audioContext.createMediaStreamSource(localStream);
-        source.connect(analyser);
-        analyser.fftSize = 256;
-        const dataArray = new Uint8Array(analyser.frequencyBinCount);
-
-        let testCount = 0;
-        const testInterval = setInterval(() => {
-          analyser.getByteTimeDomainData(dataArray);
-          let sum = 0;
-          for (let i = 0; i < dataArray.length; i++) {
-            sum += Math.abs(dataArray[i] - 128);
-          }
-          const avgDeviation = sum / dataArray.length;
-
-          console.log(`  [Mic Test ${++testCount}/5] Audio level: ${avgDeviation.toFixed(2)} (should be >0 when speaking)`);
-
-          if (testCount >= 5) {
-            clearInterval(testInterval);
-            if (avgDeviation < 1) {
-              console.error(`❌ MICROPHONE NOT CAPTURING AUDIO!`);
-              console.error(`This means the browser has permission but isn't receiving audio from the hardware.`);
-              console.error(`\nTroubleshooting steps:`);
-              console.error(`1. Close ANY other app that might use the microphone:`);
-              console.error(`   - Skype, Teams, Discord, Zoom, OBS, etc.`);
-              console.error(`2. Check Windows Settings > Privacy > Microphone:`);
-              console.error(`   - "Let apps access your microphone" = ON`);
-              console.error(`   - "Let desktop apps access your microphone" = ON`);
-              console.error(`3. Check Windows Sound Settings:`);
-              console.error(`   - Right-click speaker icon > Sounds > Recording tab`);
-              console.error(`   - Select your microphone > Properties > Levels`);
-              console.error(`   - Make sure volume is NOT at 0 and NOT muted`);
-              console.error(`4. Try a different browser (Chrome, Edge, Firefox)`);
-
-              document.getElementById('alert').innerHTML = `
-                ❌ <strong>Microphone Not Working!</strong><br><br>
-                The browser has permission but is NOT receiving audio from your microphone.<br><br>
-                <strong>Please:</strong><br>
-                1. <strong>Close all apps that use the microphone</strong> (Skype, Teams, Discord, Zoom, etc.)<br>
-                2. Check Windows Sound Settings - ensure microphone volume is up and not muted<br>
-                3. Refresh this page<br><br>
-                If still not working, try a different browser or restart your computer.
-              `;
-              document.getElementById('alert').hidden = false;
-              document.getElementById('status').textContent = '❌ Microphone not capturing audio';
-            } else {
-              console.log(`✅ Microphone is capturing audio successfully (level: ${avgDeviation.toFixed(2)})`);
-            }
-          }
-        }, 500);
+        localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        console.log('🎙️ Microphone access granted');
 
         // Get WebRTC config from server
-        console.log('📡 Fetching WebRTC config from server...');
         const configResponse = await fetch('/api/config/webrtc');
         const webrtcConfig = await configResponse.json();
-        console.log('✅ WebRTC config received:', webrtcConfig);
 
         // Initialize multi-stream manager
         multiStreamManager = new MultiStreamManager(socket, webrtcConfig);
-        console.log('✅ MultiStreamManager initialized');
 
         // Store the local stream in the manager for future peer connections
         multiStreamManager.localStream = localStream;
-        console.log('✅ Local stream stored in manager');
 
         document.getElementById('status').textContent = '🎙️ Microphone active - streaming to parents';
 
       } catch (err) {
         console.error('❌ Microphone error:', err);
-        console.error('  Error details:', err.name, err.message);
         document.getElementById('status').textContent = '❌ Microphone access denied';
         document.getElementById('alert').textContent = 'Please allow microphone access to use baby monitor';
         document.getElementById('alert').hidden = false;
@@ -586,9 +476,6 @@
 
       // Create multi-baby UI
       multiBabyUI = new MultiBabyUI(container);
-
-      // Audio will be enabled on first user click (browser autoplay policy)
-      // This matches the ESP32 behavior for consistency
 
       // Get WebRTC config from server
       const configResponse = await fetch('/api/config/webrtc');
@@ -605,7 +492,6 @@
         if (esp32AudioContexts.has(babyId)) {
           const ctx = esp32AudioContexts.get(babyId);
           ctx.gainNode.gain.value = mute ? 0 : (ctx.volume || 1.0);
-          console.log(`🔇 ESP32 ${mute ? 'muted' : 'unmuted'} (volume: ${ctx.volume}x)`);
         }
       };
 
@@ -615,36 +501,21 @@
         // Also control ESP32 audio volume if it's an ESP32 device
         if (esp32AudioContexts.has(babyId)) {
           const ctx = esp32AudioContexts.get(babyId);
-          // Volume slider controls 0-1x gain (ESP32 firmware already does 50x)
           ctx.volume = volume;
           ctx.gainNode.gain.value = volume;
-          console.log(`🔊 ESP32 volume set to ${volume.toFixed(2)}x (slider: ${Math.round(volume * 100)}%)`);
         }
       };
 
       multiBabyUI.onSensitivityChange = (babyId, sensitivity) => {
-        console.log(`🎚️ [WEBRTC.HTML] onSensitivityChange called: babyId=${babyId}, sensitivity=${sensitivity}`);
-        console.log(`   esp32AudioContexts has this device: ${esp32AudioContexts.has(babyId)}`);
-
         multiStreamManager.setSensitivity(babyId, sensitivity);
 
         // Also adjust ESP32 audio gain based on sensitivity if it's an ESP32 device
         if (esp32AudioContexts.has(babyId)) {
           const ctx = esp32AudioContexts.get(babyId);
-          // Store sensitivity for audio amplification (0.2x to 5.0x)
           ctx.sensitivity = sensitivity;
-          // Apply sensitivity as gain multiplier (doesn't affect volume slider)
-          // This amplifies the audio signal before threshold detection
           ctx.sensitivityGain = sensitivity;
-
-          console.log(`   ✅ ESP32 sensitivity set to ${sensitivity.toFixed(1)}x`);
-          console.log(`   Audio will be amplified by ${sensitivity.toFixed(1)}x before threshold detection`);
-        } else {
-          console.log(`   ⚠️ Not an ESP32 device or audio context not created yet`);
         }
       };
-
-      console.log(`✅ [VERSION 3.0 - UNIFIED SENSITIVITY] onSensitivityChange callback registered. Type: ${typeof multiBabyUI.onSensitivityChange}`);
 
       multiBabyUI.onSoloToggle = (babyId) => {
         // Mute all except this one
@@ -663,13 +534,6 @@
 
       multiStreamManager.onAudioLevelUpdate = (participantId, level, volume) => {
         multiBabyUI.updateAudioLevel(participantId, level, volume);
-      };
-
-      multiStreamManager.onAudioEnabled = (participantId) => {
-        // Update UI to show baby is unmuted
-        multiBabyUI.isMuted.set(participantId, false);
-        multiBabyUI.unmuteBaby(participantId, 'auto');
-        console.log(`  📢 UI updated: ${participantId} unmuted`);
       };
 
       document.getElementById('status').textContent = '👂 Listening for babies...';
@@ -745,24 +609,19 @@
 
         // Create peer connections to all existing parents
         const parents = participants.filter(p => p.role === 'parent');
-        console.log(`🔗 Baby creating peer connections to ${parents.length} parent(s)`, { multiStreamManager: !!multiStreamManager, localStream: !!localStream });
         parents.forEach(async (parent) => {
           if (multiStreamManager && localStream) {
             await createPeerConnectionToParent(parent);
-          } else {
-            console.error(`❌ Cannot create peer connection - multiStreamManager: ${!!multiStreamManager}, localStream: ${!!localStream}`);
           }
         });
       } else if (role === 'parent') {
         // Add any babies already in the room
         const babies = participants.filter(p => p.role === 'baby');
-        console.log(`👶 Parent found ${babies.length} existing baby/babies`);
         babies.forEach(baby => {
           if (!multiBabyUI.babyCards.has(baby.socketId)) {
-            console.log(`➕ Adding baby card for ${baby.userName} (${baby.socketId})`);
             multiBabyUI.addBaby(baby.socketId, baby);
-            // Don't create peer connection yet - wait for baby's offer
-            console.log(`⏳ Waiting for offer from baby ${baby.userName}`);
+            // Create peer connection for this baby
+            multiStreamManager.createPeerConnection(baby.socketId, baby);
           }
         });
 
@@ -785,17 +644,12 @@
         }
 
         // Create peer connection to this new parent
-        console.log(`🔗 Baby creating peer connection to new parent ${userName}`, { multiStreamManager: !!multiStreamManager, localStream: !!localStream });
         if (multiStreamManager && localStream) {
           createPeerConnectionToParent({ socketId, role: participantRole, userName });
-        } else {
-          console.error(`❌ Cannot create peer connection - multiStreamManager: ${!!multiStreamManager}, localStream: ${!!localStream}`);
         }
       } else if (role === 'parent' && participantRole === 'baby') {
-        console.log(`👶 New baby joined: ${userName} (${socketId})`);
         multiBabyUI.addBaby(socketId, { socketId, role: participantRole, userName });
-        // Don't create peer connection yet - wait for baby's offer
-        console.log(`⏳ Waiting for offer from baby ${userName}`);
+        multiStreamManager.createPeerConnection(socketId, { socketId, role: participantRole, userName });
 
         // Stop alarm when a baby connects (if we have at least one baby)
         const babyCount = multiBabyUI.babyCards.size;
@@ -999,59 +853,30 @@
     // Helper function to create peer connection from baby to parent
     async function createPeerConnectionToParent(parent) {
       try {
-        console.log(`🔗 Creating peer connection to parent ${parent.socketId}`);
-
-        // Check if peer connection already exists
-        if (multiStreamManager.peerConnections.has(parent.socketId)) {
-          console.log(`  ⚠️ Peer connection already exists for ${parent.socketId}, skipping`);
-          return;
-        }
+        console.log(`Creating peer connection to parent ${parent.socketId}`);
 
         const peer = multiStreamManager.createPeerConnection(parent.socketId, parent);
 
         // Add local audio tracks to the peer connection
         if (localStream) {
-          console.log(`  📤 Adding tracks from localStream:`, {
-            streamId: localStream.id,
-            trackCount: localStream.getTracks().length
-          });
-
           localStream.getTracks().forEach(track => {
-            const sender = peer.addTrack(track, localStream);
-            console.log(`    ✅ Added ${track.kind} track:`, {
-              trackId: track.id,
-              enabled: track.enabled,
-              muted: track.muted,
-              readyState: track.readyState,
-              label: track.label
-            });
-            console.log(`    Sender:`, sender);
+            peer.addTrack(track, localStream);
+            console.log(`Added audio track to peer connection for ${parent.userName || parent.socketId}`);
           });
-        } else {
-          console.error(`  ❌ No localStream available!`);
         }
 
         // Create and send offer
-        console.log(`  📝 Creating offer...`);
         const offer = await peer.createOffer();
         await peer.setLocalDescription(offer);
-
-        // Log offer details
-        console.log(`  📋 Offer created:`, {
-          type: offer.type,
-          sdpHasAudio: offer.sdp.includes('m=audio'),
-          transceivers: peer.getTransceivers().length
-        });
 
         socket.emit('signal', {
           offer: offer,
           to: parent.socketId
         });
 
-        console.log(`  📤 Sent offer to parent ${parent.userName || parent.socketId}`);
+        console.log(`Sent offer to parent ${parent.userName || parent.socketId}`);
       } catch (error) {
-        console.error('❌ Error creating peer connection to parent:', error);
-        console.error('  Stack:', error.stack);
+        console.error('Error creating peer connection to parent:', error);
       }
     }
 

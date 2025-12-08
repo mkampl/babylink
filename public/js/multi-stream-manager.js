@@ -11,12 +11,10 @@ class MultiStreamManager {
     this.analysers = new Map();       // participantId → AudioAnalyser
     this.participants = new Map();    // participantId → participant info
     this.sensitivity = new Map();     // participantId → sensitivity multiplier (0.5-3.0, default 1.0)
-    this.audioEnabled = false;        // Track if user has enabled audio playback
 
     this.onStreamAdded = null;
     this.onStreamRemoved = null;
     this.onAudioLevelUpdate = null;
-    this.onAudioEnabled = null; // Callback when audio is enabled by user
   }
 
   /**
@@ -46,50 +44,26 @@ class MultiStreamManager {
 
     // Handle incoming tracks
     peer.ontrack = (event) => {
-      console.log(`🎵 Received track from ${participantInfo.userName}`);
-      console.log(`  Event:`, event);
-      console.log(`  Track:`, event.track);
-      console.log(`  Track details: kind=${event.track?.kind}, enabled=${event.track?.enabled}, muted=${event.track?.muted}, readyState=${event.track?.readyState}`);
-      console.log(`  Streams array:`, event.streams);
-      console.log(`  Streams length:`, event.streams?.length);
-
+      console.log(`Received track from ${participantInfo.userName}`);
       const [stream] = event.streams;
 
       if (stream) {
-        console.log(`  ✅ Stream exists!`);
-        console.log(`  Stream ID: ${stream.id}`);
-        console.log(`  Stream has ${stream.getTracks().length} track(s)`);
-        stream.getTracks().forEach((track, idx) => {
-          console.log(`    Track ${idx}: kind=${track.kind}, enabled=${track.enabled}, readyState=${track.readyState}`);
-        });
-
         this.audioStreams.set(participantId, stream);
         this.createAudioElement(participantId, stream, participantInfo);
 
         if (this.onStreamAdded) {
           this.onStreamAdded(participantId, stream, participantInfo);
         }
-      } else {
-        console.error(`  ❌ NO STREAM in track event!`);
-        console.error(`  This means tracks were not associated with a stream when added`);
       }
     };
 
     // Handle connection state changes
     peer.onconnectionstatechange = () => {
-      console.log(`🔌 Connection state for ${participantInfo.userName}: ${peer.connectionState}`);
+      console.log(`Connection state for ${participantInfo.userName}: ${peer.connectionState}`);
 
-      if (peer.connectionState === 'connected') {
-        console.log(`  ✅ Peer connection fully established!`);
-        // Log all transceivers to see track status
-        peer.getTransceivers().forEach((transceiver, idx) => {
-          const track = transceiver.receiver?.track;
-          if (track) {
-            console.log(`    Transceiver ${idx}: ${track.kind} track, enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`);
-          }
-        });
-      } else if (peer.connectionState === 'disconnected' || peer.connectionState === 'failed') {
-        console.warn(`  ❌ Connection ${peer.connectionState} for ${participantInfo.userName}`);
+      if (peer.connectionState === 'disconnected' || peer.connectionState === 'failed') {
+        console.warn(`Connection ${peer.connectionState} for ${participantInfo.userName}`);
+        // Could trigger reconnection logic here
       }
     };
 
@@ -100,22 +74,13 @@ class MultiStreamManager {
    * Create audio element for a participant's stream
    */
   createAudioElement(participantId, stream, participantInfo) {
-    console.log(`🔊 Creating audio element for ${participantInfo.userName}`);
     const audio = document.createElement('audio');
     audio.id = `audio-${participantId}`;
     audio.autoplay = true;
     audio.playsInline = true;
     audio.srcObject = stream;
     audio.volume = 1.0;
-    audio.muted = true; // Start muted to avoid autoplay errors, will unmute on user click
-
-    console.log(`  Audio element created: autoplay=${audio.autoplay}, volume=${audio.volume}, muted=${audio.muted} (will unmute on user click)`);
-
-    // Listen to audio element events for debugging
-    audio.onplay = () => console.log(`  🎵 Audio element ${audio.id} started playing`);
-    audio.onpause = () => console.log(`  ⏸️ Audio element ${audio.id} paused`);
-    audio.onerror = (e) => console.error(`  ❌ Audio element ${audio.id} error:`, e);
-    audio.onloadedmetadata = () => console.log(`  📊 Audio element ${audio.id} metadata loaded`);
+    audio.muted = true; // Start muted, will be controlled by voice detection
 
     // Hide audio element (we'll control it via UI)
     audio.style.display = 'none';
@@ -123,35 +88,9 @@ class MultiStreamManager {
 
     this.audioElements.set(participantId, audio);
 
-    // Periodically check if audio is flowing (debugging aid)
-    let checkCount = 0;
-    const checkInterval = setInterval(() => {
-      if (checkCount++ > 10) {
-        clearInterval(checkInterval); // Stop after 10 checks
-        return;
-      }
-      const stream = audio.srcObject;
-      if (stream) {
-        const tracks = stream.getTracks();
-        console.log(`  📊 [Check ${checkCount}] Audio tracks:`, tracks.map(t => ({
-          kind: t.kind,
-          enabled: t.enabled,
-          muted: t.muted,
-          readyState: t.readyState
-        })));
-        console.log(`  📊 [Check ${checkCount}] Audio element: paused=${audio.paused}, muted=${audio.muted}, volume=${audio.volume}`);
-      }
-    }, 2000);
-
     // Initialize audio analysis
     this.initializeAudioAnalysis(participantId, stream, participantInfo);
 
-    // Show prompt to enable audio (matches ESP32 behavior)
-    if (this.audioElements.size === 1 && !this.audioEnabled) {
-      this.showAudioEnablePrompt();
-    }
-
-    console.log(`✅ Audio element ready for ${participantInfo.userName}`);
     return audio;
   }
 
@@ -159,40 +98,29 @@ class MultiStreamManager {
    * Initialize audio analysis for voice activity detection
    */
   initializeAudioAnalysis(participantId, stream, participantInfo) {
-    try {
-      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      console.log(`  AudioContext created for ${participantInfo.userName}, state: ${audioContext.state}`);
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const analyser = audioContext.createAnalyser();
+    const source = audioContext.createMediaStreamSource(stream);
 
-      const analyser = audioContext.createAnalyser();
-      const source = audioContext.createMediaStreamSource(stream);
+    analyser.fftSize = 256;
+    analyser.smoothingTimeConstant = 0.8;
+    source.connect(analyser);
 
-      analyser.fftSize = 256;
-      analyser.smoothingTimeConstant = 0.8;
-      source.connect(analyser);
+    const dataArray = new Uint8Array(analyser.frequencyBinCount);
 
-      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+    const analysisData = {
+      audioContext,
+      analyser,
+      source,
+      dataArray,
+      currentLevel: 'GREEN',
+      lastUpdate: Date.now()
+    };
 
-      const analysisData = {
-        audioContext,
-        analyser,
-        source,
-        dataArray,
-        currentLevel: 'GREEN',
-        lastUpdate: Date.now()
-      };
+    this.analysers.set(participantId, analysisData);
 
-      this.analysers.set(participantId, analysisData);
-
-      // Start monitoring audio levels
-      this.monitorAudioLevel(participantId);
-
-      // If AudioContext is suspended, log it (will be resumed on user gesture)
-      if (audioContext.state === 'suspended') {
-        console.log(`  ⚠️ AudioContext is suspended - will be resumed when user clicks`);
-      }
-    } catch (error) {
-      console.error(`  ❌ Error initializing audio analysis:`, error);
-    }
+    // Start monitoring audio levels
+    this.monitorAudioLevel(participantId);
   }
 
   /**
@@ -205,38 +133,38 @@ class MultiStreamManager {
       }
 
       const { analyser, dataArray } = this.analysers.get(participantId);
-      analyser.getByteTimeDomainData(dataArray); // Use time-domain for amplitude (0-255, center at 128)
+      analyser.getByteFrequencyData(dataArray);
 
-      // Calculate peak amplitude from waveform
-      // Time domain data is 0-255 with 128 as the center (silence)
-      // Find the maximum deviation from center
-      let maxDeviation = 0;
-      for (let i = 0; i < dataArray.length; i++) {
-        const deviation = Math.abs(dataArray[i] - 128);
-        if (deviation > maxDeviation) {
-          maxDeviation = deviation;
-        }
-      }
+      // Calculate average volume (0-255 range)
+      const sum = dataArray.reduce((a, b) => a + b, 0);
+      const average = sum / dataArray.length;
 
-      // Convert deviation (0-128) to full scale (0-255)
-      const peak = maxDeviation * 2;
+      // Find peak value for better sensitivity
+      const peak = Math.max(...dataArray);
 
       // Get sensitivity for this participant (default 1.0 if not set)
       const sensitivity = this.sensitivity.get(participantId) || 1.0;
 
-      // Amplify audio signal based on sensitivity
-      // Higher sensitivity (e.g., 2.0) = signal amplified 2x (quieter sounds become louder)
-      // Lower sensitivity (e.g., 0.5) = signal attenuated 0.5x (only loud sounds register)
+      // Adjust volume based on sensitivity
+      // Higher sensitivity (e.g., 2.0) = volume amplified (more sensitive)
+      // Lower sensitivity (e.g., 0.5) = volume attenuated (less sensitive)
       const adjustedVolume = peak * sensitivity;
 
       // Use adjusted volume for display (clamped to 0-255)
       const volume = Math.min(255, adjustedVolume);
 
-      // Use FIXED thresholds (sensitivity amplifies the signal, not the thresholds)
-      const yellowThreshold = 100;
-      const redThreshold = 180;
+      // Adjust thresholds for very low sensitivity to ensure RED is still reachable
+      // When sensitivity < 0.71, the max adjustedVolume (255 * 0.71 = 181) can't reach 180
+      let yellowThreshold = 100;
+      let redThreshold = 180;
 
-      // Determine level based on amplified signal and fixed thresholds
+      if (sensitivity < 0.71) {
+        // Scale down thresholds proportionally to keep the full range accessible
+        yellowThreshold = 100 * sensitivity;
+        redThreshold = 180 * sensitivity;
+      }
+
+      // Determine level based on adjusted volume and thresholds
       let level = 'GREEN';
       if (adjustedVolume > redThreshold) {
         level = 'RED'; // Crying/Loud noise
@@ -275,11 +203,9 @@ class MultiStreamManager {
     try {
       // Get the peer connection for this participant
       let peer = this.peerConnections.get(fromSocketId);
-      console.log(`📡 handleSignal from ${fromSocketId}:`, { hasOffer: !!offer, hasAnswer: !!answer, hasIce: !!ice, peerExists: !!peer });
 
       // If we receive an offer and don't have a peer connection, create one
       if (!peer && offer) {
-        console.log(`🆕 Creating new peer connection for incoming offer from ${data.fromUserName || fromSocketId}`);
         const participantInfo = {
           socketId: fromSocketId,
           role: from,
@@ -291,49 +217,44 @@ class MultiStreamManager {
         if (this.localStream) {
           this.localStream.getTracks().forEach(track => {
             peer.addTrack(track, this.localStream);
-            console.log(`  ➕ Added local ${track.kind} track to peer for ${fromSocketId}`);
+            console.log(`Added local track to peer for ${fromSocketId}`);
           });
         }
       }
 
       if (!peer) {
-        console.warn('❌ No peer connection for signal', fromSocketId);
+        console.warn('No peer connection for signal', fromSocketId);
         return;
       }
 
       // Handle offer (typically received by parent from baby)
       if (offer) {
-        console.log(`📥 Processing offer from ${fromSocketId}, current state: ${peer.signalingState}`);
         await peer.setRemoteDescription(new RTCSessionDescription(offer));
-        console.log(`  Remote description set, new state: ${peer.signalingState}`);
         const answer = await peer.createAnswer();
         await peer.setLocalDescription(answer);
-        console.log(`  Answer created and set, final state: ${peer.signalingState}`);
 
         this.socket.emit('signal', {
           answer: answer,
           to: fromSocketId
         });
 
-        console.log(`📤 Sent answer to ${fromSocketId}`);
+        console.log(`Sent answer to ${fromSocketId}`);
       }
 
       // Handle answer (received by baby from parent)
       if (answer) {
-        console.log(`📥 Processing answer from ${fromSocketId}, current state: ${peer.signalingState}`);
         await peer.setRemoteDescription(new RTCSessionDescription(answer));
-        console.log(`  Answer set, new state: ${peer.signalingState}`);
+        console.log(`Received answer from ${fromSocketId}`);
       }
 
       // Handle ICE candidate
       if (ice) {
         await peer.addIceCandidate(new RTCIceCandidate(ice));
-        console.log(`🧊 Added ICE candidate from ${fromSocketId}`);
+        console.log(`Added ICE candidate from ${fromSocketId}`);
       }
 
     } catch (error) {
-      console.error('❌ Error handling signal:', error, data);
-      console.error('  Error stack:', error.stack);
+      console.error('Error handling signal:', error, data);
     }
   }
 
@@ -386,12 +307,12 @@ class MultiStreamManager {
   /**
    * Set sensitivity for a specific baby
    * @param {string} participantId - The baby's ID
-   * @param {number} sensitivity - Sensitivity multiplier (0.2-5.0, default 1.0)
+   * @param {number} sensitivity - Sensitivity multiplier (0.5-3.0, default 1.0)
    *   Higher = more sensitive (lower thresholds), Lower = less sensitive (higher thresholds)
    */
   setSensitivity(participantId, sensitivity) {
     // Clamp sensitivity to reasonable range
-    const clampedSensitivity = Math.max(0.2, Math.min(5.0, sensitivity));
+    const clampedSensitivity = Math.max(0.5, Math.min(3.0, sensitivity));
     this.sensitivity.set(participantId, clampedSensitivity);
     console.log(`Set sensitivity for ${participantId} to ${clampedSensitivity.toFixed(1)}x`);
     return true;
@@ -458,59 +379,6 @@ class MultiStreamManager {
   getAudioLevel(participantId) {
     const analyser = this.analysers.get(participantId);
     return analyser ? analyser.currentLevel : 'UNKNOWN';
-  }
-
-  /**
-   * Show prompt to enable audio (matches ESP32 behavior)
-   */
-  showAudioEnablePrompt() {
-    const alert = document.getElementById('alert');
-    if (!alert) return;
-
-    alert.innerHTML = '🔊 Click anywhere on the page to enable audio playback';
-    alert.hidden = false;
-
-    // Auto-enable on any user interaction
-    const enableOnClick = async () => {
-      await this.enableAudio();
-      alert.hidden = true;
-      document.removeEventListener('click', enableOnClick);
-    };
-    document.addEventListener('click', enableOnClick, { once: true });
-  }
-
-  /**
-   * Enable audio playback (resumes contexts, unmutes audio elements)
-   */
-  async enableAudio() {
-    this.audioEnabled = true;
-    console.log('🎧 Audio playback enabled');
-
-    // Unmute and play all audio elements
-    for (const [id, audio] of this.audioElements) {
-      try {
-        audio.muted = false;
-        await audio.play();
-        console.log(`  ✅ Unmuted and playing ${id}`);
-
-        // Notify UI that audio was enabled
-        if (this.onAudioEnabled) {
-          this.onAudioEnabled(id);
-        }
-      } catch (e) {
-        console.log(`  ⚠️ Audio element ${id}:`, e.message);
-      }
-    }
-
-    // Resume all audio contexts
-    for (const [id, analyserData] of this.analysers) {
-      if (analyserData.audioContext && analyserData.audioContext.state === 'suspended') {
-        await analyserData.audioContext.resume();
-        console.log(`  ✅ Resumed AudioContext for ${id}`);
-      }
-    }
-
-    console.log('✅ Audio fully enabled');
   }
 }
 
