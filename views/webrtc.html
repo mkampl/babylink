@@ -487,6 +487,9 @@
       // Create multi-baby UI
       multiBabyUI = new MultiBabyUI(container);
 
+      // Audio will be enabled on first user click (browser autoplay policy)
+      // This matches the ESP32 behavior for consistency
+
       // Get WebRTC config from server
       const configResponse = await fetch('/api/config/webrtc');
       const webrtcConfig = await configResponse.json();
@@ -560,6 +563,13 @@
 
       multiStreamManager.onAudioLevelUpdate = (participantId, level, volume) => {
         multiBabyUI.updateAudioLevel(participantId, level, volume);
+      };
+
+      multiStreamManager.onAudioEnabled = (participantId) => {
+        // Update UI to show baby is unmuted
+        multiBabyUI.isMuted.set(participantId, false);
+        multiBabyUI.unmuteBaby(participantId, 'auto');
+        console.log(`  📢 UI updated: ${participantId} unmuted`);
       };
 
       document.getElementById('status').textContent = '👂 Listening for babies...';

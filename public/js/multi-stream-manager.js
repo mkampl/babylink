@@ -11,10 +11,12 @@ class MultiStreamManager {
     this.analysers = new Map();       // participantId → AudioAnalyser
     this.participants = new Map();    // participantId → participant info
     this.sensitivity = new Map();     // participantId → sensitivity multiplier (0.5-3.0, default 1.0)
+    this.audioEnabled = false;        // Track if user has enabled audio playback
 
     this.onStreamAdded = null;
     this.onStreamRemoved = null;
     this.onAudioLevelUpdate = null;
+    this.onAudioEnabled = null; // Callback when audio is enabled by user
   }
 
   /**
@@ -44,12 +46,23 @@ class MultiStreamManager {
 
     // Handle incoming tracks
     peer.ontrack = (event) => {
-      console.log(`🎵 Received track from ${participantInfo.userName}:`, event);
-      console.log(`  Track kind: ${event.track.kind}, enabled: ${event.track.enabled}, muted: ${event.track.muted}, readyState: ${event.track.readyState}`);
+      console.log(`🎵 Received track from ${participantInfo.userName}`);
+      console.log(`  Event:`, event);
+      console.log(`  Track:`, event.track);
+      console.log(`  Track details: kind=${event.track?.kind}, enabled=${event.track?.enabled}, muted=${event.track?.muted}, readyState=${event.track?.readyState}`);
+      console.log(`  Streams array:`, event.streams);
+      console.log(`  Streams length:`, event.streams?.length);
+
       const [stream] = event.streams;
 
       if (stream) {
+        console.log(`  ✅ Stream exists!`);
+        console.log(`  Stream ID: ${stream.id}`);
         console.log(`  Stream has ${stream.getTracks().length} track(s)`);
+        stream.getTracks().forEach((track, idx) => {
+          console.log(`    Track ${idx}: kind=${track.kind}, enabled=${track.enabled}, readyState=${track.readyState}`);
+        });
+
         this.audioStreams.set(participantId, stream);
         this.createAudioElement(participantId, stream, participantInfo);
 
@@ -57,7 +70,8 @@ class MultiStreamManager {
           this.onStreamAdded(participantId, stream, participantInfo);
         }
       } else {
-        console.warn(`  No stream in track event!`);
+        console.error(`  ❌ NO STREAM in track event!`);
+        console.error(`  This means tracks were not associated with a stream when added`);
       }
     };
 
@@ -85,9 +99,9 @@ class MultiStreamManager {
     audio.playsInline = true;
     audio.srcObject = stream;
     audio.volume = 1.0;
-    audio.muted = false; // START UNMUTED for debugging - was: true
+    audio.muted = true; // Start muted to avoid autoplay errors, will unmute on user click
 
-    console.log(`  Audio element created: autoplay=${audio.autoplay}, volume=${audio.volume}, muted=${audio.muted}`);
+    console.log(`  Audio element created: autoplay=${audio.autoplay}, volume=${audio.volume}, muted=${audio.muted} (will unmute on user click)`);
 
     // Hide audio element (we'll control it via UI)
     audio.style.display = 'none';
@@ -98,6 +112,11 @@ class MultiStreamManager {
     // Initialize audio analysis
     this.initializeAudioAnalysis(participantId, stream, participantInfo);
 
+    // Show prompt to enable audio (matches ESP32 behavior)
+    if (this.audioElements.size === 1 && !this.audioEnabled) {
+      this.showAudioEnablePrompt();
+    }
+
     console.log(`✅ Audio element ready for ${participantInfo.userName}`);
     return audio;
   }
@@ -106,29 +125,40 @@ class MultiStreamManager {
    * Initialize audio analysis for voice activity detection
    */
   initializeAudioAnalysis(participantId, stream, participantInfo) {
-    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    const analyser = audioContext.createAnalyser();
-    const source = audioContext.createMediaStreamSource(stream);
+    try {
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      console.log(`  AudioContext created for ${participantInfo.userName}, state: ${audioContext.state}`);
 
-    analyser.fftSize = 256;
-    analyser.smoothingTimeConstant = 0.8;
-    source.connect(analyser);
+      const analyser = audioContext.createAnalyser();
+      const source = audioContext.createMediaStreamSource(stream);
 
-    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0.8;
+      source.connect(analyser);
 
-    const analysisData = {
-      audioContext,
-      analyser,
-      source,
-      dataArray,
-      currentLevel: 'GREEN',
-      lastUpdate: Date.now()
-    };
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
 
-    this.analysers.set(participantId, analysisData);
+      const analysisData = {
+        audioContext,
+        analyser,
+        source,
+        dataArray,
+        currentLevel: 'GREEN',
+        lastUpdate: Date.now()
+      };
 
-    // Start monitoring audio levels
-    this.monitorAudioLevel(participantId);
+      this.analysers.set(participantId, analysisData);
+
+      // Start monitoring audio levels
+      this.monitorAudioLevel(participantId);
+
+      // If AudioContext is suspended, log it (will be resumed on user gesture)
+      if (audioContext.state === 'suspended') {
+        console.log(`  ⚠️ AudioContext is suspended - will be resumed when user clicks`);
+      }
+    } catch (error) {
+      console.error(`  ❌ Error initializing audio analysis:`, error);
+    }
   }
 
   /**
@@ -394,6 +424,59 @@ class MultiStreamManager {
   getAudioLevel(participantId) {
     const analyser = this.analysers.get(participantId);
     return analyser ? analyser.currentLevel : 'UNKNOWN';
+  }
+
+  /**
+   * Show prompt to enable audio (matches ESP32 behavior)
+   */
+  showAudioEnablePrompt() {
+    const alert = document.getElementById('alert');
+    if (!alert) return;
+
+    alert.innerHTML = '🔊 Click anywhere on the page to enable audio playback';
+    alert.hidden = false;
+
+    // Auto-enable on any user interaction
+    const enableOnClick = async () => {
+      await this.enableAudio();
+      alert.hidden = true;
+      document.removeEventListener('click', enableOnClick);
+    };
+    document.addEventListener('click', enableOnClick, { once: true });
+  }
+
+  /**
+   * Enable audio playback (resumes contexts, unmutes audio elements)
+   */
+  async enableAudio() {
+    this.audioEnabled = true;
+    console.log('🎧 Audio playback enabled');
+
+    // Unmute and play all audio elements
+    for (const [id, audio] of this.audioElements) {
+      try {
+        audio.muted = false;
+        await audio.play();
+        console.log(`  ✅ Unmuted and playing ${id}`);
+
+        // Notify UI that audio was enabled
+        if (this.onAudioEnabled) {
+          this.onAudioEnabled(id);
+        }
+      } catch (e) {
+        console.log(`  ⚠️ Audio element ${id}:`, e.message);
+      }
+    }
+
+    // Resume all audio contexts
+    for (const [id, analyserData] of this.analysers) {
+      if (analyserData.audioContext && analyserData.audioContext.state === 'suspended') {
+        await analyserData.audioContext.resume();
+        console.log(`  ✅ Resumed AudioContext for ${id}`);
+      }
+    }
+
+    console.log('✅ Audio fully enabled');
   }
 }
 
