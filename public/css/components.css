@@ -489,6 +489,21 @@
 .parent-btn { background: var(--gradient-parent); color: white; }
 .parent-btn:hover { background: var(--gradient-parent-hover); transform: translateY(-2px); box-shadow: 0 6px 16px rgba(107, 142, 174, 0.3); }
 
+/* ====== Role Selection Page ====== */
+body.role-page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: var(--space-lg) var(--space-md);
+}
+
+body.role-page main {
+  max-width: 720px;
+  width: 100%;
+}
+
 /* ====== PWA Banner ====== */
 .pwa-banner {
   background: var(--gradient-pwa);

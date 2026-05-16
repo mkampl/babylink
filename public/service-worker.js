@@ -1,5 +1,5 @@
 // service-worker.js
-const CACHE_NAME = 'babylink-v2.0.0';
+const CACHE_NAME = 'babylink-v2.1.0';
 const urlsToCache = [
   '/',
   '/css/variables.css',
@@ -20,40 +20,41 @@ const urlsToCache = [
   '/icons/icon-512x512.png'
 ];
 
-// Install event
+// Install event - cache resources and activate immediately
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then((cache) => {
-        console.log('Opened cache');
-        return cache.addAll(urlsToCache);
+      .then((cache) => cache.addAll(urlsToCache))
+      .then(() => self.skipWaiting())
+  );
+});
+
+// Fetch event - network first, fall back to cache
+self.addEventListener('fetch', (event) => {
+  event.respondWith(
+    fetch(event.request)
+      .then((response) => {
+        // Cache the fresh response for offline use
+        if (response.ok) {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+        }
+        return response;
+      })
+      .catch(() => {
+        // Network failed, try cache
+        return caches.match(event.request);
       })
   );
 });
 
-// Fetch event
-self.addEventListener('fetch', (event) => {
-  event.respondWith(
-    caches.match(event.request)
-      .then((response) => {
-        // Return cached version or fetch from network
-        return response || fetch(event.request);
-      }
-    )
-  );
-});
-
-// Activate event
+// Activate event - clean old caches and claim clients immediately
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames.map((cacheName) => {
-          if (cacheName !== CACHE_NAME) {
-            return caches.delete(cacheName);
-          }
-        })
-      );
-    })
+    caches.keys()
+      .then((names) => Promise.all(
+        names.filter((name) => name !== CACHE_NAME).map((name) => caches.delete(name))
+      ))
+      .then(() => self.clients.claim())
   );
 });
