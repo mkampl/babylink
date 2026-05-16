@@ -16,6 +16,12 @@ const logger = require('./utils/logger');
 const { validateRoomId, validateRole, validateSocketJoinData } = require('./middleware/validation');
 const ESP32AudioProxy = require('./server/esp32-proxy');
 
+/**
+ * Create and configure the BabyLink server.
+ * Returns all server components without starting the listener.
+ */
+function createServer() {
+
 // Initialize Express app
 const app = express();
 const server = http.createServer(app);
@@ -28,6 +34,9 @@ const io = new Server(server, {
 
 // Track rooms and their participants
 const rooms = new Map();
+
+// Track intervals for cleanup in tests
+const intervals = [];
 
 // Initialize ESP32 Audio Proxy
 const esp32Proxy = new ESP32AudioProxy(io);
@@ -331,7 +340,7 @@ io.on('connection', (socket) => {
 // =============================================================================
 
 // Periodic room cleanup (remove stale rooms)
-setInterval(() => {
+intervals.push(setInterval(() => {
   const now = Date.now();
   let cleanedCount = 0;
 
@@ -350,73 +359,75 @@ setInterval(() => {
   if (cleanedCount > 0) {
     logger.info(`Cleaned up ${cleanedCount} stale rooms`);
   }
-}, config.room.cleanupInterval);
+}, config.room.cleanupInterval));
 
 // Log room statistics periodically
-setInterval(() => {
+intervals.push(setInterval(() => {
   const stats = {
     totalRooms: rooms.size,
     totalParticipants: Array.from(rooms.values()).reduce((sum, room) => sum + room.participants.length, 0)
   };
   logger.info('Room statistics', stats);
-}, 300000); // Every 5 minutes
+}, 300000)); // Every 5 minutes
 
 // =============================================================================
 // ESP32 WEBSOCKET UPGRADE HANDLER
 // =============================================================================
 
 // Handle WebSocket upgrade for ESP32 devices
+// Only intercept /esp32-baby path; let Socket.IO handle its own upgrades
 server.on('upgrade', (request, socket, head) => {
   const pathname = new URL(request.url, `http://${request.headers.host}`).pathname;
 
   if (pathname === '/esp32-baby') {
     logger.info(`ESP32 WebSocket upgrade request from ${socket.remoteAddress}`);
     esp32Proxy.handleUpgrade(request, socket, head);
-  } else {
-    // Not an ESP32 endpoint, destroy the socket
-    logger.warn(`Invalid WebSocket upgrade path: ${pathname}`);
-    socket.destroy();
   }
+  // Other paths (e.g., /socket.io/) are handled by Socket.IO automatically
 });
+
+// Return all server components for testing and startup
+return { app, server, io, rooms, esp32Proxy, intervals };
+
+} // end createServer()
 
 // =============================================================================
-// SERVER STARTUP
+// SERVER STARTUP (only when run directly)
 // =============================================================================
 
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  logger.info('SIGTERM received, shutting down gracefully');
-  server.close(() => {
-    logger.info('Server closed');
-    process.exit(0);
-  });
-});
+if (require.main === module) {
+  const { server, intervals } = createServer();
 
-process.on('SIGINT', () => {
-  logger.info('SIGINT received, shutting down gracefully');
-  server.close(() => {
-    logger.info('Server closed');
-    process.exit(0);
-  });
-});
-
-// Start server
-server.listen(config.server.port, () => {
-  logger.info(`🚀 BabyLink HTTP Server running at http://localhost:${config.server.port}`);
-  logger.info(`📡 Environment: ${config.server.nodeEnv}`);
-  logger.info(`🔒 Use a reverse proxy (Caddy/Nginx) for HTTPS in production`);
-  logger.info(`🎯 Multi-baby mode: ${config.features.multiBaby ? 'Enabled' : 'Disabled'}`);
-
-  // Log configuration summary
-  if (config.server.isDevelopment) {
-    logger.debug('Configuration loaded', {
-      port: config.server.port,
-      maxRooms: config.room.maxRooms,
-      maxBabiesPerRoom: config.room.maxBabiesPerRoom,
-      maxParentsPerRoom: config.room.maxParentsPerRoom,
-      logLevel: config.logging.level
+  // Graceful shutdown
+  const shutdown = () => {
+    logger.info('Shutting down gracefully');
+    intervals.forEach(id => clearInterval(id));
+    server.close(() => {
+      logger.info('Server closed');
+      process.exit(0);
     });
-  }
-});
+  };
 
-module.exports = { app, server, io };
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
+
+  // Start server
+  server.listen(config.server.port, () => {
+    logger.info(`BabyLink HTTP Server running at http://localhost:${config.server.port}`);
+    logger.info(`Environment: ${config.server.nodeEnv}`);
+    logger.info(`Use a reverse proxy (Caddy/Nginx) for HTTPS in production`);
+    logger.info(`Multi-baby mode: ${config.features.multiBaby ? 'Enabled' : 'Disabled'}`);
+
+    if (config.server.isDevelopment) {
+      logger.debug('Configuration loaded', {
+        port: config.server.port,
+        maxRooms: config.room.maxRooms,
+        maxBabiesPerRoom: config.room.maxBabiesPerRoom,
+        maxParentsPerRoom: config.room.maxParentsPerRoom,
+        logLevel: config.logging.level
+      });
+    }
+  });
+}
+
+module.exports = { createServer };
