@@ -103,7 +103,7 @@ class MultiStreamManager {
     audio.playsInline = true;
     audio.srcObject = stream;
     audio.volume = 1.0;
-    audio.muted = true; // Start muted, will be controlled by voice detection
+    audio.muted = false; // Let browser autoplay policy handle blocking; auto-mute logic takes over once levels are read
 
     // Hide audio element (we'll control it via UI)
     audio.style.display = 'none';

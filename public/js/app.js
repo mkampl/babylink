@@ -22,6 +22,7 @@
   let wasDisconnected = false;
   let webrtcAudioEnabled = false;
   const pendingSignals = []; // Queue signals that arrive before init completes
+  const pendingParents = []; // Queue parents that join before baby has mic ready
 
   // Module instances
   const wakeLockMgr = new WakeLockManager();
@@ -133,6 +134,13 @@
       multiStreamManager = new MultiStreamManager(socket, webrtcConfig);
       multiStreamManager.localStream = localStream;
       document.getElementById('status').textContent = '\uD83C\uDFA4 Microphone active - streaming to parents';
+
+      // Connect to any parents that joined while we were waiting for mic permission
+      if (pendingParents.length > 0) {
+        console.log(`Connecting to ${pendingParents.length} parent(s) that joined during mic setup`);
+        pendingParents.forEach(p => createPeerConnectionToParent(p));
+        pendingParents.length = 0;
+      }
     } catch (err) {
       console.error('Microphone error:', err);
       document.getElementById('status').textContent = 'Microphone access denied';
@@ -291,6 +299,8 @@
       participants.filter(p => p.role === 'parent').forEach(async (parent) => {
         if (multiStreamManager && localStream) {
           await createPeerConnectionToParent(parent);
+        } else {
+          pendingParents.push(parent);
         }
       });
     } else if (role === 'parent') {
@@ -316,8 +326,12 @@
       const el = document.getElementById('parentCount');
       if (el) el.textContent = `${parentCount} parent${parentCount !== 1 ? 's' : ''} monitoring`;
 
+      const parentInfo = { socketId, role: pRole, userName: pName };
       if (multiStreamManager && localStream) {
-        createPeerConnectionToParent({ socketId, role: pRole, userName: pName });
+        createPeerConnectionToParent(parentInfo);
+      } else {
+        // Mic not ready yet — queue and process after init
+        pendingParents.push(parentInfo);
       }
     } else if (role === 'parent' && pRole === 'baby') {
       multiBabyUI.addBaby(socketId, { socketId, role: pRole, userName: pName });
