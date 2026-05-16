@@ -26,6 +26,7 @@
 #include <WebSocketsClient.h>
 #include <ArduinoJson.h>
 #include <driver/i2s.h>
+#include <NimBLEDevice.h>
 
 // =============================================================================
 // CONFIGURATION - EDIT THESE VALUES
@@ -92,6 +93,121 @@ int16_t audioBuffer[BUFFER_SIZE];
 unsigned long audioPacketsSent = 0;
 unsigned long lastStatsReport = 0;
 unsigned long connectionTime = 0;
+
+// =============================================================================
+// BLE PROVISIONING
+// =============================================================================
+
+// BLE Service and Characteristic UUIDs
+#define BLE_SERVICE_UUID        "4babl1nk-0001-1000-8000-00805f9b34fb"
+#define BLE_CHAR_WIFI_SSID      "4babl1nk-0002-1000-8000-00805f9b34fb"
+#define BLE_CHAR_WIFI_PASS      "4babl1nk-0003-1000-8000-00805f9b34fb"
+#define BLE_CHAR_SERVER_HOST    "4babl1nk-0004-1000-8000-00805f9b34fb"
+#define BLE_CHAR_SERVER_PORT    "4babl1nk-0005-1000-8000-00805f9b34fb"
+#define BLE_CHAR_ROOM_ID        "4babl1nk-0006-1000-8000-00805f9b34fb"
+#define BLE_CHAR_DEVICE_NAME    "4babl1nk-0007-1000-8000-00805f9b34fb"
+#define BLE_CHAR_COMMAND        "4babl1nk-0008-1000-8000-00805f9b34fb"
+
+// BLE provisioning state
+bool isBLEActive = false;
+String bleSsid = "";
+String blePassword = "";
+String bleServerHost = "";
+String bleServerPort = "";
+String bleRoomId = "";
+String bleDeviceName = "";
+
+// BLE Callbacks
+class BLEProvisionCallbacks : public NimBLECharacteristicCallbacks {
+  void onWrite(NimBLECharacteristic* pCharacteristic) {
+    String uuid = String(pCharacteristic->getUUID().toString().c_str());
+    String value = String(pCharacteristic->getValue().c_str());
+
+    Serial.printf("[BLE] Write to %s: %s\n", uuid.c_str(), value.c_str());
+
+    if (uuid.indexOf("0002") > 0) bleSsid = value;
+    else if (uuid.indexOf("0003") > 0) blePassword = value;
+    else if (uuid.indexOf("0004") > 0) bleServerHost = value;
+    else if (uuid.indexOf("0005") > 0) bleServerPort = value;
+    else if (uuid.indexOf("0006") > 0) bleRoomId = value;
+    else if (uuid.indexOf("0007") > 0) bleDeviceName = value;
+    else if (uuid.indexOf("0008") > 0) {
+      // Command characteristic — "apply" triggers save and restart
+      if (value == "apply") {
+        Serial.println("[BLE] Apply command received — saving config and restarting");
+
+        // Update runtime config from BLE values
+        if (bleSsid.length() > 0) configWifiSsid = bleSsid;
+        if (blePassword.length() > 0) configWifiPassword = blePassword;
+        if (bleServerHost.length() > 0) configServerHost = bleServerHost;
+        if (bleServerPort.length() > 0) configServerPort = bleServerPort.toInt();
+        if (bleRoomId.length() > 0) configRoomId = bleRoomId;
+        if (bleDeviceName.length() > 0) configDeviceName = bleDeviceName;
+
+        // Save to NVS
+        preferences.begin("babylink", false);
+        preferences.putString("wifi_ssid", configWifiSsid);
+        preferences.putString("wifi_pass", configWifiPassword);
+        preferences.putString("server_host", configServerHost);
+        preferences.putUShort("server_port", configServerPort);
+        preferences.putString("room_id", configRoomId);
+        preferences.putString("device_name", configDeviceName);
+        preferences.end();
+
+        Serial.println("[BLE] Configuration saved. Restarting in 1 second...");
+        delay(1000);
+        ESP.restart();
+      }
+    }
+  }
+};
+
+void startBLE() {
+  // Generate unique name from MAC address
+  uint8_t mac[6];
+  esp_read_mac(mac, ESP_MAC_WIFI_STA);
+  char bleName[20];
+  snprintf(bleName, sizeof(bleName), "BabyLink-%02X%02X", mac[4], mac[5]);
+
+  Serial.printf("[BLE] Starting BLE as '%s'\n", bleName);
+
+  NimBLEDevice::init(bleName);
+  NimBLEDevice::setPower(ESP_PWR_LVL_P9); // Max range
+
+  NimBLEServer* pServer = NimBLEDevice::createServer();
+  NimBLEService* pService = pServer->createService(BLE_SERVICE_UUID);
+
+  BLEProvisionCallbacks* callbacks = new BLEProvisionCallbacks();
+
+  // Create writable characteristics for each config field
+  auto createChar = [&](const char* uuid) {
+    NimBLECharacteristic* c = pService->createCharacteristic(
+      uuid,
+      NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::READ
+    );
+    c->setCallbacks(callbacks);
+    return c;
+  };
+
+  createChar(BLE_CHAR_WIFI_SSID);
+  createChar(BLE_CHAR_WIFI_PASS);
+  createChar(BLE_CHAR_SERVER_HOST);
+  createChar(BLE_CHAR_SERVER_PORT);
+  createChar(BLE_CHAR_ROOM_ID);
+  createChar(BLE_CHAR_DEVICE_NAME);
+  createChar(BLE_CHAR_COMMAND);
+
+  pService->start();
+
+  // Start advertising
+  NimBLEAdvertising* pAdvertising = NimBLEDevice::getAdvertising();
+  pAdvertising->addServiceUUID(BLE_SERVICE_UUID);
+  pAdvertising->setScanResponse(true);
+  pAdvertising->start();
+
+  isBLEActive = true;
+  Serial.printf("[BLE] Advertising started. Free heap: %d bytes\n", ESP.getFreeHeap());
+}
 
 // =============================================================================
 // CONFIGURATION MANAGEMENT
@@ -366,7 +482,10 @@ void startConfigPortal() {
   webServer.begin();
   isConfigMode = true;
 
-  Serial.println("✅ Configuration portal ready!");
+  // Also start BLE for phone provisioning (Android Web Bluetooth)
+  startBLE();
+
+  Serial.println("✅ Configuration portal ready (WiFi AP + BLE)!");
 }
 
 // =============================================================================
@@ -615,8 +734,8 @@ void processAudio() {
     // Report statistics every 10 seconds
     if (millis() - lastStatsReport > 10000) {
       unsigned long uptime = (millis() - connectionTime) / 1000;
-      Serial.printf("📊 Stats - Packets: %lu, Uptime: %lu s, WiFi: %d dBm\n",
-                    audioPacketsSent, uptime, WiFi.RSSI());
+      Serial.printf("�� Stats - Packets: %lu, Uptime: %lu s, WiFi: %d dBm, Heap: %d bytes\n",
+                    audioPacketsSent, uptime, WiFi.RSSI(), ESP.getFreeHeap());
       lastStatsReport = millis();
     }
   } else if (result != ESP_OK) {

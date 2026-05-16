@@ -137,6 +137,23 @@
           <button type="button" id="startBleBtn" class="onboarding-btn primary">Add via Bluetooth</button>
           <p style="font-size:0.82rem;color:var(--color-text-muted);margin-top:var(--space-xs);">Android Chrome only — discovers nearby BabyLink devices</p>
         </div>
+        <!-- BLE Wizard (shown after clicking Add via Bluetooth) -->
+        <div id="bleWizard" style="display:none;margin-bottom:var(--space-lg);">
+          <div id="bleStatus" style="font-size:0.9rem;font-weight:600;margin-bottom:var(--space-md);color:var(--color-primary);"></div>
+          <div id="bleWifiForm" style="display:none;">
+            <p style="font-size:0.88rem;color:var(--color-text-secondary);margin:0 0 var(--space-md);">Enter WiFi credentials for the ESP32 device:</p>
+            <form id="bleConfigForm" class="pin-form">
+              <label for="bleWifiSsid">WiFi Network (SSID):</label>
+              <input type="text" id="bleWifiSsid" placeholder="Your WiFi name" required autocomplete="off" />
+              <label for="bleWifiPass">WiFi Password:</label>
+              <input type="password" id="bleWifiPass" placeholder="WiFi password" autocomplete="off" />
+              <label for="bleDevName">Device Name:</label>
+              <input type="text" id="bleDevName" placeholder="e.g. Nursery ESP32" value="ESP32 Baby" autocomplete="off" />
+              <button type="submit" class="onboarding-btn primary" style="margin-top:var(--space-md);">Configure &amp; Connect</button>
+            </form>
+          </div>
+          <div id="bleResult" class="pin-result" style="display:none;"></div>
+        </div>
         <div class="device-setup-steps">
           <p style="font-size:0.88rem;font-weight:600;margin:0 0 var(--space-sm);">Manual Setup (all platforms):</p>
           <ol style="margin:0;padding-left:1.5em;font-size:0.88rem;line-height:1.8;color:var(--color-text-secondary);">
@@ -600,7 +617,7 @@
 
     function startDevicePolling() {
       stopDevicePolling();
-      devicesPollingInterval = setInterval(loadDevices, 5000);
+      devicesPollingInterval = setInterval(loadDevices, 10000);
     }
 
     function stopDevicePolling() {
@@ -682,6 +699,115 @@
         console.error('Disconnect failed:', err);
       }
     };
+
+    // ========================
+    // BLE Provisioning (Web Bluetooth API — Android Chrome only)
+    // ========================
+
+    var BLE_SERVICE_UUID = '4babl1nk-0001-1000-8000-00805f9b34fb';
+    var BLE_CHAR_WIFI_SSID = '4babl1nk-0002-1000-8000-00805f9b34fb';
+    var BLE_CHAR_WIFI_PASS = '4babl1nk-0003-1000-8000-00805f9b34fb';
+    var BLE_CHAR_SERVER_HOST = '4babl1nk-0004-1000-8000-00805f9b34fb';
+    var BLE_CHAR_SERVER_PORT = '4babl1nk-0005-1000-8000-00805f9b34fb';
+    var BLE_CHAR_ROOM_ID = '4babl1nk-0006-1000-8000-00805f9b34fb';
+    var BLE_CHAR_DEVICE_NAME = '4babl1nk-0007-1000-8000-00805f9b34fb';
+    var BLE_CHAR_COMMAND = '4babl1nk-0008-1000-8000-00805f9b34fb';
+
+    var bleDevice = null;
+    var bleServer = null;
+    var bleService = null;
+
+    document.getElementById('startBleBtn').addEventListener('click', async function() {
+      var wizard = document.getElementById('bleWizard');
+      var status = document.getElementById('bleStatus');
+      var result = document.getElementById('bleResult');
+
+      wizard.style.display = 'block';
+      status.textContent = 'Scanning for BabyLink devices...';
+      result.style.display = 'none';
+      document.getElementById('bleWifiForm').style.display = 'none';
+
+      try {
+        bleDevice = await navigator.bluetooth.requestDevice({
+          filters: [{ namePrefix: 'BabyLink' }],
+          optionalServices: [BLE_SERVICE_UUID]
+        });
+
+        status.textContent = 'Connecting to ' + bleDevice.name + '...';
+        bleServer = await bleDevice.gatt.connect();
+        bleService = await bleServer.getPrimaryService(BLE_SERVICE_UUID);
+
+        status.textContent = 'Connected to ' + bleDevice.name;
+        document.getElementById('bleWifiForm').style.display = 'block';
+      } catch (err) {
+        if (err.name === 'NotFoundError') {
+          status.textContent = 'No device selected.';
+        } else {
+          status.textContent = 'Error: ' + err.message;
+        }
+        console.error('BLE error:', err);
+      }
+    });
+
+    document.getElementById('bleConfigForm').addEventListener('submit', async function(e) {
+      e.preventDefault();
+      var status = document.getElementById('bleStatus');
+      var result = document.getElementById('bleResult');
+      var roomId = window.location.pathname.slice(1);
+
+      if (!bleService) {
+        result.style.display = 'block';
+        result.className = 'pin-result error';
+        result.textContent = 'Not connected to device';
+        return;
+      }
+
+      var wifiSsid = document.getElementById('bleWifiSsid').value.trim();
+      var wifiPass = document.getElementById('bleWifiPass').value;
+      var devName = document.getElementById('bleDevName').value.trim() || 'ESP32 Baby';
+      var serverHost = window.location.hostname;
+      var serverPort = window.location.port || (window.location.protocol === 'https:' ? '443' : '80');
+
+      status.textContent = 'Writing configuration...';
+
+      try {
+        var encoder = new TextEncoder();
+
+        async function writeChar(uuid, value) {
+          var char = await bleService.getCharacteristic(uuid);
+          await char.writeValue(encoder.encode(value));
+        }
+
+        await writeChar(BLE_CHAR_WIFI_SSID, wifiSsid);
+        await writeChar(BLE_CHAR_WIFI_PASS, wifiPass);
+        await writeChar(BLE_CHAR_SERVER_HOST, serverHost);
+        await writeChar(BLE_CHAR_SERVER_PORT, serverPort);
+        await writeChar(BLE_CHAR_ROOM_ID, roomId);
+        await writeChar(BLE_CHAR_DEVICE_NAME, devName);
+
+        status.textContent = 'Applying configuration...';
+        await writeChar(BLE_CHAR_COMMAND, 'apply');
+
+        // Device will restart — disconnect is expected
+        status.textContent = '';
+        result.style.display = 'block';
+        result.className = 'pin-result success';
+        result.textContent = 'Configuration sent! Device is restarting and will join this room in a few seconds.';
+        document.getElementById('bleWifiForm').style.display = 'none';
+
+        // Clean up BLE connection
+        if (bleServer && bleServer.connected) bleServer.disconnect();
+        bleDevice = null;
+        bleServer = null;
+        bleService = null;
+      } catch (err) {
+        status.textContent = 'Connected to ' + (bleDevice ? bleDevice.name : 'device');
+        result.style.display = 'block';
+        result.className = 'pin-result error';
+        result.textContent = 'Failed to write config: ' + err.message;
+        console.error('BLE write error:', err);
+      }
+    });
 
     // Store verified PIN in sessionStorage for use by app.js
     function storeVerifiedPin() {
