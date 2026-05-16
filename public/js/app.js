@@ -191,9 +191,9 @@
       document.getElementById('micStatus').classList.add('active');
       document.getElementById('testAudioBtn').disabled = false;
 
-      // Start waveform visualization + crying detection
+      // Start waveform visualization + audio monitoring (crying + sleep tracking)
       startWaveform(localStream);
-      startBabyCryingDetection(localStream);
+      startBabyAudioMonitoring(localStream);
 
       // Connect to any parents that joined while we were waiting for mic permission
       if (pendingParents.length > 0) {
@@ -283,12 +283,12 @@
   }
 
   // ========================
-  // Baby-side crying detection
-  // Detects loud audio (crying) from mic and notifies server directly
-  // Works even when no parent is connected
+  // Baby-side audio monitoring
+  // - Crying detection → notifies server for ntfy push
+  // - Sleep tracking → logs state transitions to localStorage
   // ========================
 
-  function startBabyCryingDetection(stream) {
+  function startBabyAudioMonitoring(stream) {
     var audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     var source = audioCtx.createMediaStreamSource(stream);
     var analyser = audioCtx.createAnalyser();
@@ -297,38 +297,122 @@
 
     var bufferLength = analyser.frequencyBinCount;
     var dataArray = new Uint8Array(bufferLength);
+
+    // --- Crying detection state ---
     var isCrying = false;
-    var lastEmit = 0;
-    var COOLDOWN = 10000; // 10 seconds, matches server cooldown
-    var RED_THRESHOLD = 180; // Same threshold as multi-stream-manager
+    var lastCryingEmit = 0;
+    var CRYING_COOLDOWN = 10000;
+    var RED_THRESHOLD = 180;
+    var YELLOW_THRESHOLD = 100;
+
+    // --- Sleep tracking state ---
+    var currentLevel = 'GREEN';
+    var sleepTrackingEnabled = true;
+
+    // Load sleep tracking config
+    try {
+      var cfg = JSON.parse(localStorage.getItem('babylink-sleep-config-' + roomId) || '{}');
+      if (cfg.enabled === false) sleepTrackingEnabled = false;
+    } catch (e) {}
+
+    // Record initial state
+    if (sleepTrackingEnabled) {
+      recordSleepEvent('GREEN');
+    }
+
+    function getLevel(volume) {
+      if (volume > RED_THRESHOLD) return 'RED';
+      if (volume > YELLOW_THRESHOLD) return 'YELLOW';
+      return 'GREEN';
+    }
 
     function check() {
-      analyser.getByteTimeDomainData(dataArray);
+      // Use frequency data (same as multi-stream-manager on parent side)
+      analyser.getByteFrequencyData(dataArray);
 
-      // Find max amplitude
-      var maxVal = 0;
+      // Peak frequency bin value (matches parent-side detection)
+      var peak = 0;
       for (var i = 0; i < bufferLength; i++) {
-        var v = Math.abs(dataArray[i] - 128);
-        if (v > maxVal) maxVal = v;
+        if (dataArray[i] > peak) peak = dataArray[i];
       }
+      var volume = peak;
+      var level = getLevel(volume);
 
-      // Scale to 0-255 range comparable to multi-stream-manager
-      var volume = maxVal * 2;
-
-      if (volume > RED_THRESHOLD) {
+      // --- Crying detection ---
+      if (level === 'RED') {
         var now = Date.now();
-        if (!isCrying || now - lastEmit > COOLDOWN) {
+        if (!isCrying || now - lastCryingEmit > CRYING_COOLDOWN) {
           isCrying = true;
-          lastEmit = now;
+          lastCryingEmit = now;
           socket.emit('crying-detected', { roomId: roomId, babyId: socket.id, babyName: userName });
         }
       } else {
         isCrying = false;
       }
+
+      // --- Sleep tracking (record every transition) ---
+      if (sleepTrackingEnabled && level !== currentLevel) {
+        currentLevel = level;
+        recordSleepEvent(level);
+      }
     }
 
-    // Check every 500ms (efficient, no need for 60fps)
     setInterval(check, 500);
+  }
+
+  // ========================
+  // Sleep event storage (localStorage)
+  // ========================
+
+  function getSleepStorageKey() {
+    return 'babylink-sleep-' + roomId;
+  }
+
+  function getSleepEvents() {
+    try {
+      return JSON.parse(localStorage.getItem(getSleepStorageKey()) || '[]');
+    } catch (e) { return []; }
+  }
+
+  function recordSleepEvent(level) {
+    var events = getSleepEvents();
+    var now = Date.now();
+
+    // Don't record duplicate consecutive states
+    if (events.length > 0 && events[events.length - 1].level === level) return;
+
+    events.push({ time: now, level: level });
+
+    // Prune old events based on retention
+    var retentionDays = 7;
+    try {
+      var cfg = JSON.parse(localStorage.getItem('babylink-sleep-config-' + roomId) || '{}');
+      if (cfg.retentionDays) retentionDays = cfg.retentionDays;
+    } catch (e) {}
+    var cutoff = now - (retentionDays * 24 * 60 * 60 * 1000);
+    events = events.filter(function(e) { return e.time >= cutoff; });
+
+    localStorage.setItem(getSleepStorageKey(), JSON.stringify(events));
+
+    // Broadcast updated timeline to parents
+    broadcastSleepTimeline();
+  }
+
+  function broadcastSleepTimeline() {
+    if (role !== 'baby' || !hasJoinedRoom) return;
+    var events = getSleepEvents();
+    socket.emit('sleep-timeline', { roomId: roomId, babyId: socket.id, babyName: userName, events: events });
+  }
+
+  // Serve sleep timeline to parents via socket
+  socket.on('request-sleep-timeline', function(data) {
+    if (role !== 'baby') return;
+    broadcastSleepTimeline();
+  });
+
+  // Periodically broadcast timeline so parent's counters stay fresh
+  if (role === 'baby') {
+    setInterval(function() { broadcastSleepTimeline(); }, 60000);
   }
 
   // ========================
@@ -452,6 +536,8 @@
     multiStreamManager.onStreamAdded = (participantId, stream, participantInfo) => {
       multiBabyUI.addBaby(participantId, participantInfo);
       enableAllAudio();
+      // Request sleep timeline from baby
+      socket.emit('request-sleep-timeline', { roomId: roomId });
     };
 
     multiStreamManager.onStreamRemoved = (participantId) => {
@@ -643,6 +729,14 @@
   socket.on('esp32-audio', (data) => {
     if (role !== 'parent') return;
     esp32Handler.handleAudioData(data, multiBabyUI);
+  });
+
+  // Handle sleep timeline from baby (parent side)
+  socket.on('sleep-timeline', (data) => {
+    if (role !== 'parent') return;
+    if (multiBabyUI && data.babyId) {
+      multiBabyUI.updateSleepTimeline(data.babyId, data.events || []);
+    }
   });
 
   // ========================

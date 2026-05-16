@@ -565,6 +565,21 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Relay sleep timeline requests/responses between parent and baby
+  socket.on('request-sleep-timeline', (data) => {
+    if (!socket.roomId) return;
+    // Forward to all babies in the room
+    socket.to(socket.roomId).emit('request-sleep-timeline', {
+      fromSocketId: socket.id
+    });
+  });
+
+  socket.on('sleep-timeline', (data) => {
+    if (!socket.roomId) return;
+    // Forward to all parents in the room (or to specific requester)
+    socket.to(socket.roomId).emit('sleep-timeline', data);
+  });
+
   // Handle errors
   socket.on('error', (error) => {
     logger.error('Socket error', { socketId: socket.id, error: error.message });

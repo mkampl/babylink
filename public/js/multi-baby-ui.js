@@ -115,6 +115,12 @@ class MultiBabyUI {
         </div>
       </div>
 
+      <div class="baby-sleep-timeline" id="sleep-${babyId}">
+        <strong>Sleep Timeline:</strong>
+        <div class="sleep-timeline-bar" id="sleep-bar-${babyId}"></div>
+        <div class="sleep-summary" id="sleep-summary-${babyId}"></div>
+      </div>
+
       <div class="baby-activity-log" id="log-${babyId}">
         <strong>Activity Log:</strong>
         <div class="log-entries" id="log-entries-${babyId}"></div>
@@ -510,6 +516,63 @@ class MultiBabyUI {
    */
   escapeHtml(text) {
     return escapeHtml(text);
+  }
+
+  /**
+   * Update sleep timeline display for a baby
+   */
+  updateSleepTimeline(babyId, events) {
+    var bar = document.getElementById('sleep-bar-' + babyId);
+    var summary = document.getElementById('sleep-summary-' + babyId);
+    if (!bar || !events || events.length === 0) return;
+
+    // Show last 12 hours
+    var now = Date.now();
+    var windowMs = 12 * 60 * 60 * 1000;
+    var startTime = now - windowMs;
+
+    // Filter to window
+    var filtered = events.filter(function(e) { return e.time >= startTime || events.indexOf(e) === events.length - 1; });
+    if (filtered.length === 0) return;
+
+    // Build segments
+    bar.innerHTML = '';
+    var totalMs = now - startTime;
+
+    for (var i = 0; i < filtered.length; i++) {
+      var segStart = Math.max(filtered[i].time, startTime);
+      var segEnd = (i + 1 < filtered.length) ? filtered[i + 1].time : now;
+      var pctLeft = ((segStart - startTime) / totalMs) * 100;
+      var pctWidth = ((segEnd - segStart) / totalMs) * 100;
+
+      if (pctWidth < 0.2) continue; // Skip tiny segments
+
+      var seg = document.createElement('div');
+      seg.className = 'sleep-segment sleep-' + filtered[i].level.toLowerCase();
+      seg.style.left = pctLeft + '%';
+      seg.style.width = pctWidth + '%';
+      bar.appendChild(seg);
+    }
+
+    // Calculate summary
+    var sleepMs = 0;
+    var wakeCount = 0;
+    for (var j = 0; j < filtered.length; j++) {
+      var sStart = Math.max(filtered[j].time, startTime);
+      var sEnd = (j + 1 < filtered.length) ? filtered[j + 1].time : now;
+      if (filtered[j].level === 'GREEN') {
+        sleepMs += (sEnd - sStart);
+      }
+      if (filtered[j].level === 'RED' && j > 0 && filtered[j - 1].level === 'GREEN') {
+        wakeCount++;
+      }
+    }
+
+    var sleepHours = Math.floor(sleepMs / 3600000);
+    var sleepMins = Math.floor((sleepMs % 3600000) / 60000);
+    var text = sleepHours + 'h ' + sleepMins + 'min quiet';
+    if (wakeCount > 0) text += ', woke ' + wakeCount + ' time' + (wakeCount > 1 ? 's' : '');
+    summary.textContent = text;
   }
 
   /**

@@ -226,6 +226,59 @@
   cursor: help;
 }
 
+/* ====== Sleep Timeline ====== */
+.baby-sleep-timeline {
+  margin: var(--space-md) 0;
+  padding: var(--space-md) 0;
+  border-top: 1px solid var(--color-border-light);
+}
+
+.baby-sleep-timeline strong {
+  display: block;
+  margin-bottom: var(--space-sm);
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.sleep-timeline-bar {
+  position: relative;
+  height: 24px;
+  background: var(--color-border-light);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  margin-bottom: var(--space-xs);
+}
+
+.sleep-segment {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  min-width: 2px;
+}
+
+.sleep-green {
+  background: var(--color-success);
+  opacity: 0.6;
+}
+
+.sleep-yellow {
+  background: var(--color-warning);
+  opacity: 0.7;
+}
+
+.sleep-red {
+  background: var(--color-danger);
+  opacity: 0.8;
+}
+
+.sleep-summary {
+  font-size: 0.82rem;
+  color: var(--color-text-secondary);
+  font-weight: 500;
+}
+
 /* ====== Activity Log ====== */
 .baby-activity-log {
   margin-top: var(--space-md);

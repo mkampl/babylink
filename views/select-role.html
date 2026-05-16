@@ -44,6 +44,7 @@
     <div id="roomSettingsToggle" class="room-settings-toggle" style="display:none;">
       <button type="button" id="pinSettingsBtn" class="room-settings-btn">Room Security</button>
       <button type="button" id="ntfySettingsBtn" class="room-settings-btn">Push Notifications</button>
+      <button type="button" id="sleepSettingsBtn" class="room-settings-btn">Sleep Tracking</button>
     </div>
     <div id="pinSettings" class="pin-settings" style="display:none;">
       <h3 id="pinSettingsTitle">Set Room PIN</h3>
@@ -95,6 +96,30 @@
         </div>
         <button type="submit">Save Settings</button>
         <div id="ntfyResult" class="pin-result" style="display:none;"></div>
+      </form>
+    </div>
+
+    <!-- Sleep Tracking Settings -->
+    <div id="sleepSettings" class="pin-settings" style="display:none;">
+      <h3>Sleep Tracking</h3>
+      <p>Track baby's sleep patterns based on audio activity. Data is stored locally on the baby device.</p>
+      <form id="sleepForm" class="pin-form">
+        <div style="margin-bottom:var(--space-md);">
+          <label style="display:flex;align-items:center;gap:var(--space-sm);cursor:pointer;">
+            <input type="checkbox" id="sleepEnabled" checked style="width:20px;height:20px;accent-color:var(--color-primary);">
+            <span>Enable sleep tracking</span>
+          </label>
+        </div>
+        <label for="sleepRetention">Keep data for:</label>
+        <select id="sleepRetention" style="display:block;width:100%;padding:0.8em 1em;font-size:1rem;border-radius:var(--radius-md);border:2px solid var(--color-border);min-height:48px;background:var(--color-surface-alt);color:var(--color-text);margin-bottom:var(--space-lg);font-family:var(--font-family);">
+          <option value="1">1 day</option>
+          <option value="3">3 days</option>
+          <option value="7" selected>7 days</option>
+          <option value="14">14 days</option>
+          <option value="30">30 days</option>
+        </select>
+        <button type="submit">Save Settings</button>
+        <div id="sleepResult" class="pin-result" style="display:none;"></div>
       </form>
     </div>
 
@@ -463,6 +488,43 @@
         resultEl.className = 'pin-result error';
         resultEl.textContent = 'Failed to update PIN';
       }
+    });
+
+    // Sleep tracking settings toggle
+    document.getElementById('sleepSettingsBtn').addEventListener('click', function() {
+      var settings = document.getElementById('sleepSettings');
+      var visible = settings.style.display !== 'none';
+      settings.style.display = visible ? 'none' : 'block';
+      if (!visible) {
+        document.getElementById('pinSettings').style.display = 'none';
+        document.getElementById('ntfySettings').style.display = 'none';
+        loadSleepConfig();
+      }
+    });
+
+    function loadSleepConfig() {
+      var roomId = window.location.pathname.slice(1);
+      try {
+        var cfg = JSON.parse(localStorage.getItem('babylink-sleep-config-' + roomId) || '{}');
+        document.getElementById('sleepEnabled').checked = cfg.enabled !== false;
+        if (cfg.retentionDays) document.getElementById('sleepRetention').value = String(cfg.retentionDays);
+      } catch (e) {}
+    }
+
+    document.getElementById('sleepForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+      var roomId = window.location.pathname.slice(1);
+      var cfg = {
+        enabled: document.getElementById('sleepEnabled').checked,
+        retentionDays: parseInt(document.getElementById('sleepRetention').value, 10)
+      };
+      localStorage.setItem('babylink-sleep-config-' + roomId, JSON.stringify(cfg));
+
+      var resultEl = document.getElementById('sleepResult');
+      resultEl.style.display = 'block';
+      resultEl.className = 'pin-result success';
+      resultEl.textContent = 'Settings saved';
+      setTimeout(function() { resultEl.style.display = 'none'; }, 3000);
     });
 
     // Store verified PIN in sessionStorage for use by app.js
