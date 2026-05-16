@@ -40,9 +40,10 @@
       </form>
     </div>
 
-    <!-- PIN Settings (shown after unlock or if no PIN) -->
-    <div id="pinSettingsToggle" class="pin-settings-toggle" style="display:none;">
-      <button type="button" id="pinSettingsBtn" class="pin-settings-btn">Room Security Settings</button>
+    <!-- Room Settings toggles (shown after unlock or if no PIN) -->
+    <div id="roomSettingsToggle" class="room-settings-toggle" style="display:none;">
+      <button type="button" id="pinSettingsBtn" class="room-settings-btn">Room Security</button>
+      <button type="button" id="ntfySettingsBtn" class="room-settings-btn">Push Notifications</button>
     </div>
     <div id="pinSettings" class="pin-settings" style="display:none;">
       <h3 id="pinSettingsTitle">Set Room PIN</h3>
@@ -56,6 +57,44 @@
         <input type="password" id="newPinInput" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="4-6 digits" autocomplete="off" />
         <button type="submit">Save PIN</button>
         <div id="pinSetResult" class="pin-result" style="display:none;"></div>
+      </form>
+    </div>
+
+    <!-- Notification Settings -->
+    <div id="ntfySettings" class="pin-settings" style="display:none;">
+      <h3>Push Notifications</h3>
+      <p>Get alerts on your phone via <a href="https://ntfy.sh" target="_blank" style="color:var(--color-primary);">ntfy.sh</a> when baby cries or a device disconnects.</p>
+      <form id="ntfyForm" class="pin-form">
+        <label for="ntfyServer">Server URL (leave empty for ntfy.sh):</label>
+        <input type="text" id="ntfyServer" placeholder="https://ntfy.sh" autocomplete="off" />
+        <label for="ntfyTopic">Topic:</label>
+        <div style="display:flex;gap:var(--space-sm);margin-bottom:var(--space-md);">
+          <input type="text" id="ntfyTopic" placeholder="my-unique-topic-name" style="flex:1;" autocomplete="off" />
+          <button type="button" id="testNotificationBtn" disabled style="width:auto;white-space:nowrap;">Test</button>
+        </div>
+        <div style="margin-bottom:var(--space-md);">
+          <label style="display:flex;align-items:center;gap:var(--space-sm);margin-bottom:var(--space-xs);cursor:pointer;">
+            <input type="checkbox" id="ntfyEnabled" checked style="width:20px;height:20px;accent-color:var(--color-primary);">
+            <span>Enable push notifications</span>
+          </label>
+        </div>
+        <div style="margin-bottom:var(--space-md);">
+          <div style="font-weight:600;margin-bottom:var(--space-sm);font-size:0.9rem;">Notify me when:</div>
+          <label style="display:flex;align-items:center;gap:var(--space-sm);margin-bottom:var(--space-xs);cursor:pointer;">
+            <input type="checkbox" id="notifyOnCrying" checked style="width:20px;height:20px;accent-color:var(--color-primary);">
+            <span>Baby is crying</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:var(--space-sm);margin-bottom:var(--space-xs);cursor:pointer;">
+            <input type="checkbox" id="notifyOnDisconnect" checked style="width:20px;height:20px;accent-color:var(--color-primary);">
+            <span>Baby monitor disconnects</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:var(--space-sm);cursor:pointer;">
+            <input type="checkbox" id="notifyOnActivity" style="width:20px;height:20px;accent-color:var(--color-primary);">
+            <span>Activity events (low priority)</span>
+          </label>
+        </div>
+        <button type="submit">Save Settings</button>
+        <div id="ntfyResult" class="pin-result" style="display:none;"></div>
       </form>
     </div>
 
@@ -199,11 +238,11 @@
         if (roomHasPin) {
           document.getElementById('pinSection').style.display = 'block';
           document.getElementById('roleSelection').style.display = 'none';
-          document.getElementById('pinSettingsToggle').style.display = 'none';
+          document.getElementById('roomSettingsToggle').style.display = 'none';
         } else {
           document.getElementById('pinSection').style.display = 'none';
           document.getElementById('roleSelection').style.display = '';
-          document.getElementById('pinSettingsToggle').style.display = 'block';
+          document.getElementById('roomSettingsToggle').style.display = 'flex';
         }
       } catch (err) {
         // If check fails, show role selection anyway
@@ -229,7 +268,7 @@
           verifiedPin = pin;
           document.getElementById('pinSection').style.display = 'none';
           document.getElementById('roleSelection').style.display = '';
-          document.getElementById('pinSettingsToggle').style.display = 'block';
+          document.getElementById('roomSettingsToggle').style.display = 'flex';
           document.getElementById('pinError').style.display = 'none';
         } else {
           document.getElementById('pinError').style.display = 'block';
@@ -246,11 +285,147 @@
       var settings = document.getElementById('pinSettings');
       var visible = settings.style.display !== 'none';
       settings.style.display = visible ? 'none' : 'block';
+      // Close ntfy panel when opening PIN
+      if (!visible) document.getElementById('ntfySettings').style.display = 'none';
 
       if (!visible && roomHasPin) {
         document.getElementById('currentPinRow').style.display = 'block';
         document.getElementById('pinSettingsTitle').textContent = 'Change Room PIN';
         document.getElementById('pinSettingsDesc').textContent = 'Enter current PIN and set a new one, or leave new PIN empty to remove.';
+      }
+    });
+
+    // Notification settings toggle
+    document.getElementById('ntfySettingsBtn').addEventListener('click', function() {
+      var settings = document.getElementById('ntfySettings');
+      var visible = settings.style.display !== 'none';
+      settings.style.display = visible ? 'none' : 'block';
+      // Close PIN panel when opening ntfy
+      if (!visible) document.getElementById('pinSettings').style.display = 'none';
+      // Load config when opening
+      if (!visible) loadNtfyConfig();
+    });
+
+    // Load ntfy config from server
+    async function loadNtfyConfig() {
+      var roomId = window.location.pathname.slice(1);
+      try {
+        var res = await fetch('/api/rooms/' + encodeURIComponent(roomId) + '/config');
+        if (!res.ok) return;
+        var config = await res.json();
+
+        var serverEl = document.getElementById('ntfyServer');
+        var topicEl = document.getElementById('ntfyTopic');
+        var enabledEl = document.getElementById('ntfyEnabled');
+        var cryingEl = document.getElementById('notifyOnCrying');
+        var disconnectEl = document.getElementById('notifyOnDisconnect');
+        var activityEl = document.getElementById('notifyOnActivity');
+        var testBtn = document.getElementById('testNotificationBtn');
+
+        if (serverEl) serverEl.value = config.ntfyServer || '';
+        if (topicEl) topicEl.value = config.ntfyTopic || '';
+        if (enabledEl) enabledEl.checked = config.ntfyEnabled || false;
+        if (cryingEl) cryingEl.checked = config.notifyOnCrying !== false;
+        if (disconnectEl) disconnectEl.checked = config.notifyOnDisconnect !== false;
+        if (activityEl) activityEl.checked = config.notifyOnActivity || false;
+        if (testBtn) testBtn.disabled = !config.ntfyTopic;
+      } catch (err) {
+        console.error('Failed to load ntfy config:', err);
+      }
+    }
+
+    // Save ntfy config
+    async function saveNtfyConfig(silent) {
+      var roomId = window.location.pathname.slice(1);
+      var topic = (document.getElementById('ntfyTopic')?.value || '').trim();
+      var resultEl = document.getElementById('ntfyResult');
+
+      if (!topic) {
+        if (!silent && resultEl) {
+          resultEl.style.display = 'block';
+          resultEl.className = 'pin-result error';
+          resultEl.textContent = 'Please enter a topic';
+        }
+        return;
+      }
+
+      var ntfyServer = (document.getElementById('ntfyServer')?.value || '').trim() || null;
+      try {
+        var res = await fetch('/api/rooms/' + encodeURIComponent(roomId) + '/ntfy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            topic: topic,
+            ntfyServer: ntfyServer,
+            enabled: document.getElementById('ntfyEnabled')?.checked !== false,
+            notifyOnCrying: document.getElementById('notifyOnCrying')?.checked !== false,
+            notifyOnDisconnect: document.getElementById('notifyOnDisconnect')?.checked !== false,
+            notifyOnActivity: document.getElementById('notifyOnActivity')?.checked || false,
+          })
+        });
+        if (!res.ok) throw new Error('Failed to save');
+
+        var testBtn = document.getElementById('testNotificationBtn');
+        if (testBtn) testBtn.disabled = false;
+
+        if (!silent && resultEl) {
+          resultEl.style.display = 'block';
+          resultEl.className = 'pin-result success';
+          resultEl.textContent = 'Settings saved';
+          setTimeout(function() { resultEl.style.display = 'none'; }, 3000);
+        }
+      } catch (err) {
+        console.error('Failed to save ntfy config:', err);
+        if (!silent && resultEl) {
+          resultEl.style.display = 'block';
+          resultEl.className = 'pin-result error';
+          resultEl.textContent = 'Failed to save';
+        }
+      }
+    }
+
+    // Ntfy form submit
+    document.getElementById('ntfyForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+      saveNtfyConfig(false);
+    });
+
+    // Enable test button when topic is entered
+    document.getElementById('ntfyTopic').addEventListener('input', function() {
+      document.getElementById('testNotificationBtn').disabled = !this.value.trim();
+    });
+
+    // Test notification — auto-saves first
+    document.getElementById('testNotificationBtn').addEventListener('click', async function() {
+      var btn = this;
+      var resultEl = document.getElementById('ntfyResult');
+      btn.disabled = true;
+      btn.textContent = 'Sending...';
+
+      try {
+        await saveNtfyConfig(true);
+        var roomId = window.location.pathname.slice(1);
+        var res = await fetch('/api/rooms/' + encodeURIComponent(roomId) + '/ntfy/test', { method: 'POST' });
+        if (!res.ok) {
+          var data = await res.json().catch(function() { return {}; });
+          throw new Error(data.error || 'Failed');
+        }
+        var result = await res.json();
+        if (resultEl) {
+          resultEl.style.display = 'block';
+          resultEl.className = 'pin-result ' + (result.success ? 'success' : 'error');
+          resultEl.textContent = result.success ? 'Test sent! Check your phone.' : 'Failed to send';
+          setTimeout(function() { resultEl.style.display = 'none'; }, 5000);
+        }
+      } catch (err) {
+        if (resultEl) {
+          resultEl.style.display = 'block';
+          resultEl.className = 'pin-result error';
+          resultEl.textContent = err.message || 'Error sending';
+        }
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Test';
       }
     });
 

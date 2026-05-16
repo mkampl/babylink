@@ -639,6 +639,28 @@ body.role-page main {
   color: var(--color-primary);
 }
 
+.room-settings-toggle {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-md);
+  margin: var(--space-md) 0;
+}
+
+.room-settings-btn {
+  background: transparent;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  cursor: pointer;
+  text-decoration: underline;
+  font-family: var(--font-family);
+  padding: var(--space-sm);
+}
+
+.room-settings-btn:hover {
+  color: var(--color-primary);
+}
+
 .pin-settings {
   background: var(--color-surface);
   padding: var(--space-lg);

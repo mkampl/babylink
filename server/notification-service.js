@@ -17,7 +17,7 @@ class NotificationService {
 
     // Default cooldown periods (in milliseconds)
     this.cooldowns = {
-      crying: 5 * 60 * 1000,      // 5 minutes for crying alerts
+      crying: 10 * 1000,            // 10 seconds for crying alerts
       disconnect: 2 * 60 * 1000,   // 2 minutes for device disconnects
       reconnect: 1 * 60 * 1000,    // 1 minute for reconnect events
       activity: 10 * 60 * 1000     // 10 minutes for general activity
@@ -118,7 +118,8 @@ class NotificationService {
    */
   async sendCryingAlert(topic, roomId, babyName, serverUrl) {
     if (!this.shouldSendNotification(roomId, 'crying')) {
-      logger.debug(`Skipping crying alert for room ${roomId} (cooldown active)`);
+      const status = this.getCooldownStatus(roomId, 'crying');
+      logger.info(`Skipping crying alert for room ${roomId} (cooldown: ${status.timeRemaining}s remaining)`);
       return false;
     }
 

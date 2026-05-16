@@ -28,7 +28,6 @@
   const wakeLockMgr = new WakeLockManager();
   const alarmMgr = new AlarmManager();
   const esp32Handler = new ESP32AudioHandler(esp32AudioContexts);
-  const notificationUI = new NotificationUI(roomId);
 
   // Enable all audio (WebRTC + ESP32) — resumes suspended AudioContexts
   function enableAllAudio() {
@@ -57,11 +56,6 @@
   }
 
   window._enableAllAudio = enableAllAudio;
-
-  // Expose toggle for notification settings onclick
-  window.toggleNotificationSettings = function() {
-    notificationUI.toggle();
-  };
 
   // Dark mode toggle
   ThemeManager.createToggleButton(document.body);
@@ -120,7 +114,6 @@
       await initializeBabyDevice();
     } else if (role === 'parent') {
       await initializeParentDevice();
-      notificationUI.initialize();
     }
 
     isInitialized = true;
@@ -198,8 +191,9 @@
       document.getElementById('micStatus').classList.add('active');
       document.getElementById('testAudioBtn').disabled = false;
 
-      // Start waveform visualization
+      // Start waveform visualization + crying detection
       startWaveform(localStream);
+      startBabyCryingDetection(localStream);
 
       // Connect to any parents that joined while we were waiting for mic permission
       if (pendingParents.length > 0) {
@@ -286,6 +280,55 @@
     }
 
     draw();
+  }
+
+  // ========================
+  // Baby-side crying detection
+  // Detects loud audio (crying) from mic and notifies server directly
+  // Works even when no parent is connected
+  // ========================
+
+  function startBabyCryingDetection(stream) {
+    var audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    var source = audioCtx.createMediaStreamSource(stream);
+    var analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 256;
+    source.connect(analyser);
+
+    var bufferLength = analyser.frequencyBinCount;
+    var dataArray = new Uint8Array(bufferLength);
+    var isCrying = false;
+    var lastEmit = 0;
+    var COOLDOWN = 10000; // 10 seconds, matches server cooldown
+    var RED_THRESHOLD = 180; // Same threshold as multi-stream-manager
+
+    function check() {
+      analyser.getByteTimeDomainData(dataArray);
+
+      // Find max amplitude
+      var maxVal = 0;
+      for (var i = 0; i < bufferLength; i++) {
+        var v = Math.abs(dataArray[i] - 128);
+        if (v > maxVal) maxVal = v;
+      }
+
+      // Scale to 0-255 range comparable to multi-stream-manager
+      var volume = maxVal * 2;
+
+      if (volume > RED_THRESHOLD) {
+        var now = Date.now();
+        if (!isCrying || now - lastEmit > COOLDOWN) {
+          isCrying = true;
+          lastEmit = now;
+          socket.emit('crying-detected', { roomId: roomId, babyId: socket.id, babyName: userName });
+        }
+      } else {
+        isCrying = false;
+      }
+    }
+
+    // Check every 500ms (efficient, no need for 60fps)
+    setInterval(check, 500);
   }
 
   // ========================
@@ -417,7 +460,7 @@
 
     // Track crying state per baby to avoid spamming socket events
     const cryingState = new Map(); // babyId → { isCrying, lastEmit }
-    const CRYING_EMIT_COOLDOWN = 30000; // Only emit once per 30s per baby
+    const CRYING_EMIT_COOLDOWN = 10000; // Emit every 10s while baby is crying
 
     multiStreamManager.onAudioLevelUpdate = (participantId, level, volume) => {
       multiBabyUI.updateAudioLevel(participantId, level, volume);

@@ -65,12 +65,12 @@ class NotificationUI {
     }
   }
 
-  async saveConfig() {
+  async saveConfig(silent) {
     const topic = (document.getElementById('ntfyTopic')?.value || '').trim();
     const status = document.getElementById('notificationStatus');
 
     if (!topic) {
-      if (status) { status.textContent = 'Please enter a topic'; status.style.color = '#f44336'; }
+      if (!silent && status) { status.textContent = 'Please enter a topic'; status.style.color = '#f44336'; }
       return;
     }
 
@@ -82,21 +82,21 @@ class NotificationUI {
         body: JSON.stringify({
           topic,
           ntfyServer: ntfyServer,
-          enabled: document.getElementById('ntfyEnabled')?.checked,
-          notifyOnCrying: document.getElementById('notifyOnCrying')?.checked,
-          notifyOnDisconnect: document.getElementById('notifyOnDisconnect')?.checked,
-          notifyOnActivity: document.getElementById('notifyOnActivity')?.checked,
+          enabled: document.getElementById('ntfyEnabled')?.checked !== false,
+          notifyOnCrying: document.getElementById('notifyOnCrying')?.checked !== false,
+          notifyOnDisconnect: document.getElementById('notifyOnDisconnect')?.checked !== false,
+          notifyOnActivity: document.getElementById('notifyOnActivity')?.checked || false,
         })
       });
 
       if (!res.ok) throw new Error('Failed to save');
-      if (status) { status.textContent = 'Saved!'; status.style.color = '#4caf50'; }
+      if (!silent && status) { status.textContent = 'Saved!'; status.style.color = '#4caf50'; }
       const tb = document.getElementById('testNotificationBtn');
       if (tb) tb.disabled = false;
-      setTimeout(() => { if (status) status.textContent = ''; }, 3000);
+      if (!silent) setTimeout(() => { if (status) status.textContent = ''; }, 3000);
     } catch (error) {
       console.error('Failed to save notification config:', error);
-      if (status) { status.textContent = 'Failed to save'; status.style.color = '#f44336'; }
+      if (!silent && status) { status.textContent = 'Failed to save'; status.style.color = '#f44336'; }
     }
   }
 
@@ -106,8 +106,14 @@ class NotificationUI {
     if (btn) { btn.disabled = true; btn.textContent = 'Sending...'; }
 
     try {
+      // Auto-save before testing so the server has the current topic/server
+      await this.saveConfig(true);
+
       const res = await fetch(`/api/rooms/${this.roomId}/ntfy/test`, { method: 'POST' });
-      if (!res.ok) throw new Error('Failed');
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'Failed');
+      }
       const result = await res.json();
       if (status) {
         status.textContent = result.success ? 'Test sent! Check your phone.' : 'Failed to send';
@@ -116,7 +122,7 @@ class NotificationUI {
       setTimeout(() => { if (status) status.textContent = ''; }, 5000);
     } catch (error) {
       console.error('Failed to send test notification:', error);
-      if (status) { status.textContent = 'Error sending'; status.style.color = '#f44336'; }
+      if (status) { status.textContent = error.message || 'Error sending'; status.style.color = '#f44336'; }
     } finally {
       if (btn) { btn.disabled = false; btn.textContent = 'Test'; }
     }

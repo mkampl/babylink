@@ -536,8 +536,12 @@ io.on('connection', (socket) => {
   // Handle crying detection — send ntfy.sh notification
   socket.on('crying-detected', async (data) => {
     try {
-      if (!socket.roomId) return;
+      if (!socket.roomId) {
+        logger.warn('crying-detected from socket not in room', { socketId: socket.id });
+        return;
+      }
       const { babyName } = data;
+      logger.info('Crying detected', { roomId: socket.roomId, babyName, from: socket.role });
       const config = roomConfig.getConfig(socket.roomId);
 
       if (!config.ntfyEnabled || !config.ntfyTopic || !config.notifyOnCrying) {

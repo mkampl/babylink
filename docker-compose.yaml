@@ -8,6 +8,7 @@ services:
       - "3001:3001"  # Expose on all interfaces for ESP32 access
     volumes:
       - ./logs:/app/logs  # Mount for logs
+      - ./data:/app/data  # Mount for room configs (ntfy, PINs)
     environment:
       - NODE_ENV=production
       - PORT=3001

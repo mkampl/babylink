@@ -37,6 +37,9 @@ Thumbs.db
 # Docker
 docker-compose.override.yml
 
+# Runtime data (room configs, PINs)
+data/
+
 # Temporary files
 tmp/
 temp/
