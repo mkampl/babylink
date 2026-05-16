@@ -1003,8 +1003,10 @@
     }
 
     // Initialize the application
-    // Call directly since script is at end of body (DOMContentLoaded already fired)
-    initialize();
+    initialize().catch(err => {
+      console.error('FATAL: initialize() failed:', err);
+      document.getElementById('status').textContent = 'Error: ' + err.message;
+    });
   </script>
 </body>
 </html>

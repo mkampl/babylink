@@ -518,6 +518,7 @@ class MultiBabyUI {
   injectStyles() {
     // No-op: CSS is loaded from /css/components.css
   }
+}
 
 // Export for use in other modules
 if (typeof module !== 'undefined' && module.exports) {
