@@ -122,6 +122,12 @@ class MultiStreamManager {
    */
   initializeAudioAnalysis(participantId, stream, participantInfo) {
     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+    // Resume immediately if user has already interacted with the page
+    if (audioContext.state === 'suspended') {
+      audioContext.resume().catch(() => {});
+    }
+
     const analyser = audioContext.createAnalyser();
     const source = audioContext.createMediaStreamSource(stream);
 
