@@ -15,6 +15,8 @@ const config = require('./config');
 const logger = require('./utils/logger');
 const { validateRoomId, validateRole, validateSocketJoinData } = require('./middleware/validation');
 const ESP32AudioProxy = require('./server/esp32-proxy');
+const roomConfig = require('./server/room-config');
+const notificationService = require('./server/notification-service');
 
 /**
  * Create and configure the BabyLink server.
@@ -119,6 +121,126 @@ app.get('/api/esp32/status', (req, res) => {
 // API endpoint to get WebRTC configuration
 app.get('/api/config/webrtc', (req, res) => {
   res.json(config.webrtcWithTurn);
+});
+
+// =============================================================================
+// NOTIFICATION API ENDPOINTS
+// =============================================================================
+
+// Get room configuration including ntfy settings
+app.get('/api/rooms/:roomId/config', validateRoomId, (req, res) => {
+  const { roomId } = req.params;
+  const roomConfiguration = roomConfig.getConfig(roomId);
+
+  res.json({
+    roomId,
+    ...roomConfiguration
+  });
+});
+
+// Set ntfy.sh topic for a room
+app.post('/api/rooms/:roomId/ntfy', validateRoomId, async (req, res) => {
+  const { roomId } = req.params;
+  const { topic, enabled = true, notifyOnCrying = true, notifyOnDisconnect = true, notifyOnActivity = false } = req.body;
+
+  if (!topic || typeof topic !== 'string') {
+    return res.status(400).json({ error: 'Topic is required and must be a string' });
+  }
+
+  try {
+    const updated = await roomConfig.updateConfig(roomId, {
+      ntfyTopic: topic,
+      ntfyEnabled: enabled,
+      notifyOnCrying,
+      notifyOnDisconnect,
+      notifyOnActivity
+    });
+
+    logger.info(`ntfy.sh configured for room ${roomId}: topic=${topic}, enabled=${enabled}`);
+
+    res.json({
+      success: true,
+      message: 'ntfy.sh notifications configured',
+      config: updated
+    });
+  } catch (error) {
+    logger.error(`Failed to configure ntfy for room ${roomId}:`, error);
+    res.status(500).json({ error: 'Failed to save configuration' });
+  }
+});
+
+// Update ntfy settings for a room
+app.patch('/api/rooms/:roomId/ntfy', validateRoomId, async (req, res) => {
+  const { roomId } = req.params;
+  const updates = req.body;
+
+  try {
+    const updated = await roomConfig.updateConfig(roomId, updates);
+
+    logger.info(`ntfy.sh settings updated for room ${roomId}`);
+
+    res.json({
+      success: true,
+      message: 'ntfy.sh settings updated',
+      config: updated
+    });
+  } catch (error) {
+    logger.error(`Failed to update ntfy settings for room ${roomId}:`, error);
+    res.status(500).json({ error: 'Failed to update configuration' });
+  }
+});
+
+// Disable ntfy notifications for a room
+app.delete('/api/rooms/:roomId/ntfy', validateRoomId, async (req, res) => {
+  const { roomId } = req.params;
+
+  try {
+    await roomConfig.updateConfig(roomId, {
+      ntfyEnabled: false
+    });
+
+    logger.info(`ntfy.sh notifications disabled for room ${roomId}`);
+
+    res.json({
+      success: true,
+      message: 'ntfy.sh notifications disabled'
+    });
+  } catch (error) {
+    logger.error(`Failed to disable ntfy for room ${roomId}:`, error);
+    res.status(500).json({ error: 'Failed to update configuration' });
+  }
+});
+
+// Test notification endpoint (for debugging)
+app.post('/api/rooms/:roomId/ntfy/test', validateRoomId, async (req, res) => {
+  const { roomId } = req.params;
+  const topic = roomConfig.getNtfyTopic(roomId);
+
+  if (!topic) {
+    return res.status(400).json({ error: 'No ntfy.sh topic configured for this room' });
+  }
+
+  try {
+    const serverUrl = `${req.protocol}://${req.get('host')}`;
+    const success = await notificationService.sendNotification(
+      topic,
+      '🧪 Test Notification',
+      'This is a test notification from BabyLink',
+      {
+        priority: 'default',
+        tags: ['test', 'baby'],
+        click: `${serverUrl}/${roomId}?role=parent`
+      }
+    );
+
+    res.json({
+      success,
+      message: success ? 'Test notification sent' : 'Failed to send notification'
+    });
+  } catch (error) {
+    logger.error(`Failed to send test notification for room ${roomId}:`, error);
+    res.status(500).json({ error: 'Failed to send notification' });
+  }
 });
 
 // Room route with validation
@@ -411,7 +533,8 @@ if (require.main === module) {
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
 
-  // Start server
+  // Load room configurations then start server
+  roomConfig.load().then(() => {
   server.listen(config.server.port, () => {
     logger.info(`BabyLink HTTP Server running at http://localhost:${config.server.port}`);
     logger.info(`Environment: ${config.server.nodeEnv}`);
@@ -427,6 +550,7 @@ if (require.main === module) {
         logLevel: config.logging.level
       });
     }
+  });
   });
 }
 
