@@ -28,7 +28,7 @@ class MultiStreamManager {
 
     console.log(`Creating peer connection for ${participantInfo.userName} (${participantId})`);
 
-    const peer = new RTCPeerConnection(this.config.iceServers);
+    const peer = new RTCPeerConnection(this.config);
     this.peerConnections.set(participantId, peer);
     this.participants.set(participantId, participantInfo);
 
