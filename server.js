@@ -4,7 +4,7 @@
 const express = require('express');
 const http = require('http');
 const path = require('path');
-const bodyParser = require('body-parser');
+// body-parser replaced with express built-in middleware
 const helmet = require('helmet');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
@@ -79,8 +79,8 @@ const limiter = rateLimit({
 app.use(limiter);
 
 // Body parsing middleware
-app.use(bodyParser.urlencoded({ extended: true }));
-app.use(bodyParser.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
 
 // Static files middleware
 app.use(express.static('public'));
