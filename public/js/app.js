@@ -32,13 +32,22 @@
 
   // Enable all audio (WebRTC + ESP32) — resumes suspended AudioContexts
   function enableAllAudio() {
-    if (webrtcAudioEnabled) return; // Already enabled
+    if (webrtcAudioEnabled) return;
     esp32Handler.enableAudio();
     webrtcAudioEnabled = true;
 
+    // Resume any existing AudioContexts
     if (multiStreamManager && multiStreamManager.analysers) {
       multiStreamManager.analysers.forEach(a => {
         if (a.audioContext && a.audioContext.state === 'suspended') a.audioContext.resume();
+      });
+    }
+
+    // Unmute any existing audio elements
+    if (multiStreamManager && multiStreamManager.audioElements) {
+      multiStreamManager.audioElements.forEach(audio => {
+        audio.muted = false;
+        audio.play().catch(() => {});
       });
     }
 
@@ -47,18 +56,6 @@
     console.log('Audio enabled');
   }
 
-  // Auto-enable audio on first user interaction (browsers require a gesture)
-  function setupAutoAudioEnable() {
-    const events = ['click', 'touchstart', 'keydown'];
-    function handler() {
-      enableAllAudio();
-      events.forEach(e => document.removeEventListener(e, handler, true));
-    }
-    events.forEach(e => document.addEventListener(e, handler, { capture: true, once: false }));
-  }
-  setupAutoAudioEnable();
-
-  // Also expose for the fallback button
   window._enableAllAudio = enableAllAudio;
 
   // Expose toggle for notification settings onclick
@@ -73,11 +70,51 @@
   wakeLockMgr.bindEvents(role);
 
   // ========================
+  // Start Monitoring gate (parent only)
+  // Browsers require a user gesture before audio can play.
+  // This single tap unlocks audio for the entire session.
+  // ========================
+
+  function showStartOverlay() {
+    return new Promise((resolve) => {
+      const overlay = document.createElement('div');
+      overlay.id = 'startOverlay';
+      overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:var(--color-bg);';
+      overlay.innerHTML = `
+        <div style="text-align:center;padding:2rem;max-width:360px;">
+          <h2 style="font-size:1.4rem;margin-bottom:0.5rem;color:var(--color-text);">BabyLink</h2>
+          <p style="color:var(--color-text-muted);margin-bottom:1.5rem;font-size:0.95rem;">Tap to start monitoring</p>
+          <button id="startMonitoringBtn" style="
+            min-height:56px;width:100%;padding:1em 2em;font-size:1.1rem;font-weight:700;
+            border:none;border-radius:var(--radius-md);cursor:pointer;
+            background:var(--color-primary);color:white;font-family:var(--font-family);
+            box-shadow:var(--shadow-md);transition:all 0.2s;">
+            Start Monitoring
+          </button>
+        </div>`;
+      document.body.appendChild(overlay);
+
+      document.getElementById('startMonitoringBtn').addEventListener('click', () => {
+        // Create a "pre-warmed" AudioContext during this gesture — it starts running
+        window.__sharedAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        enableAllAudio();
+        overlay.remove();
+        resolve();
+      });
+    });
+  }
+
+  // ========================
   // Initialize based on role
   // ========================
 
   async function initialize() {
     console.log(`Initializing BabyLink as ${role} (${userName}) in room ${roomId}`);
+
+    // Parent must tap "Start Monitoring" to unlock audio (browser requirement)
+    if (role === 'parent') {
+      await showStartOverlay();
+    }
 
     if (role === 'baby') {
       await initializeBabyDevice();
@@ -196,14 +233,7 @@
 
     multiStreamManager.onStreamAdded = (participantId, stream, participantInfo) => {
       multiBabyUI.addBaby(participantId, participantInfo);
-      // Try to auto-enable audio (works if user already interacted with page)
       enableAllAudio();
-      // If still not enabled (no user gesture yet), show a subtle prompt
-      if (!webrtcAudioEnabled) {
-        const alert = document.getElementById('alert');
-        alert.innerHTML = 'Tap anywhere to enable audio';
-        alert.hidden = false;
-      }
     };
 
     multiStreamManager.onStreamRemoved = (participantId) => {

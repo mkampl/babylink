@@ -121,9 +121,12 @@ class MultiStreamManager {
    * Initialize audio analysis for voice activity detection
    */
   initializeAudioAnalysis(participantId, stream, participantInfo) {
-    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    // Reuse pre-warmed AudioContext if available (created during user gesture),
+    // otherwise create a new one and try to resume it
+    const audioContext = window.__sharedAudioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    // Clear shared ref so next participant gets its own context
+    if (window.__sharedAudioCtx) window.__sharedAudioCtx = null;
 
-    // Resume immediately if user has already interacted with the page
     if (audioContext.state === 'suspended') {
       audioContext.resume().catch(() => {});
     }
