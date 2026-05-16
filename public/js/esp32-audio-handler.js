@@ -33,10 +33,15 @@ class ESP32AudioHandler {
         });
 
         if (!this.enabled && audioContext.state === 'suspended') {
-          const alert = document.getElementById('alert');
-          if (alert) {
-            alert.innerHTML = '\uD83D\uDD0A <button onclick="window._enableAllAudio()" style="padding: 0.5em 1em; font-size: 1em; cursor: pointer; background: #4CAF50; color: white; border: none; border-radius: 4px;">Click to Enable Audio</button>';
-            alert.hidden = false;
+          // Try auto-enable (works if user already interacted)
+          if (window._enableAllAudio) window._enableAllAudio();
+          // If still suspended, show hint
+          if (audioContext.state === 'suspended') {
+            const alert = document.getElementById('alert');
+            if (alert) {
+              alert.innerHTML = 'Tap anywhere to enable audio';
+              alert.hidden = false;
+            }
           }
         }
       }

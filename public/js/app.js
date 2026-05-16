@@ -28,8 +28,9 @@
   const esp32Handler = new ESP32AudioHandler(esp32AudioContexts);
   const notificationUI = new NotificationUI(roomId);
 
-  // Global function for audio enable button (needs to be on window for onclick)
-  window._enableAllAudio = function() {
+  // Enable all audio (WebRTC + ESP32) — resumes suspended AudioContexts
+  function enableAllAudio() {
+    if (webrtcAudioEnabled) return; // Already enabled
     esp32Handler.enableAudio();
     webrtcAudioEnabled = true;
 
@@ -41,7 +42,22 @@
 
     const alert = document.getElementById('alert');
     if (alert) alert.hidden = true;
-  };
+    console.log('Audio enabled');
+  }
+
+  // Auto-enable audio on first user interaction (browsers require a gesture)
+  function setupAutoAudioEnable() {
+    const events = ['click', 'touchstart', 'keydown'];
+    function handler() {
+      enableAllAudio();
+      events.forEach(e => document.removeEventListener(e, handler, true));
+    }
+    events.forEach(e => document.addEventListener(e, handler, { capture: true, once: false }));
+  }
+  setupAutoAudioEnable();
+
+  // Also expose for the fallback button
+  window._enableAllAudio = enableAllAudio;
 
   // Expose toggle for notification settings onclick
   window.toggleNotificationSettings = function() {
@@ -164,9 +180,12 @@
 
     multiStreamManager.onStreamAdded = (participantId, stream, participantInfo) => {
       multiBabyUI.addBaby(participantId, participantInfo);
-      if (!webrtcAudioEnabled && role === 'parent') {
+      // Try to auto-enable audio (works if user already interacted with page)
+      enableAllAudio();
+      // If still not enabled (no user gesture yet), show a subtle prompt
+      if (!webrtcAudioEnabled) {
         const alert = document.getElementById('alert');
-        alert.innerHTML = '\uD83D\uDD0A <button onclick="window._enableAllAudio()" style="padding: 0.5em 1em; font-size: 1em; cursor: pointer; background: #4CAF50; color: white; border: none; border-radius: 4px;">Click to Enable Audio</button>';
+        alert.innerHTML = 'Tap anywhere to enable audio';
         alert.hidden = false;
       }
     };
