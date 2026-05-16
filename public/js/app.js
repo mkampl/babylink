@@ -21,6 +21,7 @@
   let isInitialized = false;
   let wasDisconnected = false;
   let webrtcAudioEnabled = false;
+  const pendingSignals = []; // Queue signals that arrive before init completes
 
   // Module instances
   const wakeLockMgr = new WakeLockManager();
@@ -85,6 +86,13 @@
     }
 
     isInitialized = true;
+
+    // Process any signals that arrived during initialization
+    if (multiStreamManager && pendingSignals.length > 0) {
+      console.log(`Processing ${pendingSignals.length} queued signal(s)`);
+      pendingSignals.forEach(sig => multiStreamManager.handleSignal(sig));
+      pendingSignals.length = 0;
+    }
 
     if (socket.connected && !hasJoinedRoom) {
       joinRoom();
@@ -291,6 +299,10 @@
         if (!multiBabyUI.babyCards.has(baby.socketId)) {
           multiBabyUI.addBaby(baby.socketId, baby);
         }
+        // Request baby to send offer if no peer connection exists yet
+        if (!multiStreamManager.peerConnections.has(baby.socketId)) {
+          socket.emit('signal', { requestOffer: true, to: baby.socketId });
+        }
       });
       if (babies.length > 0) alarmMgr.stop();
     }
@@ -310,6 +322,8 @@
     } else if (role === 'parent' && pRole === 'baby') {
       multiBabyUI.addBaby(socketId, { socketId, role: pRole, userName: pName });
       if (multiBabyUI.babyCards.size > 0) alarmMgr.stop();
+      // Request the new baby to send us an offer
+      socket.emit('signal', { requestOffer: true, to: socketId });
     }
   });
 
@@ -328,7 +342,18 @@
   });
 
   socket.on('signal', (data) => {
-    if (multiStreamManager) multiStreamManager.handleSignal(data);
+    // Handle request from parent asking baby to (re)send an offer
+    if (data.requestOffer && role === 'baby' && multiStreamManager && localStream) {
+      console.log('Parent requested offer, creating peer connection to', data.fromSocketId);
+      createPeerConnectionToParent({ socketId: data.fromSocketId, role: 'parent', userName: data.fromUserName || 'Parent' });
+      return;
+    }
+
+    if (multiStreamManager) {
+      multiStreamManager.handleSignal(data);
+    } else {
+      pendingSignals.push(data);
+    }
   });
 
   socket.on('error', (data) => {
