@@ -506,12 +506,10 @@ class MultiBabyUI {
   }
 
   /**
-   * Escape HTML to prevent XSS
+   * Escape HTML to prevent XSS - delegates to global escapeHtml from utils.js
    */
   escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+    return escapeHtml(text);
   }
 
   /**

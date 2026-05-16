@@ -14,6 +14,9 @@
   <!-- Socket.IO -->
   <script src="/socket.io/socket.io.js"></script>
 
+  <!-- Shared utilities -->
+  <script src="/js/utils.js"></script>
+
   <!-- Multi-baby modules -->
   <script src="/js/multi-stream-manager.js"></script>
   <script src="/js/multi-baby-ui.js"></script>
@@ -356,10 +359,11 @@
   </audio>
 
   <script>
-    console.log('🔄 [WEBRTC.HTML VERSION 2.0 LOADED] - Sensitivity slider fix included');
-
     // Global variables
     const socket = io();
+    const esp32AudioContexts = new Map(); // Map of esp32Id -> { audioContext, sourceNode, gainNode }
+    let esp32AudioEnabled = false;
+    let webrtcAudioEnabled = false;
     const params = new URLSearchParams(window.location.search);
     const role = params.get('role') || 'parent';
     const userName = params.get('userName') || role;
@@ -865,9 +869,7 @@
     });
 
     // ESP32 Audio Handler
-    let esp32AudioContexts = new Map(); // Map of esp32Id -> { audioContext, sourceNode, gainNode }
-    let esp32AudioEnabled = false; // Track if user has enabled audio playback
-    let webrtcAudioEnabled = false; // Track if WebRTC audio has been enabled
+    // (esp32AudioContexts, esp32AudioEnabled, webrtcAudioEnabled declared at top of script)
 
     // Function to enable all audio (WebRTC + ESP32) - must be called from user gesture
     function enableAllAudio() {
@@ -1102,12 +1104,7 @@
       }
     }
 
-    // Helper function to escape HTML
-    function escapeHtml(text) {
-      const div = document.createElement('div');
-      div.textContent = text;
-      return div.innerHTML;
-    }
+    // escapeHtml() is loaded from /js/utils.js
 
     // =============================================================================
     // NOTIFICATION SETTINGS
