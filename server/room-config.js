@@ -6,6 +6,7 @@
 
 const fs = require('fs').promises;
 const path = require('path');
+const crypto = require('crypto');
 const logger = require('../utils/logger');
 
 class RoomConfigManager {
@@ -133,6 +134,41 @@ class RoomConfigManager {
   isNotificationsEnabled(roomId) {
     const config = this.getConfig(roomId);
     return config.ntfyEnabled && config.ntfyTopic;
+  }
+
+  /**
+   * Hash a PIN using SHA-256
+   */
+  hashPin(pin) {
+    return crypto.createHash('sha256').update(String(pin)).digest('hex');
+  }
+
+  /**
+   * Set PIN for a room (null to remove)
+   */
+  async setPin(roomId, pin) {
+    if (pin === null || pin === undefined || pin === '') {
+      return await this.updateConfig(roomId, { pin: null });
+    }
+    return await this.updateConfig(roomId, { pin: this.hashPin(pin) });
+  }
+
+  /**
+   * Verify PIN for a room. Returns true if no PIN is set or PIN matches.
+   */
+  verifyPin(roomId, pin) {
+    const config = this.getConfig(roomId);
+    if (!config.pin) return true; // No PIN set
+    if (!pin) return false; // PIN required but not provided
+    return config.pin === this.hashPin(pin);
+  }
+
+  /**
+   * Check if a room has a PIN set
+   */
+  hasPin(roomId) {
+    const config = this.getConfig(roomId);
+    return !!config.pin;
   }
 
   /**

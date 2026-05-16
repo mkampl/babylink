@@ -23,6 +23,41 @@ describe('GET /', () => {
     const res = await request(server.app).get('/');
     expect(res.text).toContain('BabyLink');
   });
+
+  it('contains onboarding wizard', async () => {
+    const res = await request(server.app).get('/');
+    expect(res.text).toContain('id="onboarding"');
+    expect(res.text).toContain('onboarding-step');
+    expect(res.text).toContain('Welcome to BabyLink');
+    expect(res.text).toContain('Create Your First Room');
+    expect(res.text).toContain('Connect Your Devices');
+  });
+
+  it('has onboarding progress dots for 3 steps', async () => {
+    const res = await request(server.app).get('/');
+    expect(res.text).toContain('data-step="0"');
+    expect(res.text).toContain('data-step="1"');
+    expect(res.text).toContain('data-step="2"');
+  });
+
+  it('has help button to replay onboarding', async () => {
+    const res = await request(server.app).get('/');
+    expect(res.text).toContain('id="helpBtn"');
+    expect(res.text).toContain('replayOnboarding()');
+  });
+
+  it('checks localStorage for onboarding-complete', async () => {
+    const res = await request(server.app).get('/');
+    expect(res.text).toContain('babylink-onboarding-complete');
+  });
+
+  it('still contains the main home page sections', async () => {
+    const res = await request(server.app).get('/');
+    expect(res.text).toContain('id="homeMain"');
+    expect(res.text).toContain('createRoomForm');
+    expect(res.text).toContain('joinRoomForm');
+    expect(res.text).toContain('previousRoomsSection');
+  });
 });
 
 describe('GET /health', () => {

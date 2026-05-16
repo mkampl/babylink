@@ -531,6 +531,135 @@ body.role-page main {
 
 .pwa-banner button:hover { background: rgba(255, 255, 255, 0.35); }
 
+/* ====== Room PIN ====== */
+.pin-section {
+  background: var(--color-surface);
+  padding: var(--space-xl);
+  margin: var(--space-lg) 0;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--color-border-light);
+  box-shadow: var(--shadow-sm);
+  text-align: center;
+}
+
+.pin-section h3 {
+  margin: 0 0 var(--space-sm);
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.pin-section p {
+  color: var(--color-text-secondary);
+  font-size: 0.92rem;
+  margin: 0 0 var(--space-lg);
+}
+
+.pin-form input[type="password"] {
+  display: block;
+  width: 100%;
+  padding: 0.8em 1em;
+  font-size: 1.3rem;
+  text-align: center;
+  letter-spacing: 0.3em;
+  border: 2px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-alt);
+  color: var(--color-text);
+  min-height: 52px;
+  margin-bottom: var(--space-md);
+  font-family: var(--font-family);
+  box-sizing: border-box;
+}
+
+.pin-form input[type="password"]:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-glow);
+}
+
+.pin-form button {
+  width: 100%;
+  min-height: 48px;
+}
+
+.pin-form label {
+  display: block;
+  text-align: left;
+  font-size: 0.88rem;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-xs);
+}
+
+.pin-error {
+  color: var(--color-danger-text);
+  background: var(--color-danger-bg);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  margin-top: var(--space-sm);
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.pin-result {
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  margin-top: var(--space-sm);
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.pin-result.success {
+  color: var(--color-success-text);
+  background: var(--color-success-bg);
+}
+
+.pin-result.error {
+  color: var(--color-danger-text);
+  background: var(--color-danger-bg);
+}
+
+.pin-settings-toggle {
+  text-align: center;
+  margin: var(--space-md) 0;
+}
+
+.pin-settings-btn {
+  background: transparent;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  cursor: pointer;
+  text-decoration: underline;
+  font-family: var(--font-family);
+  padding: var(--space-sm);
+}
+
+.pin-settings-btn:hover {
+  color: var(--color-primary);
+}
+
+.pin-settings {
+  background: var(--color-surface);
+  padding: var(--space-lg);
+  margin: var(--space-md) 0;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--color-border-light);
+  box-shadow: var(--shadow-sm);
+}
+
+.pin-settings h3 {
+  margin: 0 0 var(--space-xs);
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.pin-settings p {
+  color: var(--color-text-secondary);
+  font-size: 0.88rem;
+  margin: 0 0 var(--space-md);
+}
+
 /* ====== Responsive ====== */
 @media (max-width: 768px) {
   .babies-grid { grid-template-columns: 1fr; }

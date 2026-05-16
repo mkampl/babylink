@@ -29,8 +29,38 @@
       </div>
     </div>
 
+    <!-- PIN Entry (shown if room has a PIN) -->
+    <div id="pinSection" class="pin-section" style="display:none;">
+      <h3>This room is protected</h3>
+      <p>Enter the room PIN to continue.</p>
+      <form id="pinForm" class="pin-form">
+        <input type="password" id="pinInput" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="Enter PIN" autocomplete="off" required />
+        <button type="submit">Unlock</button>
+        <div id="pinError" class="pin-error" style="display:none;">Incorrect PIN</div>
+      </form>
+    </div>
+
+    <!-- PIN Settings (shown after unlock or if no PIN) -->
+    <div id="pinSettingsToggle" class="pin-settings-toggle" style="display:none;">
+      <button type="button" id="pinSettingsBtn" class="pin-settings-btn">Room Security Settings</button>
+    </div>
+    <div id="pinSettings" class="pin-settings" style="display:none;">
+      <h3 id="pinSettingsTitle">Set Room PIN</h3>
+      <p id="pinSettingsDesc">Optionally protect this room with a 4-6 digit PIN.</p>
+      <form id="pinSetForm" class="pin-form">
+        <div id="currentPinRow" style="display:none;">
+          <label for="currentPinInput">Current PIN:</label>
+          <input type="password" id="currentPinInput" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="Current PIN" autocomplete="off" />
+        </div>
+        <label for="newPinInput">New PIN (leave empty to remove):</label>
+        <input type="password" id="newPinInput" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="4-6 digits" autocomplete="off" />
+        <button type="submit">Save PIN</button>
+        <div id="pinSetResult" class="pin-result" style="display:none;"></div>
+      </form>
+    </div>
+
     <!-- Role Selection -->
-    <div class="role-selection">
+    <div class="role-selection" id="roleSelection">
       <div class="role-card">
         <h3>Baby Device</h3>
         <p>Place this device near the baby to stream audio</p>
@@ -139,6 +169,7 @@
         e.preventDefault();
         const babyName = document.getElementById('babyName').value.trim();
         if (babyName) {
+          storeVerifiedPin();
           const url = `${window.location.pathname}?role=baby&userName=${encodeURIComponent(babyName)}`;
           window.location.href = url;
         }
@@ -147,14 +178,130 @@
       // Parent form submission
       document.getElementById('parentForm').addEventListener('submit', (e) => {
         e.preventDefault();
+        storeVerifiedPin();
         const parentName = document.getElementById('parentName').value.trim() || 'Parent';
         const url = `${window.location.pathname}?role=parent&userName=${encodeURIComponent(parentName)}`;
         window.location.href = url;
       });
     }
 
+    // PIN handling
+    let roomHasPin = false;
+    let verifiedPin = null; // Store verified PIN to pass to Socket.IO join
+
+    async function checkRoomPin() {
+      const roomId = window.location.pathname.slice(1);
+      try {
+        const res = await fetch('/api/rooms/' + encodeURIComponent(roomId) + '/pin');
+        const data = await res.json();
+        roomHasPin = data.hasPin;
+
+        if (roomHasPin) {
+          document.getElementById('pinSection').style.display = 'block';
+          document.getElementById('roleSelection').style.display = 'none';
+          document.getElementById('pinSettingsToggle').style.display = 'none';
+        } else {
+          document.getElementById('pinSection').style.display = 'none';
+          document.getElementById('roleSelection').style.display = '';
+          document.getElementById('pinSettingsToggle').style.display = 'block';
+        }
+      } catch (err) {
+        // If check fails, show role selection anyway
+        console.error('PIN check failed:', err);
+      }
+    }
+
+    // PIN verify form
+    document.getElementById('pinForm').addEventListener('submit', async function(e) {
+      e.preventDefault();
+      var pin = document.getElementById('pinInput').value;
+      var roomId = window.location.pathname.slice(1);
+
+      try {
+        var res = await fetch('/api/rooms/' + encodeURIComponent(roomId) + '/pin/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pin: pin })
+        });
+        var data = await res.json();
+
+        if (data.valid) {
+          verifiedPin = pin;
+          document.getElementById('pinSection').style.display = 'none';
+          document.getElementById('roleSelection').style.display = '';
+          document.getElementById('pinSettingsToggle').style.display = 'block';
+          document.getElementById('pinError').style.display = 'none';
+        } else {
+          document.getElementById('pinError').style.display = 'block';
+          document.getElementById('pinInput').value = '';
+          document.getElementById('pinInput').focus();
+        }
+      } catch (err) {
+        console.error('PIN verify failed:', err);
+      }
+    });
+
+    // PIN settings toggle
+    document.getElementById('pinSettingsBtn').addEventListener('click', function() {
+      var settings = document.getElementById('pinSettings');
+      var visible = settings.style.display !== 'none';
+      settings.style.display = visible ? 'none' : 'block';
+
+      if (!visible && roomHasPin) {
+        document.getElementById('currentPinRow').style.display = 'block';
+        document.getElementById('pinSettingsTitle').textContent = 'Change Room PIN';
+        document.getElementById('pinSettingsDesc').textContent = 'Enter current PIN and set a new one, or leave new PIN empty to remove.';
+      }
+    });
+
+    // PIN set form
+    document.getElementById('pinSetForm').addEventListener('submit', async function(e) {
+      e.preventDefault();
+      var roomId = window.location.pathname.slice(1);
+      var newPin = document.getElementById('newPinInput').value;
+      var currentPin = document.getElementById('currentPinInput').value || verifiedPin;
+      var resultEl = document.getElementById('pinSetResult');
+
+      try {
+        var res = await fetch('/api/rooms/' + encodeURIComponent(roomId) + '/pin', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pin: newPin || null, currentPin: currentPin })
+        });
+        var data = await res.json();
+
+        resultEl.style.display = 'block';
+        if (res.ok) {
+          resultEl.className = 'pin-result success';
+          resultEl.textContent = data.message;
+          roomHasPin = data.hasPin;
+          if (data.hasPin) verifiedPin = newPin;
+          else verifiedPin = null;
+          document.getElementById('newPinInput').value = '';
+          document.getElementById('currentPinInput').value = '';
+        } else {
+          resultEl.className = 'pin-result error';
+          resultEl.textContent = data.error;
+        }
+      } catch (err) {
+        resultEl.style.display = 'block';
+        resultEl.className = 'pin-result error';
+        resultEl.textContent = 'Failed to update PIN';
+      }
+    });
+
+    // Store verified PIN in sessionStorage for use by app.js
+    function storeVerifiedPin() {
+      if (verifiedPin) {
+        sessionStorage.setItem('babylink-room-pin', verifiedPin);
+      }
+    }
+
     // Initialize when page loads
-    document.addEventListener('DOMContentLoaded', initializePage);
+    document.addEventListener('DOMContentLoaded', function() {
+      initializePage();
+      checkRoomPin();
+    });
   </script>
 </body>
 </html>

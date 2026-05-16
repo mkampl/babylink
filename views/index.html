@@ -18,7 +18,93 @@
   <link rel="apple-touch-icon" href="/icons/icon-192x192.png">
 </head>
 <body class="home-page">
-  <main>
+
+  <!-- ======================== -->
+  <!-- Onboarding Wizard        -->
+  <!-- ======================== -->
+  <div id="onboarding" class="onboarding" style="display:none;">
+    <div class="onboarding-card">
+      <!-- Progress dots -->
+      <div class="onboarding-progress">
+        <span class="dot active" data-step="0"></span>
+        <span class="dot" data-step="1"></span>
+        <span class="dot" data-step="2"></span>
+      </div>
+
+      <!-- Step 0: Welcome -->
+      <div class="onboarding-step active" data-step="0">
+        <div class="onboarding-icon">
+          <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
+            <circle cx="32" cy="32" r="30" stroke="var(--color-primary)" stroke-width="2" fill="var(--color-primary-light)"/>
+            <path d="M32 18c-3 0-5.5 2-6 5-.5 2.5.5 5 2.5 6.5-3.5 1.5-6 5-6 9v3.5c0 1 .8 1.8 1.8 1.8h15.4c1 0 1.8-.8 1.8-1.8V38.5c0-4-2.5-7.5-6-9 2-1.5 3-4 2.5-6.5-.5-3-3-5-6-5z" fill="var(--color-primary)" opacity="0.6"/>
+            <circle cx="22" cy="40" r="3" fill="var(--color-baby)" opacity="0.5"/>
+            <circle cx="42" cy="40" r="3" fill="var(--color-baby)" opacity="0.5"/>
+          </svg>
+        </div>
+        <h2>Welcome to BabyLink</h2>
+        <p>A self-hosted baby monitor that keeps your family's data private. No cloud, no subscriptions.</p>
+        <ul class="onboarding-features">
+          <li>Real-time audio monitoring</li>
+          <li>Multiple baby &amp; parent devices</li>
+          <li>Push notifications when baby cries</li>
+          <li>Works on any device with a browser</li>
+        </ul>
+        <button class="onboarding-btn primary" onclick="onboardingNext()">Get Started</button>
+      </div>
+
+      <!-- Step 1: Create Room -->
+      <div class="onboarding-step" data-step="1">
+        <div class="onboarding-icon">
+          <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
+            <rect x="8" y="16" width="48" height="36" rx="6" stroke="var(--color-primary)" stroke-width="2" fill="var(--color-primary-light)"/>
+            <path d="M28 30h8M32 26v8" stroke="var(--color-primary)" stroke-width="2.5" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <h2>Create Your First Room</h2>
+        <p>A room connects baby and parent devices. Give it a name you'll recognize.</p>
+        <form id="onboardingRoomForm" class="onboarding-form">
+          <label for="onboardingRoomName">Room Name</label>
+          <input id="onboardingRoomName" type="text" placeholder="e.g. Nursery, Emma's Room" required maxlength="50" autocomplete="off" />
+          <div class="onboarding-btn-row">
+            <button type="button" class="onboarding-btn secondary" onclick="onboardingBack()">Back</button>
+            <button type="submit" class="onboarding-btn primary">Create Room</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Step 2: Connect Devices -->
+      <div class="onboarding-step" data-step="2">
+        <div class="onboarding-icon">
+          <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
+            <rect x="6" y="14" width="22" height="36" rx="4" stroke="var(--color-baby)" stroke-width="2" fill="var(--color-baby-bg)"/>
+            <rect x="36" y="14" width="22" height="36" rx="4" stroke="var(--color-primary)" stroke-width="2" fill="var(--color-primary-light)"/>
+            <path d="M28 32h8" stroke="var(--color-text-muted)" stroke-width="2" stroke-dasharray="3 3"/>
+            <circle cx="17" cy="28" r="4" fill="var(--color-baby)" opacity="0.5"/>
+            <circle cx="47" cy="28" r="4" fill="var(--color-primary)" opacity="0.5"/>
+          </svg>
+        </div>
+        <h2>Connect Your Devices</h2>
+        <p>Open this link on your second device, or scan the QR code.</p>
+        <div class="onboarding-share">
+          <div class="share-controls">
+            <input type="text" id="onboardingRoomLink" readonly />
+            <button type="button" id="onboardingCopyBtn">Copy</button>
+          </div>
+          <div class="qr-container">
+            <img id="onboardingQR" alt="QR code" />
+            <p>Scan with your other device</p>
+          </div>
+        </div>
+        <p class="onboarding-hint">One device is the <strong>baby</strong> (near the crib), the other is the <strong>parent</strong> (with you).</p>
+        <button class="onboarding-btn primary" onclick="onboardingFinish()">Start Monitoring</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================== -->
+  <!-- Main Home Page            -->
+  <!-- ======================== -->
+  <main id="homeMain">
     <h1>BabyLink</h1>
     <p class="home-tagline">Your data never leaves your home. No subscriptions, ever.</p>
 
@@ -31,13 +117,13 @@
         <button type="submit">Create Room</button>
       </form>
     </div>
-    
+
     <!-- Previous Rooms Section -->
     <div class="section" id="previousRoomsSection" style="display: none;">
       <h2>Previous Rooms</h2>
       <div id="roomsList"></div>
     </div>
-    
+
     <!-- Join Existing Room Section -->
     <div class="section">
       <h2>Join Existing Room</h2>
@@ -47,7 +133,7 @@
         <button type="submit">Join Room</button>
       </form>
     </div>
-    
+
     <!-- PWA Install Banner -->
     <div id="pwaInstallBanner" class="pwa-banner" style="display: none;">
       <p>Install BabyLink as an app for the best experience</p>
@@ -56,60 +142,171 @@
     </div>
   </main>
 
+  <!-- Help button to replay onboarding -->
+  <button id="helpBtn" class="help-btn" title="Show setup wizard" aria-label="Show setup wizard" onclick="replayOnboarding()">?</button>
 
   <script src="/js/utils.js"></script>
   <script>
     // Dark mode toggle
     ThemeManager.createToggleButton(document.body);
 
-    // PWA and Wake Lock functionality
+    // ========================
+    // Onboarding wizard
+    // ========================
+
+    let onboardingStep = 0;
+    let onboardingRoomId = null;
+    let onboardingRoomName = null;
+
+    function isOnboardingComplete() {
+      return localStorage.getItem('babylink-onboarding-complete') === 'true';
+    }
+
+    function showOnboarding() {
+      document.getElementById('onboarding').style.display = 'flex';
+      document.getElementById('homeMain').style.display = 'none';
+      document.getElementById('helpBtn').style.display = 'none';
+      goToStep(0);
+    }
+
+    function hideOnboarding() {
+      document.getElementById('onboarding').style.display = 'none';
+      document.getElementById('homeMain').style.display = '';
+      document.getElementById('helpBtn').style.display = '';
+    }
+
+    function goToStep(step) {
+      onboardingStep = step;
+      document.querySelectorAll('.onboarding-step').forEach(el => {
+        el.classList.toggle('active', parseInt(el.dataset.step) === step);
+      });
+      document.querySelectorAll('.onboarding-progress .dot').forEach(el => {
+        const dotStep = parseInt(el.dataset.step);
+        el.classList.toggle('active', dotStep === step);
+        el.classList.toggle('completed', dotStep < step);
+      });
+    }
+
+    function onboardingNext() {
+      goToStep(onboardingStep + 1);
+    }
+
+    function onboardingBack() {
+      if (onboardingStep > 0) goToStep(onboardingStep - 1);
+    }
+
+    function onboardingFinish() {
+      localStorage.setItem('babylink-onboarding-complete', 'true');
+      if (onboardingRoomId) {
+        window.location.href = '/' + encodeURIComponent(onboardingRoomId);
+      } else {
+        hideOnboarding();
+        displayPreviousRooms();
+      }
+    }
+
+    function replayOnboarding() {
+      showOnboarding();
+    }
+
+    // Onboarding room form
+    document.getElementById('onboardingRoomForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+      onboardingRoomName = document.getElementById('onboardingRoomName').value.trim();
+      if (!onboardingRoomName) return;
+
+      onboardingRoomId = generateRoomId();
+      saveRoom(onboardingRoomName, onboardingRoomId);
+
+      // Set up step 2 with room link + QR
+      var roomUrl = window.location.origin + '/' + onboardingRoomId;
+      document.getElementById('onboardingRoomLink').value = roomUrl;
+
+      var qrImg = document.getElementById('onboardingQR');
+      var qrText = encodeURIComponent(roomUrl);
+      qrImg.src = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' + qrText + '&bgcolor=ffffff&color=000000&qzone=1&format=png';
+      qrImg.alt = 'QR Code for room link';
+      qrImg.onerror = function() {
+        qrImg.src = 'https://chart.googleapis.com/chart?chs=200x200&cht=qr&chl=' + qrText + '&choe=UTF-8';
+        qrImg.onerror = function() {
+          qrImg.style.display = 'none';
+        };
+      };
+
+      goToStep(2);
+    });
+
+    // Onboarding copy button
+    document.getElementById('onboardingCopyBtn').addEventListener('click', async function() {
+      var linkInput = document.getElementById('onboardingRoomLink');
+      try {
+        await navigator.clipboard.writeText(linkInput.value);
+        this.textContent = 'Copied!';
+        this.style.background = 'var(--color-success)';
+        var btn = this;
+        setTimeout(function() { btn.textContent = 'Copy'; btn.style.background = ''; }, 2000);
+      } catch (err) {
+        linkInput.select();
+        document.execCommand('copy');
+      }
+    });
+
+    // Show onboarding or home
+    if (!isOnboardingComplete()) {
+      showOnboarding();
+    }
+
+    // ========================
+    // PWA and Wake Lock
+    // ========================
+
     let deferredPrompt;
     let wakeLock = null;
-    
+
     // Room storage functions
     function saveRoom(name, id) {
       const rooms = JSON.parse(localStorage.getItem('babylink-rooms') || '[]');
       const existingIndex = rooms.findIndex(room => room.id === id);
-      
+
       if (existingIndex >= 0) {
         rooms[existingIndex] = { name, id, lastUsed: Date.now() };
       } else {
         rooms.push({ name, id, lastUsed: Date.now() });
       }
-      
+
       // Keep only last 10 rooms
       rooms.sort((a, b) => b.lastUsed - a.lastUsed);
       localStorage.setItem('babylink-rooms', JSON.stringify(rooms.slice(0, 10)));
       displayPreviousRooms();
     }
-    
+
     function deleteRoom(id) {
       const rooms = JSON.parse(localStorage.getItem('babylink-rooms') || '[]');
       const filteredRooms = rooms.filter(room => room.id !== id);
       localStorage.setItem('babylink-rooms', JSON.stringify(filteredRooms));
       displayPreviousRooms();
     }
-    
+
     function generateRoomId() {
       // Generate a secure random room ID
       const array = new Uint8Array(16);
       crypto.getRandomValues(array);
       return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
     }
-    
+
     function displayPreviousRooms() {
       const rooms = JSON.parse(localStorage.getItem('babylink-rooms') || '[]');
       const roomsList = document.getElementById('roomsList');
       const section = document.getElementById('previousRoomsSection');
-      
+
       if (rooms.length === 0) {
         section.style.display = 'none';
         return;
       }
-      
+
       section.style.display = 'block';
       roomsList.innerHTML = '';
-      
+
       rooms.forEach(room => {
         const roomDiv = document.createElement('div');
         roomDiv.className = 'room-item';
@@ -126,23 +323,23 @@
         roomsList.appendChild(roomDiv);
       });
     }
-    
+
     function joinRoom(roomId) {
       window.location.href = "/" + encodeURIComponent(roomId);
     }
-    
+
     // PWA Install Banner
     window.addEventListener('beforeinstallprompt', (e) => {
       e.preventDefault();
       deferredPrompt = e;
       showInstallBanner();
     });
-    
+
     function showInstallBanner() {
       const banner = document.getElementById('pwaInstallBanner');
       banner.style.display = 'block';
     }
-    
+
     document.getElementById('installPwaBtn').addEventListener('click', async () => {
       if (deferredPrompt) {
         deferredPrompt.prompt();
@@ -154,13 +351,13 @@
         document.getElementById('pwaInstallBanner').style.display = 'none';
       }
     });
-    
+
     document.getElementById('dismissPwaBtn').addEventListener('click', () => {
       document.getElementById('pwaInstallBanner').style.display = 'none';
       // Don't show again for this session
       deferredPrompt = null;
     });
-    
+
     // Service Worker Registration
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/service-worker.js')
@@ -171,7 +368,7 @@
           console.log('SW registration failed: ', registrationError);
         });
     }
-    
+
     // Form handlers
     document.getElementById("createRoomForm").addEventListener("submit", function (e) {
       e.preventDefault();
@@ -182,7 +379,7 @@
         window.location.href = "/" + encodeURIComponent(roomId);
       }
     });
-    
+
     document.getElementById("joinRoomForm").addEventListener("submit", function (e) {
       e.preventDefault();
       const roomId = document.getElementById("roomId").value.trim();
@@ -190,7 +387,7 @@
         window.location.href = "/" + encodeURIComponent(roomId);
       }
     });
-    
+
     // Initialize
     displayPreviousRooms();
   </script>

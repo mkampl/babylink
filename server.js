@@ -243,6 +243,56 @@ app.post('/api/rooms/:roomId/ntfy/test', validateRoomId, async (req, res) => {
   }
 });
 
+// =============================================================================
+// ROOM PIN ENDPOINTS
+// =============================================================================
+
+// Check if a room has a PIN set
+app.get('/api/rooms/:roomId/pin', validateRoomId, (req, res) => {
+  const { roomId } = req.params;
+  res.json({ hasPin: roomConfig.hasPin(roomId) });
+});
+
+// Set or remove a PIN for a room
+app.post('/api/rooms/:roomId/pin', validateRoomId, async (req, res) => {
+  const { roomId } = req.params;
+  const { pin, currentPin } = req.body;
+
+  // If room already has a PIN, require current PIN to change it
+  if (roomConfig.hasPin(roomId)) {
+    if (!roomConfig.verifyPin(roomId, currentPin)) {
+      return res.status(403).json({ error: 'Current PIN is incorrect' });
+    }
+  }
+
+  if (pin === null || pin === '') {
+    await roomConfig.setPin(roomId, null);
+    logger.info(`PIN removed for room ${roomId}`);
+    return res.json({ success: true, message: 'PIN removed', hasPin: false });
+  }
+
+  if (typeof pin !== 'string' || pin.length < 4 || pin.length > 6 || !/^\d+$/.test(pin)) {
+    return res.status(400).json({ error: 'PIN must be 4-6 digits' });
+  }
+
+  await roomConfig.setPin(roomId, pin);
+  logger.info(`PIN set for room ${roomId}`);
+  res.json({ success: true, message: 'PIN set', hasPin: true });
+});
+
+// Verify a PIN for a room
+app.post('/api/rooms/:roomId/pin/verify', validateRoomId, (req, res) => {
+  const { roomId } = req.params;
+  const { pin } = req.body;
+
+  if (!roomConfig.hasPin(roomId)) {
+    return res.json({ valid: true, hasPin: false });
+  }
+
+  const valid = roomConfig.verifyPin(roomId, pin);
+  res.json({ valid, hasPin: true });
+});
+
 // Room route with validation
 app.get('/:roomId', validateRoomId, validateRole, (req, res) => {
   const { role } = req.query;
@@ -303,7 +353,13 @@ io.on('connection', (socket) => {
         return;
       }
 
-      const { roomId, role, userName } = data;
+      const { roomId, role, userName, pin } = data;
+
+      // Verify PIN if room has one set
+      if (roomConfig.hasPin(roomId) && !roomConfig.verifyPin(roomId, pin)) {
+        socket.emit('error', { message: 'Invalid room PIN', code: 'INVALID_PIN' });
+        return;
+      }
 
       // Join the room
       socket.join(roomId);

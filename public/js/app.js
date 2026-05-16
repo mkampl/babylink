@@ -139,10 +139,15 @@
     setTimeout(() => wakeLockMgr.autoRequest(), 1000);
   }
 
+  // Retrieve PIN from sessionStorage (set by select-role page)
+  const roomPin = sessionStorage.getItem('babylink-room-pin') || null;
+
   function joinRoom() {
     if (hasJoinedRoom) return;
     console.log('Joining room:', roomId);
-    socket.emit('join', { roomId, role, userName });
+    var joinData = { roomId, role, userName };
+    if (roomPin) joinData.pin = roomPin;
+    socket.emit('join', joinData);
     hasJoinedRoom = true;
   }
 
@@ -154,15 +159,33 @@
     const container = document.getElementById('mainContainer');
     container.innerHTML = `
       <div class="baby-device-container">
-        <h2>\uD83C\uDFA4 Baby Device</h2>
-        <div class="baby-name-display">\uD83D\uDC76 ${escapeHtml(userName)}</div>
-        <div class="connection-status" id="babyConnectionStatus">
-          <span>\uD83D\uDFE2 Connected</span>
-          <span id="parentCount">Waiting for parents...</span>
+        <h2>Baby Device</h2>
+        <div class="baby-name-display">${escapeHtml(userName)}</div>
+        <div class="baby-waveform-section">
+          <canvas id="waveformCanvas" width="360" height="100"></canvas>
+          <div class="baby-mic-status" id="micStatus">Requesting microphone...</div>
         </div>
-        <p style="color: var(--color-text-secondary);">This device is streaming audio to parent devices.</p>
+        <div class="baby-parent-count" id="parentCountSection">
+          <div class="parent-count-number" id="parentCountNum">0</div>
+          <div class="parent-count-label" id="parentCountLabel">parents monitoring</div>
+        </div>
+        <div class="baby-actions">
+          <button class="baby-test-btn" id="testAudioBtn" disabled>Test Audio</button>
+        </div>
+        <div class="baby-battery" id="batterySection" style="display:none;">
+          <div class="battery-indicator">
+            <div class="battery-level" id="batteryLevel"></div>
+          </div>
+          <span class="battery-text" id="batteryText"></span>
+        </div>
       </div>
     `;
+
+    // Set up test audio button
+    document.getElementById('testAudioBtn').addEventListener('click', playTestTone);
+
+    // Set up battery indicator
+    initBatteryIndicator();
 
     try {
       localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -170,7 +193,13 @@
       const webrtcConfig = await configResponse.json();
       multiStreamManager = new MultiStreamManager(socket, webrtcConfig);
       multiStreamManager.localStream = localStream;
-      document.getElementById('status').textContent = '\uD83C\uDFA4 Microphone active - streaming to parents';
+      document.getElementById('status').textContent = 'Microphone active - streaming to parents';
+      document.getElementById('micStatus').textContent = 'Microphone active';
+      document.getElementById('micStatus').classList.add('active');
+      document.getElementById('testAudioBtn').disabled = false;
+
+      // Start waveform visualization
+      startWaveform(localStream);
 
       // Connect to any parents that joined while we were waiting for mic permission
       if (pendingParents.length > 0) {
@@ -181,9 +210,155 @@
     } catch (err) {
       console.error('Microphone error:', err);
       document.getElementById('status').textContent = 'Microphone access denied';
+      document.getElementById('micStatus').textContent = 'Microphone denied';
+      document.getElementById('micStatus').classList.add('error');
       document.getElementById('alert').textContent = 'Please allow microphone access to use baby monitor';
       document.getElementById('alert').hidden = false;
     }
+  }
+
+  // ========================
+  // Baby waveform visualization
+  // ========================
+
+  let waveformAnimationId = null;
+
+  function startWaveform(stream) {
+    const canvas = document.getElementById('waveformCanvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const source = audioCtx.createMediaStreamSource(stream);
+    const analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 256;
+    source.connect(analyser);
+
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+
+    // Responsive canvas
+    function resizeCanvas() {
+      canvas.width = canvas.parentElement.clientWidth - 4; // account for border
+    }
+    resizeCanvas();
+    window.addEventListener('resize', resizeCanvas);
+
+    function draw() {
+      waveformAnimationId = requestAnimationFrame(draw);
+      analyser.getByteTimeDomainData(dataArray);
+
+      const w = canvas.width;
+      const h = canvas.height;
+      ctx.clearRect(0, 0, w, h);
+
+      // Draw waveform
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+
+      const sliceWidth = w / bufferLength;
+      let x = 0;
+
+      // Determine color based on volume level
+      let maxVal = 0;
+      for (let i = 0; i < bufferLength; i++) {
+        const v = Math.abs(dataArray[i] - 128) / 128;
+        if (v > maxVal) maxVal = v;
+      }
+
+      if (maxVal > 0.5) {
+        ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--color-danger').trim();
+      } else if (maxVal > 0.15) {
+        ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--color-warning').trim();
+      } else {
+        ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--color-success').trim();
+      }
+
+      for (let i = 0; i < bufferLength; i++) {
+        const v = dataArray[i] / 128.0;
+        const y = (v * h) / 2;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+        x += sliceWidth;
+      }
+
+      ctx.lineTo(w, h / 2);
+      ctx.stroke();
+    }
+
+    draw();
+  }
+
+  // ========================
+  // Test audio tone
+  // ========================
+
+  function playTestTone() {
+    const btn = document.getElementById('testAudioBtn');
+    if (!btn || btn.disabled) return;
+
+    btn.disabled = true;
+    btn.textContent = 'Playing...';
+
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const oscillator = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+
+    oscillator.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+
+    oscillator.type = 'sine';
+    oscillator.frequency.setValueAtTime(440, audioCtx.currentTime); // A4 note
+    gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 1.5);
+
+    oscillator.start();
+    oscillator.stop(audioCtx.currentTime + 1.5);
+
+    oscillator.onended = function() {
+      audioCtx.close();
+      btn.disabled = false;
+      btn.textContent = 'Test Audio';
+    };
+  }
+
+  // ========================
+  // Battery indicator
+  // ========================
+
+  function updateParentCount(participants) {
+    const count = participants.filter(function(p) { return p.role === 'parent'; }).length;
+    var numEl = document.getElementById('parentCountNum');
+    var labelEl = document.getElementById('parentCountLabel');
+    if (numEl) numEl.textContent = count;
+    if (labelEl) labelEl.textContent = count === 1 ? 'parent monitoring' : 'parents monitoring';
+  }
+
+  function initBatteryIndicator() {
+    if (!navigator.getBattery) return;
+
+    navigator.getBattery().then(function(battery) {
+      var section = document.getElementById('batterySection');
+      if (!section) return;
+      section.style.display = 'flex';
+
+      function updateBattery() {
+        var pct = Math.round(battery.level * 100);
+        var levelEl = document.getElementById('batteryLevel');
+        var textEl = document.getElementById('batteryText');
+        if (!levelEl || !textEl) return;
+
+        levelEl.style.width = pct + '%';
+        textEl.textContent = pct + '%' + (battery.charging ? ' (charging)' : '');
+
+        levelEl.className = 'battery-level';
+        if (pct <= 15) levelEl.classList.add('low');
+        else if (pct <= 30) levelEl.classList.add('medium');
+      }
+
+      updateBattery();
+      battery.addEventListener('levelchange', updateBattery);
+      battery.addEventListener('chargingchange', updateBattery);
+    }).catch(function() { /* Battery API not available */ });
   }
 
   // ========================
@@ -322,9 +497,7 @@
     const { participants } = data;
 
     if (role === 'baby') {
-      const parentCount = participants.filter(p => p.role === 'parent').length;
-      const el = document.getElementById('parentCount');
-      if (el) el.textContent = `${parentCount} parent${parentCount !== 1 ? 's' : ''} monitoring`;
+      updateParentCount(participants);
 
       participants.filter(p => p.role === 'parent').forEach(async (parent) => {
         if (multiStreamManager && localStream) {
@@ -352,9 +525,7 @@
     const { role: pRole, socketId, userName: pName, participants } = data;
 
     if (role === 'baby' && pRole === 'parent') {
-      const parentCount = participants.filter(p => p.role === 'parent').length;
-      const el = document.getElementById('parentCount');
-      if (el) el.textContent = `${parentCount} parent${parentCount !== 1 ? 's' : ''} monitoring`;
+      updateParentCount(participants);
 
       const parentInfo = { socketId, role: pRole, userName: pName };
       if (multiStreamManager && localStream) {
@@ -375,9 +546,7 @@
     const { role: pRole, socketId, participants } = data;
 
     if (role === 'baby' && pRole === 'parent') {
-      const parentCount = participants.filter(p => p.role === 'parent').length;
-      const el = document.getElementById('parentCount');
-      if (el) el.textContent = `${parentCount} parent${parentCount !== 1 ? 's' : ''} monitoring`;
+      updateParentCount(participants);
     } else if (role === 'parent' && pRole === 'baby') {
       multiBabyUI.removeBaby(socketId);
       multiStreamManager.removeParticipant(socketId);
