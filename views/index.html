@@ -19,11 +19,12 @@
 </head>
 <body class="home-page">
   <main>
-    <h1>👶 BabyLink Monitor</h1>
-    
+    <h1>BabyLink</h1>
+    <p class="home-tagline">Your data never leaves your home. No subscriptions, ever.</p>
+
     <!-- Create New Room Section -->
     <div class="section">
-      <h2>🆕 Create New Room</h2>
+      <h2>Create New Room</h2>
       <form id="createRoomForm">
         <label for="roomName">Room Name:</label>
         <input id="roomName" name="roomName" placeholder="e.g. Child1, Nursery, etc." required />
@@ -33,13 +34,13 @@
     
     <!-- Previous Rooms Section -->
     <div class="section" id="previousRoomsSection" style="display: none;">
-      <h2>📱 Previous Rooms</h2>
+      <h2>Previous Rooms</h2>
       <div id="roomsList"></div>
     </div>
     
     <!-- Join Existing Room Section -->
     <div class="section">
-      <h2>🔗 Join Existing Room</h2>
+      <h2>Join Existing Room</h2>
       <form id="joinRoomForm">
         <label for="roomId">Room ID:</label>
         <input id="roomId" name="roomId" placeholder="Enter room ID" required />
@@ -49,7 +50,7 @@
     
     <!-- PWA Install Banner -->
     <div id="pwaInstallBanner" class="pwa-banner" style="display: none;">
-      <p>📱 Install BabyLink as an app for better experience!</p>
+      <p>Install BabyLink as an app for the best experience</p>
       <button id="installPwaBtn">Install App</button>
       <button id="dismissPwaBtn">Maybe Later</button>
     </div>

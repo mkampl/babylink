@@ -1,56 +1,89 @@
-/* Monitor page (webrtc.html) specific styles */
+/* ============================================
+   Monitor Page — webrtc.html
+   ============================================ */
+
 body.monitor-page {
-  padding: 1em;
-  max-width: 1400px;
+  padding: var(--space-md);
+  max-width: 960px;
   margin: 0 auto;
+  padding-bottom: calc(var(--space-2xl) + env(safe-area-inset-bottom, 0));
 }
 
 #mainContainer {
   min-height: 200px;
 }
 
+/* ====== Status Bar ====== */
 #status {
   text-align: center;
-  margin: 1em 0;
-  font-weight: bold;
-  font-size: 1.2em;
-  padding: 1em;
+  margin: var(--space-md) 0;
+  font-weight: 600;
+  font-size: 0.95rem;
+  padding: var(--space-md) var(--space-lg);
   background: var(--color-surface);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-card);
   box-shadow: var(--shadow-sm);
+  border: 1px solid var(--color-border-light);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
 }
 
+/* ====== Alert ====== */
 #alert {
   text-align: center;
-  margin: 1em 0;
-  font-weight: bold;
-  padding: 1em;
+  margin: var(--space-md) 0;
+  font-weight: 600;
+  padding: var(--space-md) var(--space-lg);
   background: var(--color-alert-bg);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-card);
   border-left: 4px solid var(--color-alert-border);
+  font-size: 0.95rem;
 }
 
-/* Baby device view */
+#alert button {
+  min-height: 44px;
+  font-size: 0.95rem;
+}
+
+/* ====== Baby Device View ====== */
 .baby-device-container {
   text-align: center;
-  max-width: 600px;
-  margin: 2em auto;
-  padding: 2em;
+  max-width: 480px;
+  margin: var(--space-xl) auto;
+  padding: var(--space-2xl) var(--space-xl);
   background: var(--color-surface);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-lg);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-md);
+  border: 1px solid var(--color-border-light);
+  position: relative;
+  overflow: hidden;
+}
+
+.baby-device-container::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: var(--gradient-baby);
 }
 
 .baby-device-container h2 {
-  color: #ff6b6b;
-  margin-bottom: 1em;
+  color: var(--color-baby);
+  margin-bottom: var(--space-md);
+  font-size: 1.3rem;
+  font-weight: 700;
 }
 
 .baby-name-display {
-  font-size: 1.5em;
+  font-size: 1.3rem;
+  font-weight: 600;
   color: var(--color-text);
-  margin: 1em 0;
-  padding: 1em;
+  margin: var(--space-md) 0;
+  padding: var(--space-md);
   background: var(--color-surface-alt);
   border-radius: var(--radius-lg);
 }
@@ -59,13 +92,14 @@ body.monitor-page {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 1em;
-  margin: 1em 0;
-  padding: 1em;
+  gap: var(--space-md);
+  margin: var(--space-md) 0;
+  padding: var(--space-md);
   background: var(--color-success-bg);
   border-radius: var(--radius-lg);
   color: var(--color-success-text);
-  font-weight: bold;
+  font-weight: 600;
+  font-size: 0.95rem;
 }
 
 .connection-status.disconnected {
@@ -73,12 +107,14 @@ body.monitor-page {
   color: var(--color-danger-text);
 }
 
+/* ====== Responsive ====== */
 @media (max-width: 768px) {
   body.monitor-page {
-    padding: 0.5em;
+    padding: var(--space-sm);
   }
 
-  h1 {
-    font-size: 1.5em;
+  .baby-device-container {
+    margin: var(--space-md) auto;
+    padding: var(--space-xl) var(--space-lg);
   }
 }

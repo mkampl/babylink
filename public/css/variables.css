@@ -1,159 +1,201 @@
-/* Design tokens - BabyLink */
+/* ============================================
+   BabyLink Design Tokens — "Nursery Calm"
+   Warm, soft, reassuring palette for tired parents
+   ============================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap');
+
 :root {
-  /* Primary colors */
-  --color-primary: #3b82f6;
-  --color-primary-hover: #2563eb;
-  --color-primary-light: rgba(59, 130, 246, 0.1);
+  /* Primary — soft dusty blue (nursery blue) */
+  --color-primary: #6B8EAE;
+  --color-primary-hover: #5A7A99;
+  --color-primary-light: rgba(107, 142, 174, 0.12);
+  --color-primary-glow: rgba(107, 142, 174, 0.25);
 
-  /* Status colors */
-  --color-success: #4CAF50;
-  --color-success-bg: #e8f5e9;
-  --color-success-text: #2e7d32;
+  /* Status — warm organic tones */
+  --color-success: #7BA68C;
+  --color-success-bg: #eef5f0;
+  --color-success-text: #3d6b4d;
 
-  --color-warning: #FFC107;
-  --color-warning-bg: #fff3e0;
-  --color-warning-text: #e65100;
+  --color-warning: #E4A853;
+  --color-warning-bg: #fdf4e5;
+  --color-warning-text: #8a5e1a;
 
-  --color-danger: #f44336;
-  --color-danger-bg: #ffebee;
-  --color-danger-text: #c62828;
+  --color-danger: #D4544E;
+  --color-danger-bg: #fceaea;
+  --color-danger-text: #8b2822;
 
-  --color-info-bg: #e3f2fd;
-  --color-info-text: #1976d2;
+  --color-info-bg: #eaf2f8;
+  --color-info-text: #4a7da8;
 
-  /* Neutral colors */
-  --color-bg: #f5f7fa;
-  --color-bg-alt: #f3f4f6;
-  --color-surface: #fff;
-  --color-surface-alt: #f8f9fa;
-  --color-border: #e9ecef;
-  --color-border-light: #f0f0f0;
-  --color-border-dark: #dee2e6;
+  /* Neutrals — warm cream/stone palette */
+  --color-bg: #FAF8F5;
+  --color-bg-alt: #F4F1EC;
+  --color-surface: #ffffff;
+  --color-surface-alt: #F8F6F2;
+  --color-border: #E8E4DE;
+  --color-border-light: #F0EDE8;
+  --color-border-dark: #D8D3CC;
 
-  /* Text colors */
-  --color-text: #333;
-  --color-text-secondary: #666;
-  --color-text-muted: #6c757d;
-  --color-text-light: #999;
-  --color-text-heading: #495057;
+  /* Text — warm dark tones */
+  --color-text: #2D2926;
+  --color-text-secondary: #635B54;
+  --color-text-muted: #8C847D;
+  --color-text-light: #AEA8A2;
+  --color-text-heading: #3D3632;
+
+  /* Accents */
+  --color-baby: #E8887A;
+  --color-baby-bg: #fdf0ee;
+  --color-parent: #6B8EAE;
+  --color-parent-bg: #edf2f7;
 
   /* Alert */
-  --color-alert-bg: #ffeb3b;
-  --color-alert-border: #ff9800;
+  --color-alert-bg: #fef3cd;
+  --color-alert-border: #E4A853;
 
-  /* Gradients */
-  --gradient-baby: linear-gradient(135deg, #ff6b6b, #ee5a24);
-  --gradient-baby-hover: linear-gradient(135deg, #ee5a24, #c23616);
-  --gradient-parent: linear-gradient(135deg, #3742fa, #2f3542);
-  --gradient-parent-hover: linear-gradient(135deg, #2f3542, #1e272e);
-  --gradient-pwa: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  /* Gradients — warm, organic */
+  --gradient-baby: linear-gradient(135deg, #E8887A 0%, #D4544E 100%);
+  --gradient-baby-hover: linear-gradient(135deg, #D4544E 0%, #B83E38 100%);
+  --gradient-parent: linear-gradient(135deg, #6B8EAE 0%, #4A6F8A 100%);
+  --gradient-parent-hover: linear-gradient(135deg, #5A7A99 0%, #3D5F7A 100%);
+  --gradient-pwa: linear-gradient(135deg, #7BA68C 0%, #5A8A6C 100%);
 
-  /* Shadows */
-  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.1);
-  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.1);
-  --shadow-hover: 0 4px 16px rgba(0, 0, 0, 0.15);
+  /* Shadows — warm-tinted */
+  --shadow-sm: 0 1px 3px rgba(45, 41, 38, 0.06), 0 1px 2px rgba(45, 41, 38, 0.04);
+  --shadow-md: 0 4px 12px rgba(45, 41, 38, 0.07), 0 2px 4px rgba(45, 41, 38, 0.04);
+  --shadow-lg: 0 8px 24px rgba(45, 41, 38, 0.08), 0 4px 8px rgba(45, 41, 38, 0.04);
+  --shadow-hover: 0 12px 32px rgba(45, 41, 38, 0.12), 0 4px 8px rgba(45, 41, 38, 0.06);
+  --shadow-glow: 0 0 0 4px var(--color-primary-light);
 
-  /* Radii */
-  --radius-sm: 4px;
-  --radius-md: 6px;
-  --radius-lg: 8px;
-  --radius-xl: 12px;
-  --radius-pill: 20px;
-  --radius-round: 0.5em;
-  --radius-card: 0.8em;
+  /* Radii — rounded, soft */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+  --radius-pill: 100px;
+  --radius-round: 12px;
+  --radius-card: 16px;
 
   /* Typography */
-  --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-  --font-mono: monospace;
+  --font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'DM Mono', 'SF Mono', monospace;
+
+  /* Spacing */
+  --space-xs: 0.25rem;
+  --space-sm: 0.5rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2rem;
+  --space-2xl: 3rem;
+
+  /* Transitions */
+  --transition-fast: 150ms ease;
+  --transition-base: 250ms ease;
+  --transition-slow: 400ms ease;
 }
 
-/* Dark mode - auto-detect system preference */
+/* ============================================
+   Dark Mode — deep, warm night palette
+   Auto-detects system preference
+   ============================================ */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --color-primary: #60a5fa;
-    --color-primary-hover: #3b82f6;
-    --color-primary-light: rgba(96, 165, 250, 0.15);
+    --color-primary: #8AAFCC;
+    --color-primary-hover: #6B8EAE;
+    --color-primary-light: rgba(138, 175, 204, 0.15);
+    --color-primary-glow: rgba(138, 175, 204, 0.2);
 
-    --color-success: #66bb6a;
-    --color-success-bg: #1b3a1f;
-    --color-success-text: #81c784;
+    --color-success: #8FBB9D;
+    --color-success-bg: rgba(123, 166, 140, 0.12);
+    --color-success-text: #A8D4B6;
 
-    --color-warning: #ffca28;
-    --color-warning-bg: #3d2e0a;
-    --color-warning-text: #ffd54f;
+    --color-warning: #EDB96A;
+    --color-warning-bg: rgba(228, 168, 83, 0.12);
+    --color-warning-text: #F0C87A;
 
-    --color-danger: #ef5350;
-    --color-danger-bg: #3b1515;
-    --color-danger-text: #ef9a9a;
+    --color-danger: #E07070;
+    --color-danger-bg: rgba(212, 84, 78, 0.12);
+    --color-danger-text: #F0A0A0;
 
-    --color-info-bg: #0d2137;
-    --color-info-text: #64b5f6;
+    --color-info-bg: rgba(107, 142, 174, 0.1);
+    --color-info-text: #8AAFCC;
 
-    --color-bg: #121318;
-    --color-bg-alt: #1a1b23;
-    --color-surface: #1e1f2a;
-    --color-surface-alt: #252636;
-    --color-border: #2d2e3d;
-    --color-border-light: #252636;
-    --color-border-dark: #3a3b4d;
+    --color-bg: #13161A;
+    --color-bg-alt: #1A1E24;
+    --color-surface: #1F2329;
+    --color-surface-alt: #262B32;
+    --color-border: #2E343C;
+    --color-border-light: #262B32;
+    --color-border-dark: #3A414A;
 
-    --color-text: #e4e4e9;
-    --color-text-secondary: #a0a0b0;
-    --color-text-muted: #8585a0;
-    --color-text-light: #6a6a80;
-    --color-text-heading: #c8c8d8;
+    --color-text: #E8E4E0;
+    --color-text-secondary: #B0AAA4;
+    --color-text-muted: #7A756F;
+    --color-text-light: #5A5550;
+    --color-text-heading: #D8D4D0;
 
-    --color-alert-bg: #3d3210;
-    --color-alert-border: #f59e0b;
+    --color-baby: #E8887A;
+    --color-baby-bg: rgba(232, 136, 122, 0.1);
+    --color-parent: #8AAFCC;
+    --color-parent-bg: rgba(138, 175, 204, 0.1);
 
-    --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.3);
-    --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.3);
-    --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.3);
-    --shadow-hover: 0 4px 16px rgba(0, 0, 0, 0.4);
+    --color-alert-bg: rgba(228, 168, 83, 0.15);
+    --color-alert-border: #E4A853;
+
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.2);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.25);
+    --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.3);
+    --shadow-hover: 0 12px 32px rgba(0, 0, 0, 0.35);
   }
 }
 
-/* Dark mode - manual override */
+/* Manual dark mode override */
 :root[data-theme="dark"] {
-  --color-primary: #60a5fa;
-  --color-primary-hover: #3b82f6;
-  --color-primary-light: rgba(96, 165, 250, 0.15);
+  --color-primary: #8AAFCC;
+  --color-primary-hover: #6B8EAE;
+  --color-primary-light: rgba(138, 175, 204, 0.15);
+  --color-primary-glow: rgba(138, 175, 204, 0.2);
 
-  --color-success: #66bb6a;
-  --color-success-bg: #1b3a1f;
-  --color-success-text: #81c784;
+  --color-success: #8FBB9D;
+  --color-success-bg: rgba(123, 166, 140, 0.12);
+  --color-success-text: #A8D4B6;
 
-  --color-warning: #ffca28;
-  --color-warning-bg: #3d2e0a;
-  --color-warning-text: #ffd54f;
+  --color-warning: #EDB96A;
+  --color-warning-bg: rgba(228, 168, 83, 0.12);
+  --color-warning-text: #F0C87A;
 
-  --color-danger: #ef5350;
-  --color-danger-bg: #3b1515;
-  --color-danger-text: #ef9a9a;
+  --color-danger: #E07070;
+  --color-danger-bg: rgba(212, 84, 78, 0.12);
+  --color-danger-text: #F0A0A0;
 
-  --color-info-bg: #0d2137;
-  --color-info-text: #64b5f6;
+  --color-info-bg: rgba(107, 142, 174, 0.1);
+  --color-info-text: #8AAFCC;
 
-  --color-bg: #121318;
-  --color-bg-alt: #1a1b23;
-  --color-surface: #1e1f2a;
-  --color-surface-alt: #252636;
-  --color-border: #2d2e3d;
-  --color-border-light: #252636;
-  --color-border-dark: #3a3b4d;
+  --color-bg: #13161A;
+  --color-bg-alt: #1A1E24;
+  --color-surface: #1F2329;
+  --color-surface-alt: #262B32;
+  --color-border: #2E343C;
+  --color-border-light: #262B32;
+  --color-border-dark: #3A414A;
 
-  --color-text: #e4e4e9;
-  --color-text-secondary: #a0a0b0;
-  --color-text-muted: #8585a0;
-  --color-text-light: #6a6a80;
-  --color-text-heading: #c8c8d8;
+  --color-text: #E8E4E0;
+  --color-text-secondary: #B0AAA4;
+  --color-text-muted: #7A756F;
+  --color-text-light: #5A5550;
+  --color-text-heading: #D8D4D0;
 
-  --color-alert-bg: #3d3210;
-  --color-alert-border: #f59e0b;
+  --color-baby: #E8887A;
+  --color-baby-bg: rgba(232, 136, 122, 0.1);
+  --color-parent: #8AAFCC;
+  --color-parent-bg: rgba(138, 175, 204, 0.1);
 
-  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.3);
-  --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.3);
-  --shadow-hover: 0 4px 16px rgba(0, 0, 0, 0.4);
+  --color-alert-bg: rgba(228, 168, 83, 0.15);
+  --color-alert-border: #E4A853;
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.25);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.3);
+  --shadow-hover: 0 12px 32px rgba(0, 0, 0, 0.35);
 }
