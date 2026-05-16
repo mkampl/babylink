@@ -51,7 +51,12 @@
       </div>
 
       <div class="notification-form">
-        <label for="ntfyTopic">ntfy.sh Topic:</label>
+        <label for="ntfyServer">ntfy Server URL (leave empty for ntfy.sh):</label>
+        <div style="margin-bottom: 12px;">
+          <input type="text" id="ntfyServer" placeholder="https://ntfy.sh" style="width: 100%;">
+        </div>
+
+        <label for="ntfyTopic">Topic:</label>
         <div style="display: flex; gap: 8px; margin-bottom: 12px;">
           <input type="text" id="ntfyTopic" placeholder="my-unique-topic-name" style="flex: 1;">
           <button id="testNotificationBtn" class="btn btn-secondary" disabled>Test</button>

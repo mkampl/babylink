@@ -49,6 +49,7 @@ class NotificationUI {
       const setVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
       const setChecked = (id, val) => { const el = document.getElementById(id); if (el) el.checked = val; };
 
+      setVal('ntfyServer', config.ntfyServer || '');
       setVal('ntfyTopic', config.ntfyTopic || '');
       setChecked('ntfyEnabled', config.ntfyEnabled || false);
       setChecked('notifyOnCrying', config.notifyOnCrying !== false);
@@ -74,11 +75,13 @@ class NotificationUI {
     }
 
     try {
+      const ntfyServer = (document.getElementById('ntfyServer')?.value || '').trim() || null;
       const res = await fetch(`/api/rooms/${this.roomId}/ntfy`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           topic,
+          ntfyServer: ntfyServer,
           enabled: document.getElementById('ntfyEnabled')?.checked,
           notifyOnCrying: document.getElementById('notifyOnCrying')?.checked,
           notifyOnDisconnect: document.getElementById('notifyOnDisconnect')?.checked,

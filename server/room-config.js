@@ -76,6 +76,7 @@ class RoomConfigManager {
   getConfig(roomId) {
     return this.configs.get(roomId) || {
       ntfyTopic: null,
+      ntfyServer: null,
       ntfyEnabled: false,
       notifyOnCrying: true,
       notifyOnDisconnect: true,

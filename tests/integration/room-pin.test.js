@@ -1,6 +1,6 @@
 const request = require('supertest');
 const { startServer } = require('../helpers/server-factory');
-const { createSocketClient } = require('../helpers/socket-client');
+const { createSocketClient, joinRoom } = require('../helpers/socket-client');
 
 // Use unique room IDs for PIN tests to avoid state collisions with other test files
 const PIN_ROOM = 'd'.repeat(32);

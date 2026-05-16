@@ -415,8 +415,30 @@
       multiBabyUI.removeBaby(participantId);
     };
 
+    // Track crying state per baby to avoid spamming socket events
+    const cryingState = new Map(); // babyId → { isCrying, lastEmit }
+    const CRYING_EMIT_COOLDOWN = 30000; // Only emit once per 30s per baby
+
     multiStreamManager.onAudioLevelUpdate = (participantId, level, volume) => {
       multiBabyUI.updateAudioLevel(participantId, level, volume);
+
+      // Notify server when crying detected (RED level)
+      if (level === 'RED') {
+        const state = cryingState.get(participantId) || { isCrying: false, lastEmit: 0 };
+        const now = Date.now();
+        if (!state.isCrying || now - state.lastEmit > CRYING_EMIT_COOLDOWN) {
+          state.isCrying = true;
+          state.lastEmit = now;
+          cryingState.set(participantId, state);
+
+          var babyCard = multiBabyUI.babyCards.get(participantId);
+          var babyName = (babyCard && babyCard.participantInfo && babyCard.participantInfo.userName) || 'Baby';
+          socket.emit('crying-detected', { roomId, babyId: participantId, babyName: babyName });
+        }
+      } else {
+        var s = cryingState.get(participantId);
+        if (s) s.isCrying = false;
+      }
     };
 
     document.getElementById('status').textContent = '\uD83D\uDC42 Listening for babies...';

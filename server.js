@@ -141,7 +141,7 @@ app.get('/api/rooms/:roomId/config', validateRoomId, (req, res) => {
 // Set ntfy.sh topic for a room
 app.post('/api/rooms/:roomId/ntfy', validateRoomId, async (req, res) => {
   const { roomId } = req.params;
-  const { topic, enabled = true, notifyOnCrying = true, notifyOnDisconnect = true, notifyOnActivity = false } = req.body;
+  const { topic, ntfyServer, enabled = true, notifyOnCrying = true, notifyOnDisconnect = true, notifyOnActivity = false } = req.body;
 
   if (!topic || typeof topic !== 'string') {
     return res.status(400).json({ error: 'Topic is required and must be a string' });
@@ -150,6 +150,7 @@ app.post('/api/rooms/:roomId/ntfy', validateRoomId, async (req, res) => {
   try {
     const updated = await roomConfig.updateConfig(roomId, {
       ntfyTopic: topic,
+      ntfyServer: ntfyServer || null,
       ntfyEnabled: enabled,
       notifyOnCrying,
       notifyOnDisconnect,
@@ -214,17 +215,24 @@ app.delete('/api/rooms/:roomId/ntfy', validateRoomId, async (req, res) => {
 // Test notification endpoint (for debugging)
 app.post('/api/rooms/:roomId/ntfy/test', validateRoomId, async (req, res) => {
   const { roomId } = req.params;
-  const topic = roomConfig.getNtfyTopic(roomId);
+  const config = roomConfig.getConfig(roomId);
+  const topic = config.ntfyEnabled ? config.ntfyTopic : null;
 
   if (!topic) {
     return res.status(400).json({ error: 'No ntfy.sh topic configured for this room' });
   }
 
   try {
+    // Use per-room ntfy server if configured
+    const originalServer = notificationService.ntfyServer;
+    if (config.ntfyServer) {
+      notificationService.ntfyServer = config.ntfyServer;
+    }
+
     const serverUrl = `${req.protocol}://${req.get('host')}`;
     const success = await notificationService.sendNotification(
       topic,
-      '🧪 Test Notification',
+      'Test Notification',
       'This is a test notification from BabyLink',
       {
         priority: 'default',
@@ -232,6 +240,8 @@ app.post('/api/rooms/:roomId/ntfy/test', validateRoomId, async (req, res) => {
         click: `${serverUrl}/${roomId}?role=parent`
       }
     );
+
+    notificationService.ntfyServer = originalServer;
 
     res.json({
       success,
@@ -495,6 +505,22 @@ io.on('connection', (socket) => {
             participants: room.participants
           });
 
+          // Send ntfy disconnect notification if baby device disconnects
+          if (socket.role === 'baby') {
+            try {
+              const config = roomConfig.getConfig(socket.roomId);
+              if (config.ntfyEnabled && config.ntfyTopic && config.notifyOnDisconnect) {
+                const ntfyServer = config.ntfyServer || notificationService.ntfyServer;
+                const originalServer = notificationService.ntfyServer;
+                notificationService.ntfyServer = ntfyServer;
+                notificationService.sendDisconnectAlert(config.ntfyTopic, socket.roomId, socket.userName || 'Baby');
+                notificationService.ntfyServer = originalServer;
+              }
+            } catch (ntfyErr) {
+              logger.error('Failed to send disconnect notification', { error: ntfyErr.message });
+            }
+          }
+
           // Clean up empty rooms
           if (room.participants.length === 0) {
             rooms.delete(socket.roomId);
@@ -504,6 +530,34 @@ io.on('connection', (socket) => {
       }
     } catch (error) {
       logger.error('Error in disconnect handler', { error: error.message, socketId: socket.id });
+    }
+  });
+
+  // Handle crying detection — send ntfy.sh notification
+  socket.on('crying-detected', async (data) => {
+    try {
+      if (!socket.roomId) return;
+      const { babyName } = data;
+      const config = roomConfig.getConfig(socket.roomId);
+
+      if (!config.ntfyEnabled || !config.ntfyTopic || !config.notifyOnCrying) {
+        return;
+      }
+
+      const ntfyServer = config.ntfyServer || notificationService.ntfyServer;
+      const originalServer = notificationService.ntfyServer;
+      notificationService.ntfyServer = ntfyServer;
+
+      await notificationService.sendCryingAlert(
+        config.ntfyTopic,
+        socket.roomId,
+        babyName || 'Baby',
+        null
+      );
+
+      notificationService.ntfyServer = originalServer;
+    } catch (error) {
+      logger.error('Error in crying-detected handler', { error: error.message, socketId: socket.id });
     }
   });
 
