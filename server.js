@@ -124,6 +124,48 @@ app.get('/api/config/webrtc', (req, res) => {
 });
 
 // =============================================================================
+// ESP32 DEVICE MANAGEMENT ENDPOINTS
+// =============================================================================
+
+// List ESP32 devices in a room
+app.get('/api/rooms/:roomId/esp32/devices', validateRoomId, (req, res) => {
+  const { roomId } = req.params;
+  const devices = esp32Proxy.getDevicesForRoom(roomId);
+  res.json({ devices });
+});
+
+// Rename an ESP32 device
+app.patch('/api/rooms/:roomId/esp32/:esp32Id', validateRoomId, (req, res) => {
+  const { roomId, esp32Id } = req.params;
+  const { name } = req.body;
+
+  if (!name || typeof name !== 'string' || name.trim().length === 0) {
+    return res.status(400).json({ error: 'Name is required' });
+  }
+
+  const client = esp32Proxy.esp32Clients.get(esp32Id);
+  if (!client || client.roomId !== roomId) {
+    return res.status(404).json({ error: 'Device not found in this room' });
+  }
+
+  const result = esp32Proxy.renameDevice(esp32Id, name.trim());
+  res.json({ success: true, device: result });
+});
+
+// Force disconnect an ESP32 device
+app.delete('/api/rooms/:roomId/esp32/:esp32Id', validateRoomId, (req, res) => {
+  const { roomId, esp32Id } = req.params;
+
+  const client = esp32Proxy.esp32Clients.get(esp32Id);
+  if (!client || client.roomId !== roomId) {
+    return res.status(404).json({ error: 'Device not found in this room' });
+  }
+
+  esp32Proxy.forceDisconnect(esp32Id);
+  res.json({ success: true, message: 'Device disconnected' });
+});
+
+// =============================================================================
 // NOTIFICATION API ENDPOINTS
 // =============================================================================
 

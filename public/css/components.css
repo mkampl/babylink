@@ -735,6 +735,92 @@ body.role-page main {
   margin: 0 0 var(--space-md);
 }
 
+/* ====== ESP32 Device List ====== */
+.devices-list {
+  margin: var(--space-md) 0;
+}
+
+.device-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  background: var(--color-surface-alt);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-light);
+  margin-bottom: var(--space-sm);
+}
+
+.device-status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--color-success);
+  flex-shrink: 0;
+}
+
+.device-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.device-name {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--color-text-heading);
+}
+
+.device-meta {
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+  margin-top: 2px;
+}
+
+.device-actions {
+  display: flex;
+  gap: var(--space-xs);
+  flex-shrink: 0;
+}
+
+.device-rename-btn,
+.device-disconnect-btn {
+  padding: 0.4em 0.7em;
+  font-size: 0.78rem;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-family: var(--font-family);
+  font-weight: 500;
+  min-height: 32px;
+}
+
+.device-rename-btn {
+  background: var(--color-primary-light);
+  color: var(--color-primary);
+}
+
+.device-rename-btn:hover {
+  background: var(--color-primary);
+  color: white;
+}
+
+.device-disconnect-btn {
+  background: var(--color-danger-bg);
+  color: var(--color-danger-text);
+}
+
+.device-disconnect-btn:hover {
+  background: var(--color-danger);
+  color: white;
+}
+
+.no-devices {
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  padding: var(--space-lg);
+}
+
 /* ====== Responsive ====== */
 @media (max-width: 768px) {
   .babies-grid { grid-template-columns: 1fr; }

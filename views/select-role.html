@@ -45,6 +45,7 @@
       <button type="button" id="pinSettingsBtn" class="room-settings-btn">Room Security</button>
       <button type="button" id="ntfySettingsBtn" class="room-settings-btn">Push Notifications</button>
       <button type="button" id="sleepSettingsBtn" class="room-settings-btn">Sleep Tracking</button>
+      <button type="button" id="devicesSettingsBtn" class="room-settings-btn">Devices</button>
     </div>
     <div id="pinSettings" class="pin-settings" style="display:none;">
       <h3 id="pinSettingsTitle">Set Room PIN</h3>
@@ -121,6 +122,36 @@
         <button type="submit">Save Settings</button>
         <div id="sleepResult" class="pin-result" style="display:none;"></div>
       </form>
+    </div>
+
+    <!-- ESP32 Device Management -->
+    <div id="devicesSettings" class="pin-settings" style="display:none;">
+      <h3>ESP32 Devices</h3>
+      <p>Manage physical baby monitor hardware in this room.</p>
+      <div id="devicesList" class="devices-list"></div>
+      <div id="noDevices" class="no-devices">No ESP32 devices connected to this room.</div>
+      <button type="button" id="addDeviceBtn" class="onboarding-btn secondary" style="margin-top:var(--space-md);">Add ESP32 Device</button>
+      <div id="addDeviceInstructions" style="display:none;margin-top:var(--space-lg);">
+        <h4 style="margin:0 0 var(--space-sm);font-size:0.95rem;">Setup Instructions</h4>
+        <div id="bleProvisionBtn" style="display:none;margin-bottom:var(--space-md);">
+          <button type="button" id="startBleBtn" class="onboarding-btn primary">Add via Bluetooth</button>
+          <p style="font-size:0.82rem;color:var(--color-text-muted);margin-top:var(--space-xs);">Android Chrome only — discovers nearby BabyLink devices</p>
+        </div>
+        <div class="device-setup-steps">
+          <p style="font-size:0.88rem;font-weight:600;margin:0 0 var(--space-sm);">Manual Setup (all platforms):</p>
+          <ol style="margin:0;padding-left:1.5em;font-size:0.88rem;line-height:1.8;color:var(--color-text-secondary);">
+            <li>Power on your ESP32 device</li>
+            <li>Connect to WiFi network <strong>BabyLink-Setup</strong></li>
+            <li>Open <strong>http://192.168.4.1</strong> in your browser</li>
+            <li>Enter your WiFi credentials and the values below:</li>
+          </ol>
+          <div class="device-prefill" style="margin-top:var(--space-md);background:var(--color-surface-alt);padding:var(--space-md);border-radius:var(--radius-md);font-size:0.85rem;">
+            <div><strong>Server:</strong> <code id="prefillServer"></code></div>
+            <div><strong>Port:</strong> <code id="prefillPort"></code></div>
+            <div><strong>Room ID:</strong> <code id="prefillRoom"></code></div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Role Selection -->
@@ -310,8 +341,11 @@
       var settings = document.getElementById('pinSettings');
       var visible = settings.style.display !== 'none';
       settings.style.display = visible ? 'none' : 'block';
-      // Close ntfy panel when opening PIN
-      if (!visible) document.getElementById('ntfySettings').style.display = 'none';
+      if (!visible) {
+        document.getElementById('ntfySettings').style.display = 'none';
+        document.getElementById('sleepSettings').style.display = 'none';
+        document.getElementById('devicesSettings').style.display = 'none';
+      }
 
       if (!visible && roomHasPin) {
         document.getElementById('currentPinRow').style.display = 'block';
@@ -325,10 +359,12 @@
       var settings = document.getElementById('ntfySettings');
       var visible = settings.style.display !== 'none';
       settings.style.display = visible ? 'none' : 'block';
-      // Close PIN panel when opening ntfy
-      if (!visible) document.getElementById('pinSettings').style.display = 'none';
-      // Load config when opening
-      if (!visible) loadNtfyConfig();
+      if (!visible) {
+        document.getElementById('pinSettings').style.display = 'none';
+        document.getElementById('sleepSettings').style.display = 'none';
+        document.getElementById('devicesSettings').style.display = 'none';
+        loadNtfyConfig();
+      }
     });
 
     // Load ntfy config from server
@@ -498,6 +534,7 @@
       if (!visible) {
         document.getElementById('pinSettings').style.display = 'none';
         document.getElementById('ntfySettings').style.display = 'none';
+        document.getElementById('devicesSettings').style.display = 'none';
         loadSleepConfig();
       }
     });
@@ -526,6 +563,125 @@
       resultEl.textContent = 'Settings saved';
       setTimeout(function() { resultEl.style.display = 'none'; }, 3000);
     });
+
+    // ========================
+    // Devices panel
+    // ========================
+
+    var devicesPollingInterval = null;
+
+    document.getElementById('devicesSettingsBtn').addEventListener('click', function() {
+      var settings = document.getElementById('devicesSettings');
+      var visible = settings.style.display !== 'none';
+      settings.style.display = visible ? 'none' : 'block';
+      if (!visible) {
+        document.getElementById('pinSettings').style.display = 'none';
+        document.getElementById('ntfySettings').style.display = 'none';
+        document.getElementById('sleepSettings').style.display = 'none';
+        loadDevices();
+        startDevicePolling();
+        // Pre-fill server info
+        document.getElementById('prefillServer').textContent = window.location.hostname;
+        document.getElementById('prefillPort').textContent = window.location.port || (window.location.protocol === 'https:' ? '443' : '80');
+        document.getElementById('prefillRoom').textContent = window.location.pathname.slice(1);
+        // Show BLE button if Web Bluetooth available
+        if (navigator.bluetooth) {
+          document.getElementById('bleProvisionBtn').style.display = 'block';
+        }
+      } else {
+        stopDevicePolling();
+      }
+    });
+
+    document.getElementById('addDeviceBtn').addEventListener('click', function() {
+      var instructions = document.getElementById('addDeviceInstructions');
+      instructions.style.display = instructions.style.display === 'none' ? 'block' : 'none';
+    });
+
+    function startDevicePolling() {
+      stopDevicePolling();
+      devicesPollingInterval = setInterval(loadDevices, 5000);
+    }
+
+    function stopDevicePolling() {
+      if (devicesPollingInterval) {
+        clearInterval(devicesPollingInterval);
+        devicesPollingInterval = null;
+      }
+    }
+
+    async function loadDevices() {
+      var roomId = window.location.pathname.slice(1);
+      try {
+        var res = await fetch('/api/rooms/' + encodeURIComponent(roomId) + '/esp32/devices');
+        if (!res.ok) return;
+        var data = await res.json();
+        renderDevices(data.devices || []);
+      } catch (err) {
+        console.error('Failed to load devices:', err);
+      }
+    }
+
+    function renderDevices(devices) {
+      var list = document.getElementById('devicesList');
+      var noDevices = document.getElementById('noDevices');
+
+      if (devices.length === 0) {
+        list.innerHTML = '';
+        noDevices.style.display = 'block';
+        return;
+      }
+
+      noDevices.style.display = 'none';
+      list.innerHTML = devices.map(function(d) {
+        var uptimeMin = Math.floor(d.uptime / 60000);
+        var uptimeStr = uptimeMin < 60 ? uptimeMin + 'min' : Math.floor(uptimeMin / 60) + 'h ' + (uptimeMin % 60) + 'min';
+        return '<div class="device-item" data-id="' + d.id + '">' +
+          '<div class="device-status-dot"></div>' +
+          '<div class="device-info">' +
+            '<div class="device-name">' + escapeHtml(d.name) + '</div>' +
+            '<div class="device-meta">' + d.clientIp + ' &middot; ' + uptimeStr + ' &middot; ' + d.audioPacketsReceived + ' packets</div>' +
+          '</div>' +
+          '<div class="device-actions">' +
+            '<button class="device-rename-btn" onclick="renameDevice(\'' + d.id + '\',\'' + escapeHtml(d.name) + '\')">Rename</button>' +
+            '<button class="device-disconnect-btn" onclick="disconnectDevice(\'' + d.id + '\')">Disconnect</button>' +
+          '</div>' +
+        '</div>';
+      }).join('');
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    window.renameDevice = async function(esp32Id, currentName) {
+      var newName = prompt('Device name:', currentName);
+      if (!newName || newName === currentName) return;
+      var roomId = window.location.pathname.slice(1);
+      try {
+        await fetch('/api/rooms/' + encodeURIComponent(roomId) + '/esp32/' + encodeURIComponent(esp32Id), {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: newName })
+        });
+        loadDevices();
+      } catch (err) {
+        console.error('Rename failed:', err);
+      }
+    };
+
+    window.disconnectDevice = async function(esp32Id) {
+      if (!confirm('Disconnect this device?')) return;
+      var roomId = window.location.pathname.slice(1);
+      try {
+        await fetch('/api/rooms/' + encodeURIComponent(roomId) + '/esp32/' + encodeURIComponent(esp32Id), {
+          method: 'DELETE'
+        });
+        loadDevices();
+      } catch (err) {
+        console.error('Disconnect failed:', err);
+      }
+    };
 
     // Store verified PIN in sessionStorage for use by app.js
     function storeVerifiedPin() {

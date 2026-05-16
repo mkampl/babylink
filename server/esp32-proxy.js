@@ -428,6 +428,56 @@ class ESP32AudioProxy {
   }
 
   /**
+   * Get ESP32 devices for a specific room
+   */
+  getDevicesForRoom(roomId) {
+    const devices = [];
+    this.esp32Clients.forEach((client, id) => {
+      if (client.roomId === roomId) {
+        devices.push({
+          id,
+          name: client.name,
+          clientIp: client.clientIp,
+          connectedAt: client.connectedAt,
+          audioPacketsReceived: client.audioPacketsReceived,
+          lastAudioPacket: client.lastAudioPacket,
+          uptime: Date.now() - client.connectedAt.getTime(),
+          sampleRate: client.sampleRate,
+          channels: client.channels
+        });
+      }
+    });
+    return devices;
+  }
+
+  /**
+   * Rename an ESP32 device
+   */
+  renameDevice(esp32Id, newName) {
+    const client = this.esp32Clients.get(esp32Id);
+    if (!client) return null;
+    client.name = newName;
+    return {
+      id: esp32Id,
+      name: client.name,
+      roomId: client.roomId
+    };
+  }
+
+  /**
+   * Force disconnect an ESP32 device
+   */
+  forceDisconnect(esp32Id) {
+    const client = this.esp32Clients.get(esp32Id);
+    if (!client) return false;
+    if (client.ws) {
+      client.ws.terminate();
+    }
+    this.unregisterESP32(esp32Id);
+    return true;
+  }
+
+  /**
    * Handle HTTP upgrade for ESP32 WebSocket endpoint
    */
   handleUpgrade(request, socket, head) {
