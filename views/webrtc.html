@@ -106,6 +106,9 @@
   </audio>
 
   <script>
+    // Dark mode toggle
+    ThemeManager.createToggleButton(document.body);
+
     // Global variables
     const socket = io();
     const esp32AudioContexts = new Map(); // Map of esp32Id -> { audioContext, sourceNode, gainNode }

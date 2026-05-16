@@ -70,8 +70,11 @@
     </div>
   </main>
 
-
+  <script src="/js/utils.js"></script>
   <script>
+    // Dark mode toggle
+    ThemeManager.createToggleButton(document.body);
+
     // QR Code generation using QR Server API
     function generateQR(text) {
       const qrImg = document.getElementById('qrcode');

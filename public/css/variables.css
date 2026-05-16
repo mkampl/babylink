@@ -67,3 +67,93 @@
   --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
   --font-mono: monospace;
 }
+
+/* Dark mode - auto-detect system preference */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-primary: #60a5fa;
+    --color-primary-hover: #3b82f6;
+    --color-primary-light: rgba(96, 165, 250, 0.15);
+
+    --color-success: #66bb6a;
+    --color-success-bg: #1b3a1f;
+    --color-success-text: #81c784;
+
+    --color-warning: #ffca28;
+    --color-warning-bg: #3d2e0a;
+    --color-warning-text: #ffd54f;
+
+    --color-danger: #ef5350;
+    --color-danger-bg: #3b1515;
+    --color-danger-text: #ef9a9a;
+
+    --color-info-bg: #0d2137;
+    --color-info-text: #64b5f6;
+
+    --color-bg: #121318;
+    --color-bg-alt: #1a1b23;
+    --color-surface: #1e1f2a;
+    --color-surface-alt: #252636;
+    --color-border: #2d2e3d;
+    --color-border-light: #252636;
+    --color-border-dark: #3a3b4d;
+
+    --color-text: #e4e4e9;
+    --color-text-secondary: #a0a0b0;
+    --color-text-muted: #8585a0;
+    --color-text-light: #6a6a80;
+    --color-text-heading: #c8c8d8;
+
+    --color-alert-bg: #3d3210;
+    --color-alert-border: #f59e0b;
+
+    --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.3);
+    --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.3);
+    --shadow-hover: 0 4px 16px rgba(0, 0, 0, 0.4);
+  }
+}
+
+/* Dark mode - manual override */
+:root[data-theme="dark"] {
+  --color-primary: #60a5fa;
+  --color-primary-hover: #3b82f6;
+  --color-primary-light: rgba(96, 165, 250, 0.15);
+
+  --color-success: #66bb6a;
+  --color-success-bg: #1b3a1f;
+  --color-success-text: #81c784;
+
+  --color-warning: #ffca28;
+  --color-warning-bg: #3d2e0a;
+  --color-warning-text: #ffd54f;
+
+  --color-danger: #ef5350;
+  --color-danger-bg: #3b1515;
+  --color-danger-text: #ef9a9a;
+
+  --color-info-bg: #0d2137;
+  --color-info-text: #64b5f6;
+
+  --color-bg: #121318;
+  --color-bg-alt: #1a1b23;
+  --color-surface: #1e1f2a;
+  --color-surface-alt: #252636;
+  --color-border: #2d2e3d;
+  --color-border-light: #252636;
+  --color-border-dark: #3a3b4d;
+
+  --color-text: #e4e4e9;
+  --color-text-secondary: #a0a0b0;
+  --color-text-muted: #8585a0;
+  --color-text-light: #6a6a80;
+  --color-text-heading: #c8c8d8;
+
+  --color-alert-bg: #3d3210;
+  --color-alert-border: #f59e0b;
+
+  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.3);
+  --shadow-hover: 0 4px 16px rgba(0, 0, 0, 0.4);
+}

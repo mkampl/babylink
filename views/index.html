@@ -54,9 +54,13 @@
       <button id="dismissPwaBtn">Maybe Later</button>
     </div>
   </main>
-  
-  
+
+
+  <script src="/js/utils.js"></script>
   <script>
+    // Dark mode toggle
+    ThemeManager.createToggleButton(document.body);
+
     // PWA and Wake Lock functionality
     let deferredPrompt;
     let wakeLock = null;

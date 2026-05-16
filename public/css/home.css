@@ -29,8 +29,13 @@ body.home-page button {
 }
 
 body.home-page input {
-  background: #fafafa;
+  background: var(--color-surface-alt);
+  color: var(--color-text);
   transition: border-color 0.3s, background-color 0.3s;
+}
+
+body.home-page input {
+  border-color: var(--color-border-dark);
 }
 
 body.home-page input:focus {
