@@ -23,6 +23,11 @@ const JS_FILES = [
   '/js/utils.js',
   '/js/multi-baby-ui.js',
   '/js/multi-stream-manager.js',
+  '/js/wake-lock-manager.js',
+  '/js/alarm-manager.js',
+  '/js/esp32-audio-handler.js',
+  '/js/notification-ui.js',
+  '/js/app.js',
 ];
 
 describe('JavaScript file syntax validation', () => {
@@ -87,13 +92,14 @@ describe('HTML pages reference all required scripts', () => {
     expect(res.text).toContain('/js/multi-stream-manager.js');
   });
 
-  it('webrtc.html calls initialize() and not via DOMContentLoaded', async () => {
+  it('webrtc.html loads app.js (which calls initialize)', async () => {
     const roomId = 'a'.repeat(32);
     const res = await request(server.app).get(`/${roomId}?role=parent`);
-    // Must call initialize() at the end of the script
-    expect(res.text).toContain('initialize()');
-    // Must NOT use DOMContentLoaded (fires before inline script at end of body)
-    expect(res.text).not.toContain("DOMContentLoaded', initialize");
+    expect(res.text).toContain('/js/app.js');
+    // app.js must contain initialize() call
+    const appJs = fs.readFileSync(path.join(__dirname, '../../public/js/app.js'), 'utf8');
+    expect(appJs).toContain('initialize()');
+    expect(appJs).not.toContain("DOMContentLoaded");
   });
 
   it('webrtc.html loads external CSS files', async () => {

@@ -82,9 +82,11 @@ async function runTests() {
 
   const monitorPage = await get(`${SERVER}/${ROOM_ID}?role=parent`);
   assert('Monitor page loads for parent', monitorPage.status === 200);
-  assert('Monitor page contains initialize()', monitorPage.body.includes('initialize()'));
-  assert('Monitor page does NOT use DOMContentLoaded for init',
-    !monitorPage.body.includes("addEventListener('DOMContentLoaded', initialize)"));
+  assert('Monitor page loads app.js', monitorPage.body.includes('/js/app.js'));
+  assert('Monitor page loads all module scripts',
+    monitorPage.body.includes('/js/wake-lock-manager.js') &&
+    monitorPage.body.includes('/js/alarm-manager.js') &&
+    monitorPage.body.includes('/js/esp32-audio-handler.js'));
 
   const babyPage = await get(`${SERVER}/${ROOM_ID}?role=baby`);
   assert('Monitor page loads for baby', babyPage.status === 200);
@@ -258,21 +260,25 @@ async function runTests() {
 
   const webrtcHtml = (await get(`${SERVER}/${ROOM_ID}?role=baby`)).body;
 
-  assert('webrtc.html calls initialize() at script end',
-    webrtcHtml.includes('initialize()') && !webrtcHtml.includes("DOMContentLoaded', initialize"),
-    'Still using DOMContentLoaded listener instead of direct call');
+  assert('webrtc.html loads app.js as entry point',
+    webrtcHtml.includes('/js/app.js'));
 
   assert('webrtc.html loads external CSS',
     webrtcHtml.includes('css/variables.css') && webrtcHtml.includes('css/components.css'));
 
-  assert('webrtc.html loads utils.js', webrtcHtml.includes('js/utils.js'));
+  assert('webrtc.html loads all module scripts',
+    webrtcHtml.includes('js/utils.js') &&
+    webrtcHtml.includes('js/wake-lock-manager.js') &&
+    webrtcHtml.includes('js/alarm-manager.js'));
 
-  assert('webrtc.html has no inline <style> block',
-    !webrtcHtml.match(/<style>[\s\S]{100,}<\/style>/),
-    'Found large inline style block');
+  assert('webrtc.html has no large inline script blocks',
+    !webrtcHtml.match(/<script>[^<]{500,}<\/script>/),
+    'Found large inline script — code should be in external modules');
 
-  assert('webrtc.html creates ThemeManager toggle',
-    webrtcHtml.includes('ThemeManager.createToggleButton'));
+  // Verify app.js has the critical code
+  const appJs = (await get(`${SERVER}/js/app.js`)).body;
+  assert('app.js contains initialize()', appJs.includes('initialize()'));
+  assert('app.js creates ThemeManager toggle', appJs.includes('ThemeManager.createToggleButton'));
 
   // Home page check
   const homeHtml = (await get(`${SERVER}/`)).body;
