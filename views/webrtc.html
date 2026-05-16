@@ -1003,7 +1003,8 @@
     }
 
     // Initialize the application
-    document.addEventListener('DOMContentLoaded', initialize);
+    // Call directly since script is at end of body (DOMContentLoaded already fired)
+    initialize();
   </script>
 </body>
 </html>
