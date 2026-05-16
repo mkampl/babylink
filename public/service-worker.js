@@ -1,8 +1,13 @@
 // service-worker.js
-const CACHE_NAME = 'babylink-v1.1.0';
+const CACHE_NAME = 'babylink-v1.2.0';
 const urlsToCache = [
   '/',
-  '/style.css',
+  '/css/variables.css',
+  '/css/base.css',
+  '/css/components.css',
+  '/css/monitor.css',
+  '/css/home.css',
+  '/js/utils.js',
   '/js/multi-baby-ui.js',
   '/js/multi-stream-manager.js',
   '/manifest.json',

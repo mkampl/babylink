@@ -1,0 +1,72 @@
+/* Base styles - BabyLink */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--font-family);
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+h1 {
+  text-align: center;
+  color: var(--color-text);
+  margin-bottom: 1em;
+}
+
+button {
+  padding: 0.8em 1.5em;
+  font-size: 1.1em;
+  margin: 0.5em;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.3s;
+  font-weight: bold;
+}
+
+button:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+button:active {
+  transform: translateY(0);
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.btn { display: inline-block; }
+.btn-success { background: var(--color-success); color: white; }
+.btn-danger { background: var(--color-danger); color: white; }
+.btn-primary { background: var(--color-primary); color: white; }
+.btn-secondary { background-color: var(--color-text-muted); color: white; }
+.btn-secondary:hover { background-color: #5a6268; }
+
+input[type="text"], input[type="url"] {
+  padding: 0.8em;
+  border: 2px solid var(--color-border-dark);
+  border-radius: var(--radius-round);
+  font-size: 1em;
+  transition: border-color 0.3s;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+input[type="text"]:focus, input[type="url"]:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-light);
+}
+
+@media (max-width: 768px) {
+  button {
+    font-size: 1em;
+    padding: 0.7em 1.2em;
+  }
+}

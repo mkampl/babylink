@@ -1,0 +1,69 @@
+/* Design tokens - BabyLink */
+:root {
+  /* Primary colors */
+  --color-primary: #3b82f6;
+  --color-primary-hover: #2563eb;
+  --color-primary-light: rgba(59, 130, 246, 0.1);
+
+  /* Status colors */
+  --color-success: #4CAF50;
+  --color-success-bg: #e8f5e9;
+  --color-success-text: #2e7d32;
+
+  --color-warning: #FFC107;
+  --color-warning-bg: #fff3e0;
+  --color-warning-text: #e65100;
+
+  --color-danger: #f44336;
+  --color-danger-bg: #ffebee;
+  --color-danger-text: #c62828;
+
+  --color-info-bg: #e3f2fd;
+  --color-info-text: #1976d2;
+
+  /* Neutral colors */
+  --color-bg: #f5f7fa;
+  --color-bg-alt: #f3f4f6;
+  --color-surface: #fff;
+  --color-surface-alt: #f8f9fa;
+  --color-border: #e9ecef;
+  --color-border-light: #f0f0f0;
+  --color-border-dark: #dee2e6;
+
+  /* Text colors */
+  --color-text: #333;
+  --color-text-secondary: #666;
+  --color-text-muted: #6c757d;
+  --color-text-light: #999;
+  --color-text-heading: #495057;
+
+  /* Alert */
+  --color-alert-bg: #ffeb3b;
+  --color-alert-border: #ff9800;
+
+  /* Gradients */
+  --gradient-baby: linear-gradient(135deg, #ff6b6b, #ee5a24);
+  --gradient-baby-hover: linear-gradient(135deg, #ee5a24, #c23616);
+  --gradient-parent: linear-gradient(135deg, #3742fa, #2f3542);
+  --gradient-parent-hover: linear-gradient(135deg, #2f3542, #1e272e);
+  --gradient-pwa: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+
+  /* Shadows */
+  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.1);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.1);
+  --shadow-hover: 0 4px 16px rgba(0, 0, 0, 0.15);
+
+  /* Radii */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-pill: 20px;
+  --radius-round: 0.5em;
+  --radius-card: 0.8em;
+
+  /* Typography */
+  --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  --font-mono: monospace;
+}

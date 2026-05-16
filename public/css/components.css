@@ -1,0 +1,416 @@
+/* Shared components - BabyLink */
+
+/* ====== Baby Cards (multi-baby-ui) ====== */
+.master-controls {
+  background: var(--color-surface);
+  padding: 1.5em;
+  margin-bottom: 1.5em;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+}
+
+.master-controls h2 {
+  margin: 0 0 1em 0;
+  color: var(--color-text);
+}
+
+.master-buttons {
+  display: flex;
+  gap: 1em;
+  margin-bottom: 1em;
+}
+
+.master-status {
+  font-size: 1.1em;
+  color: var(--color-text-secondary);
+}
+
+.babies-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+  gap: 1.5em;
+  margin-bottom: 2em;
+}
+
+.baby-card {
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  padding: 1.5em;
+  box-shadow: var(--shadow-md);
+  transition: box-shadow 0.3s;
+}
+
+.baby-card:hover {
+  box-shadow: var(--shadow-hover);
+}
+
+.baby-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1em;
+  padding-bottom: 0.5em;
+  border-bottom: 2px solid var(--color-border-light);
+}
+
+.baby-name {
+  margin: 0;
+  font-size: 1.3em;
+  color: var(--color-text);
+}
+
+.baby-status {
+  padding: 0.4em 0.8em;
+  border-radius: var(--radius-pill);
+  font-size: 0.9em;
+  font-weight: bold;
+  background: var(--color-success-bg);
+  color: var(--color-success-text);
+}
+
+.baby-status.status-error {
+  background: var(--color-danger-bg);
+  color: var(--color-danger-text);
+}
+
+.baby-status.status-alert {
+  background: var(--color-warning-bg);
+  color: var(--color-warning-text);
+}
+
+.baby-status.pulsing {
+  animation: pulse-alert 1s ease-in-out infinite;
+}
+
+@keyframes pulse-alert {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* ====== Audio Visualization ====== */
+.audio-visualization {
+  margin: 1em 0;
+}
+
+.volume-meter-container {
+  height: 30px;
+  background: var(--color-border-light);
+  border-radius: 15px;
+  overflow: hidden;
+  margin-bottom: 0.5em;
+}
+
+.volume-meter {
+  height: 100%;
+  background: var(--color-success);
+  transition: width 0.1s, background 0.3s;
+  border-radius: 15px;
+}
+
+.audio-level-indicator {
+  text-align: center;
+  padding: 0.5em;
+}
+
+.level-badge {
+  display: inline-block;
+  padding: 0.5em 1em;
+  border-radius: var(--radius-pill);
+  font-weight: bold;
+  font-size: 1.1em;
+}
+
+.level-green { background: var(--color-success-bg); color: var(--color-success-text); }
+.level-yellow { background: var(--color-warning-bg); color: var(--color-warning-text); }
+.level-red {
+  background: var(--color-danger-bg);
+  color: var(--color-danger-text);
+  animation: pulse-badge 1s ease-in-out infinite;
+}
+
+@keyframes pulse-badge {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
+
+/* ====== Baby Controls ====== */
+.baby-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.8em;
+  margin: 1em 0;
+}
+
+.baby-controls button {
+  padding: 0.8em;
+  font-size: 1em;
+  font-weight: bold;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.3s;
+}
+
+.btn-mute { background: var(--color-success); color: white; }
+.btn-mute.muted { background: var(--color-danger); }
+.btn-solo { background: #2196F3; color: white; }
+.btn:hover { opacity: 0.9; transform: translateY(-2px); }
+
+.volume-control, .sensitivity-control {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+}
+
+.volume-control input[type="range"],
+.sensitivity-control input[type="range"] {
+  flex: 1;
+}
+
+.sensitivity-control label {
+  cursor: help;
+}
+
+/* ====== Activity Log ====== */
+.baby-activity-log {
+  margin-top: 1em;
+  padding-top: 1em;
+  border-top: 1px solid var(--color-border-light);
+}
+
+.baby-activity-log strong {
+  display: block;
+  margin-bottom: 0.5em;
+  color: var(--color-text-secondary);
+}
+
+.log-entries {
+  max-height: 150px;
+  overflow-y: auto;
+  font-size: 0.9em;
+}
+
+.log-entry {
+  padding: 0.3em 0;
+  border-bottom: 1px solid #f5f5f5;
+}
+
+.log-time { color: var(--color-text-light); font-size: 0.85em; margin-right: 0.5em; }
+.log-success { color: var(--color-success-text); }
+.log-error { color: var(--color-danger-text); }
+.log-alert { color: var(--color-warning-text); }
+.log-info { color: var(--color-text-secondary); }
+
+/* ====== Wake Lock ====== */
+.wake-lock-container {
+  background: var(--color-surface);
+  padding: 1.5em;
+  margin: 1em 0;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.wake-lock-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.8em;
+  margin: 0.5em 0;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-dark);
+}
+
+.wake-lock-indicator { font-size: 1.2em; font-weight: bold; }
+.wake-lock-active { color: var(--color-success); }
+.wake-lock-inactive { color: var(--color-danger); }
+
+/* ====== Notification Settings ====== */
+.notification-settings {
+  background: var(--color-surface);
+  padding: 1.5em;
+  margin: 1em 0;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.notification-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+  padding: 0.5em;
+  border-radius: var(--radius-md);
+  transition: background-color 0.2s;
+}
+
+.notification-header:hover { background-color: var(--color-surface-alt); }
+.notification-header h3 { margin: 0; font-size: 1.2em; }
+
+.notification-content { padding: 1em 0; }
+
+.notification-info {
+  background: var(--color-info-bg);
+  padding: 1em;
+  border-radius: var(--radius-md);
+  margin-bottom: 1em;
+  font-size: 0.9em;
+}
+
+.notification-info a { color: var(--color-info-text); text-decoration: none; font-weight: bold; }
+.notification-info ol { margin: 0.5em 0 0 1.5em; padding: 0; }
+
+.notification-form { padding: 0.5em; }
+.notification-form label { display: block; margin-bottom: 4px; font-weight: bold; }
+
+.notification-form input[type="text"] {
+  width: 100%;
+  padding: 0.6em;
+  border: 1px solid var(--color-border-dark);
+  border-radius: var(--radius-sm);
+  font-size: 1em;
+}
+
+.notification-form input[type="checkbox"] { width: 18px; height: 18px; cursor: pointer; }
+
+/* ====== Room management (index, select-role) ====== */
+.section {
+  background: var(--color-surface-alt);
+  padding: 1.5em;
+  margin: 1em 0;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--color-border);
+}
+
+.section h2 { margin-top: 0; color: var(--color-text-heading); font-size: 1.2em; }
+
+.room-item {
+  background: var(--color-surface);
+  padding: 1em;
+  margin: 0.5em 0;
+  border-radius: var(--radius-round);
+  border: 1px solid var(--color-border-dark);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.room-name { font-weight: bold; color: var(--color-text-heading); }
+.room-id { font-size: 0.8em; color: var(--color-text-muted); font-family: var(--font-mono); }
+
+.room-actions { display: flex; gap: 0.5em; }
+.room-actions button { padding: 0.5em 1em; font-size: 0.9em; margin: 0; width: auto; }
+.join-btn { background: #28a745; color: white; }
+.delete-btn { background: #dc3545; color: white; }
+
+/* ====== Room Sharing ====== */
+.room-sharing {
+  background: var(--color-surface-alt);
+  padding: 1.5em;
+  margin: 1em 0;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--color-border);
+  text-align: center;
+}
+
+.room-sharing h3 { margin-top: 0; color: var(--color-text-heading); }
+
+.share-controls {
+  display: flex;
+  gap: 0.5em;
+  margin: 1em 0;
+}
+
+.share-controls input {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: var(--color-surface);
+}
+
+.share-controls button { width: auto; white-space: nowrap; padding: 0.8em 1em; margin: 0; }
+
+.qr-container { margin: 1em 0; }
+.qr-container img {
+  border: 2px solid var(--color-border-dark);
+  border-radius: var(--radius-round);
+  background: var(--color-surface);
+  padding: 1em;
+  max-width: 200px;
+  height: auto;
+}
+
+.qr-container p { margin: 0.5em 0 0 0; color: var(--color-text-muted); font-size: 0.9em; }
+
+/* ====== Role Selection ====== */
+.role-selection {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 1.5em;
+  margin-top: 2em;
+}
+
+.role-card {
+  background: var(--color-surface);
+  border-radius: var(--radius-card);
+  padding: 1.5em;
+  border: 2px solid var(--color-border);
+  transition: all 0.3s;
+}
+
+.role-card:hover {
+  border-color: #3742fa;
+  box-shadow: 0 4px 12px rgba(55, 66, 250, 0.15);
+}
+
+.role-card h3 { margin: 0 0 0.5em 0; color: var(--color-text); font-size: 1.5em; }
+.role-card p { color: var(--color-text-secondary); margin: 0 0 1em 0; font-size: 0.95em; }
+.role-card form { display: flex; flex-direction: column; gap: 0.8em; }
+.role-card label { font-weight: bold; color: var(--color-text-heading); text-align: left; }
+
+.role-btn {
+  width: 100%;
+  padding: 1.2em;
+  font-size: 1.1em;
+  margin: 0;
+  border: none;
+  border-radius: var(--radius-card);
+  cursor: pointer;
+  transition: all 0.3s;
+  font-weight: bold;
+}
+
+.baby-btn { background: var(--gradient-baby); color: white; }
+.baby-btn:hover { background: var(--gradient-baby-hover); transform: translateY(-2px); box-shadow: 0 4px 12px rgba(238, 90, 36, 0.3); }
+.parent-btn { background: var(--gradient-parent); color: white; }
+.parent-btn:hover { background: var(--gradient-parent-hover); transform: translateY(-2px); box-shadow: 0 4px 12px rgba(55, 66, 250, 0.3); }
+
+/* ====== PWA Banner ====== */
+.pwa-banner {
+  background: var(--gradient-pwa);
+  color: white;
+  padding: 1em;
+  border-radius: var(--radius-card);
+  text-align: center;
+  margin: 1em 0;
+}
+
+.pwa-banner button {
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: white;
+  margin: 0.2em;
+  padding: 0.5em 1em;
+  width: auto;
+}
+
+.pwa-banner button:hover { background: rgba(255, 255, 255, 0.3); }
+
+/* ====== Responsive ====== */
+@media (max-width: 768px) {
+  .babies-grid { grid-template-columns: 1fr; }
+  .master-buttons { flex-direction: column; }
+  .role-selection { grid-template-columns: 1fr; }
+  .share-controls { flex-direction: column; }
+  .share-controls button { width: 100%; }
+}

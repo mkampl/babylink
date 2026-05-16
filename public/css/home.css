@@ -1,0 +1,84 @@
+/* Home page (index.html) specific styles */
+body.home-page {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  padding: 1em;
+}
+
+body.home-page main {
+  background: var(--color-surface);
+  padding: 2em;
+  border-radius: 1em;
+  box-shadow: var(--shadow-lg);
+  max-width: 400px;
+  width: 100%;
+  text-align: center;
+}
+
+body.home-page input,
+body.home-page button {
+  display: block;
+  width: 100%;
+  margin: 1em 0;
+  padding: 1em;
+  font-size: 1.2em;
+  border-radius: var(--radius-round);
+  border: 1px solid #ccc;
+}
+
+body.home-page input {
+  background: #fafafa;
+  transition: border-color 0.3s, background-color 0.3s;
+}
+
+body.home-page input:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  background: var(--color-surface);
+  box-shadow: 0 0 0 3px var(--color-primary-light);
+}
+
+body.home-page button {
+  background: var(--color-primary);
+  color: white;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.3s, transform 0.2s;
+}
+
+body.home-page button:hover {
+  background: var(--color-primary-hover);
+  transform: translateY(-1px);
+}
+
+body.home-page #mic,
+body.home-page #speaker,
+body.home-page #alert {
+  font-size: 1.5em;
+  margin-top: 1em;
+  color: #10b981;
+}
+
+body.home-page #alert {
+  color: #ef4444;
+  font-weight: bold;
+}
+
+@media (max-width: 480px) {
+  body.home-page {
+    padding: 0.5em;
+  }
+
+  body.home-page main {
+    padding: 1.5em;
+    max-width: 100%;
+  }
+
+  body.home-page input,
+  body.home-page button {
+    font-size: 1.1em;
+    padding: 0.8em;
+  }
+}

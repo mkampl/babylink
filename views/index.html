@@ -4,7 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>BabyLink – Baby Monitor</title>
-  <link rel="stylesheet" href="/style.css" />
+  <link rel="stylesheet" href="/css/variables.css">
+  <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/components.css">
+  <link rel="stylesheet" href="/css/home.css">
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#3b82f6">
   <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-32x32.png">
@@ -14,7 +17,7 @@
   <meta name="apple-mobile-web-app-title" content="BabyLink">
   <link rel="apple-touch-icon" href="/icons/icon-192x192.png">
 </head>
-<body>
+<body class="home-page">
   <main>
     <h1>👶 BabyLink Monitor</h1>
     
@@ -52,85 +55,6 @@
     </div>
   </main>
   
-  <style>
-    .section {
-      background: #f8f9fa;
-      padding: 1.5em;
-      margin: 1em 0;
-      border-radius: 0.8em;
-      border: 1px solid #e9ecef;
-    }
-    
-    .section h2 {
-      margin-top: 0;
-      color: #495057;
-      font-size: 1.2em;
-    }
-    
-    .room-item {
-      background: white;
-      padding: 1em;
-      margin: 0.5em 0;
-      border-radius: 0.5em;
-      border: 1px solid #dee2e6;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-    
-    .room-name {
-      font-weight: bold;
-      color: #495057;
-    }
-    
-    .room-id {
-      font-size: 0.8em;
-      color: #6c757d;
-      font-family: monospace;
-    }
-    
-    .room-actions {
-      display: flex;
-      gap: 0.5em;
-    }
-    
-    .room-actions button {
-      padding: 0.5em 1em;
-      font-size: 0.9em;
-      margin: 0;
-      width: auto;
-    }
-    
-    .join-btn {
-      background: #28a745;
-    }
-    
-    .delete-btn {
-      background: #dc3545;
-    }
-    
-    .pwa-banner {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-      padding: 1em;
-      border-radius: 0.8em;
-      text-align: center;
-      margin: 1em 0;
-    }
-    
-    .pwa-banner button {
-      background: rgba(255, 255, 255, 0.2);
-      border: 1px solid rgba(255, 255, 255, 0.3);
-      color: white;
-      margin: 0.2em;
-      padding: 0.5em 1em;
-      width: auto;
-    }
-    
-    .pwa-banner button:hover {
-      background: rgba(255, 255, 255, 0.3);
-    }
-  </style>
   
   <script>
     // PWA and Wake Lock functionality
