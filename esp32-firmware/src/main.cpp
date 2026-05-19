@@ -783,9 +783,11 @@ void startConfigPortal() {
   // Also start BLE for phone provisioning (Android Web Bluetooth)
   startBLE();
 
-  // Kick off an initial async scan so configurators see networks
-  // immediately on their first read.
-  doWifiScanForBle();
+  // Note: do NOT trigger an automatic WiFi scan here. Observed
+  // crashes (reboot loop within seconds of portal entry) when a
+  // WiFi async scan completed while NimBLE was bringing up its
+  // first GATT connection. Scans are only triggered now by an
+  // explicit "scan" write on the SCAN characteristic.
 
   Serial.println("✅ Configuration portal ready (WiFi AP + BLE)!");
 }
@@ -1319,10 +1321,12 @@ void setup() {
 // =============================================================================
 
 void loop() {
-  // BOOT button long-press → factory reset (works in both modes)
-  checkResetButton();
-
-  // If in configuration mode, handle web server, DNS, and async WiFi scan
+  // If in configuration mode, handle web server, DNS, and async WiFi scan.
+  // Skip the BOOT-button check here: GPIO0 reads transiently LOW under the
+  // BLE+WiFi-AP RF load present during provisioning, which produces phantom
+  // 5-second long-press detections and a factory-reset reboot loop. The
+  // device is already in the state a factory reset would put it in, so the
+  // button is redundant here anyway.
   if (isConfigMode) {
     dnsServer.processNextRequest();
     webServer.handleClient();
@@ -1330,6 +1334,9 @@ void loop() {
     yield();
     return;
   }
+
+  // BOOT button long-press → factory reset (normal/streaming mode only)
+  checkResetButton();
 
   // Normal operation mode
   // Handle WebSocket events
