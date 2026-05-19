@@ -2,35 +2,37 @@
 """
 CLI BLE provisioning tool for BabyLink ESP32 devices.
 
-Mirrors the Web Bluetooth flow in views/select-role.html — scans for a
-BabyLink-XXXX device, writes the WiFi/server/room characteristics, then
-sends "apply" to the command characteristic so the firmware persists
-config and reboots.
+Multi-profile model:
 
-Usage:
-    ./esp32-ble-provision.py \\
-        --ssid "MyWifi" --pass "secret" \\
-        --host 192.168.178.39 --port 3001 \\
-        --room dddddddddddddddddddddddddddddddd \\
-        [--name BabyDevice] [--scan-timeout 15]
+  set --wifi   SSID:PASS                       (repeat for multiple networks)
+      --server LABEL:HOST:PORT:ROOMID          (repeat for multiple BabyLink instances)
+      --active INDEX                           (which server profile to use; default 0)
+      --name   DEVICE_NAME
 
-Requires: pip install bleak
+  scan                                         (ask the device to scan WiFi
+                                                and print the list)
+
+Reads existing config from the device first so partial updates (e.g.
+just adding a new WiFi) work without retyping everything. Use --replace
+to discard existing config instead.
+
+GATT (service UUID bab71111-0002-...):
+  config (R/W JSON)         — full cfg_v2 blob
+  scan   (W "scan", R [])   — trigger + read WiFi scan results
+  command (W "apply")       — persist + reboot
 """
 
 import argparse
 import asyncio
+import json
 import sys
 
 from bleak import BleakClient, BleakScanner
 
-SERVICE_UUID = "bab71111-0001-1000-8000-00805f9b34fb"
-CHAR_WIFI_SSID = "bab71111-0002-1000-8000-00805f9b34fb"
-CHAR_WIFI_PASS = "bab71111-0003-1000-8000-00805f9b34fb"
-CHAR_SERVER_HOST = "bab71111-0004-1000-8000-00805f9b34fb"
-CHAR_SERVER_PORT = "bab71111-0005-1000-8000-00805f9b34fb"
-CHAR_ROOM_ID = "bab71111-0006-1000-8000-00805f9b34fb"
-CHAR_DEVICE_NAME = "bab71111-0007-1000-8000-00805f9b34fb"
-CHAR_COMMAND = "bab71111-0008-1000-8000-00805f9b34fb"
+SERVICE_UUID = "bab71111-0002-1000-8000-00805f9b34fb"
+CHAR_CONFIG = "bab71111-0002-1001-8000-00805f9b34fb"
+CHAR_SCAN = "bab71111-0002-1002-8000-00805f9b34fb"
+CHAR_COMMAND = "bab71111-0002-1003-8000-00805f9b34fb"
 
 
 async def find_device(name_prefix: str, timeout: float):
@@ -41,70 +43,147 @@ async def find_device(name_prefix: str, timeout: float):
     )
     if device is None:
         print(f"[!] No device with name prefix '{name_prefix}' found.")
-        print("    Tip: hold the ESP32 close and confirm it printed")
-        print("         '[BLE] Advertising started' on the serial monitor.")
         return None
     print(f"[+] Found: {device.name}  ({device.address})")
     return device
 
 
-async def provision(args):
+def parse_wifi(spec: str) -> dict:
+    # SSID can contain colons in theory; split only on the FIRST colon.
+    if ":" not in spec:
+        return {"ssid": spec, "password": ""}
+    ssid, password = spec.split(":", 1)
+    return {"ssid": ssid, "password": password}
+
+
+def parse_server(spec: str) -> dict:
+    parts = spec.split(":", 3)
+    if len(parts) != 4:
+        raise ValueError(
+            f"--server expects 'label:host:port:roomId', got: {spec!r}"
+        )
+    label, host, port, room = parts
+    return {"label": label, "host": host, "port": int(port), "roomId": room}
+
+
+async def run_set(args):
     device = await find_device(args.name_prefix, args.scan_timeout)
     if device is None:
         return 1
 
     print(f"[*] Connecting to {device.address} …")
     async with BleakClient(device) as client:
-        print(f"[+] Connected. Services: ", end="")
         services = client.services
-        found = any(s.uuid.lower() == SERVICE_UUID for s in services)
-        print("provisioning service present" if found else "MISSING provisioning service")
-        if not found:
+        if not any(s.uuid.lower() == SERVICE_UUID for s in services):
             print("[!] Device does not expose the BabyLink provisioning service.")
+            print("    (Did you flash the new firmware? Old UUIDs are not compatible.)")
             return 2
 
-        writes = [
-            (CHAR_WIFI_SSID, args.ssid, "WiFi SSID"),
-            (CHAR_WIFI_PASS, args.password, "WiFi password"),
-            (CHAR_SERVER_HOST, args.host, "Server host"),
-            (CHAR_SERVER_PORT, str(args.port), "Server port"),
-            (CHAR_ROOM_ID, args.room, "Room ID"),
-            (CHAR_DEVICE_NAME, args.device_name, "Device name"),
-        ]
-        for uuid, value, label in writes:
-            print(f"[*] Writing {label}: {value!r}")
-            await client.write_gatt_char(uuid, value.encode("utf-8"), response=True)
+        cfg = {"wifi": [], "servers": [], "activeServer": 0, "deviceName": ""}
+        if not args.replace:
+            try:
+                raw = await client.read_gatt_char(CHAR_CONFIG)
+                existing = json.loads(raw.decode("utf-8")) if raw else {}
+                for k in cfg:
+                    cfg[k] = existing.get(k, cfg[k])
+                print(f"[*] Loaded existing config: "
+                      f"{len(cfg['wifi'])} WiFi, {len(cfg['servers'])} servers")
+            except Exception as e:
+                print(f"    (no existing config to merge: {e})")
 
-        print(f"[*] Sending 'apply' command (device will reboot) …")
+        for w in args.wifi or []:
+            entry = parse_wifi(w)
+            for i, existing in enumerate(cfg["wifi"]):
+                if existing.get("ssid") == entry["ssid"]:
+                    cfg["wifi"][i] = entry
+                    break
+            else:
+                cfg["wifi"].append(entry)
+
+        for s in args.server or []:
+            entry = parse_server(s)
+            for i, existing in enumerate(cfg["servers"]):
+                if existing.get("label") == entry["label"]:
+                    cfg["servers"][i] = entry
+                    break
+            else:
+                cfg["servers"].append(entry)
+
+        if args.active is not None:
+            cfg["activeServer"] = args.active
+        if args.device_name:
+            cfg["deviceName"] = args.device_name
+
+        if not cfg["wifi"] or not cfg["servers"]:
+            print("[!] Need at least one WiFi profile and one server profile.")
+            return 2
+
+        blob = json.dumps(cfg)
+        print(f"[*] Writing config ({len(blob)} bytes)")
+        print(f"    WiFi:    {[w['ssid'] for w in cfg['wifi']]}")
+        print(f"    Servers: {[s['label']+'@'+s['host']+':'+str(s['port']) for s in cfg['servers']]}")
+        print(f"    Active:  {cfg['activeServer']}")
+        print(f"    Device:  {cfg['deviceName']!r}")
+        await client.write_gatt_char(CHAR_CONFIG, blob.encode("utf-8"), response=True)
+
+        print(f"[*] Sending 'apply' (device will reboot)")
         try:
             await client.write_gatt_char(CHAR_COMMAND, b"apply", response=True)
         except Exception as e:
-            # ESP32 may drop the BLE link mid-restart — that's fine.
             print(f"    (link dropped during reboot, as expected: {e})")
 
     print()
-    print("[OK] Provisioning sent. ESP32 should reboot and join the server.")
-    print(f"     Verify via:  curl http://{args.host}:{args.port}/api/rooms/{args.room}/esp32/devices")
+    print("[OK] Provisioning sent. ESP32 should reboot and join the active server.")
+    return 0
+
+
+async def run_scan(args):
+    device = await find_device(args.name_prefix, args.scan_timeout)
+    if device is None:
+        return 1
+    print(f"[*] Connecting to {device.address} …")
+    async with BleakClient(device) as client:
+        await client.write_gatt_char(CHAR_SCAN, b"scan", response=True)
+        await asyncio.sleep(4)
+        raw = await client.read_gatt_char(CHAR_SCAN)
+        nets = json.loads(raw.decode("utf-8") or "[]")
+        nets.sort(key=lambda n: n.get("rssi", -100), reverse=True)
+        print(f"[+] {len(nets)} networks found:")
+        for n in nets:
+            sec = "secured" if n.get("secure") else "open"
+            print(f"    {n['rssi']:4d} dBm  {sec:8s}  {n['ssid']}")
     return 0
 
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--ssid", required=True, help="WiFi SSID the ESP32 should join")
-    p.add_argument("--pass", dest="password", required=True, help="WiFi password")
-    p.add_argument("--host", required=True, help="BabyLink server host/IP (e.g. 192.168.178.39)")
-    p.add_argument("--port", type=int, default=3001, help="BabyLink server port (default 3001)")
-    p.add_argument("--room", required=True, help="32-char hex room ID")
-    p.add_argument("--name", dest="device_name", default="BabyLink ESP32", help="Friendly device name")
-    p.add_argument("--name-prefix", default="BabyLink-", help="BLE name prefix to scan for (default 'BabyLink-')")
-    p.add_argument("--scan-timeout", type=float, default=15.0, help="BLE scan timeout in seconds")
+    p.add_argument("--name-prefix", default="BabyLink-",
+                   help="BLE name prefix to scan for (default 'BabyLink-')")
+    p.add_argument("--scan-timeout", type=float, default=15.0,
+                   help="BLE scan timeout in seconds")
+
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    pset = sub.add_parser("set", help="Write/merge profiles and apply")
+    pset.add_argument("--wifi", action="append",
+                      help="WiFi profile as SSID:PASS (repeat for multiple)")
+    pset.add_argument("--server", action="append",
+                      help="Server profile as LABEL:HOST:PORT:ROOMID (repeat)")
+    pset.add_argument("--active", type=int,
+                      help="Index of active server profile (default 0)")
+    pset.add_argument("--name", dest="device_name",
+                      help="Friendly device name")
+    pset.add_argument("--replace", action="store_true",
+                      help="Discard existing on-device config instead of merging")
+
+    sub.add_parser("scan", help="Ask device to scan WiFi and print results")
+
     args = p.parse_args()
 
-    if len(args.room) != 32 or any(c not in "0123456789abcdefABCDEF" for c in args.room):
-        print("[!] --room must be 32 hex chars", file=sys.stderr)
-        sys.exit(2)
-
-    sys.exit(asyncio.run(provision(args)))
+    if args.cmd == "scan":
+        sys.exit(asyncio.run(run_scan(args)))
+    else:
+        sys.exit(asyncio.run(run_set(args)))
 
 
 if __name__ == "__main__":

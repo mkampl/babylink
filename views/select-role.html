@@ -140,17 +140,23 @@
         <!-- BLE Wizard (shown after clicking Add via Bluetooth) -->
         <div id="bleWizard" style="display:none;margin-bottom:var(--space-lg);">
           <div id="bleStatus" style="font-size:0.9rem;font-weight:600;margin-bottom:var(--space-md);color:var(--color-primary);"></div>
-          <div id="bleWifiForm" style="display:none;">
-            <p style="font-size:0.88rem;color:var(--color-text-secondary);margin:0 0 var(--space-md);">Enter WiFi credentials for the ESP32 device:</p>
-            <form id="bleConfigForm" class="pin-form">
-              <label for="bleWifiSsid">WiFi Network (SSID):</label>
-              <input type="text" id="bleWifiSsid" placeholder="Your WiFi name" required autocomplete="off" />
-              <label for="bleWifiPass">WiFi Password:</label>
-              <input type="password" id="bleWifiPass" placeholder="WiFi password" autocomplete="off" />
-              <label for="bleDevName">Device Name:</label>
-              <input type="text" id="bleDevName" placeholder="e.g. Nursery ESP32" value="ESP32 Baby" autocomplete="off" />
-              <button type="submit" class="onboarding-btn primary" style="margin-top:var(--space-md);">Configure &amp; Connect</button>
-            </form>
+          <div id="bleEditor" style="display:none;">
+            <p style="font-size:0.85rem;color:var(--color-text-secondary);margin:0 0 var(--space-sm);">Add the WiFi networks this device should roam between. The strongest known network at boot wins.</p>
+
+            <div style="font-size:0.85rem;font-weight:600;margin:var(--space-md) 0 var(--space-xs);">WiFi networks</div>
+            <button type="button" id="bleScanBtn" class="onboarding-btn secondary" style="padding:0.5em 0.8em;font-size:0.82rem;">📡 Scan nearby</button>
+            <div id="bleScanList" style="margin-top:var(--space-xs);"></div>
+            <div id="bleWifiRows" style="margin-top:var(--space-sm);"></div>
+            <button type="button" id="bleAddWifi" class="onboarding-btn secondary" style="padding:0.5em 0.8em;font-size:0.82rem;margin-top:var(--space-xs);">+ Add manually</button>
+
+            <div style="font-size:0.85rem;font-weight:600;margin:var(--space-md) 0 var(--space-xs);">Server profiles</div>
+            <div id="bleServerRows"></div>
+            <button type="button" id="bleAddServer" class="onboarding-btn secondary" style="padding:0.5em 0.8em;font-size:0.82rem;margin-top:var(--space-xs);">+ Add server</button>
+
+            <div style="font-size:0.85rem;font-weight:600;margin:var(--space-md) 0 var(--space-xs);">Device name</div>
+            <input type="text" id="bleDevName" placeholder="e.g. Nursery ESP32" autocomplete="off" style="width:100%;" />
+
+            <button type="button" id="bleSaveBtn" class="onboarding-btn primary" style="margin-top:var(--space-md);width:100%;">💾 Save &amp; Connect</button>
           </div>
           <div id="bleResult" class="pin-result" style="display:none;"></div>
         </div>
@@ -725,30 +731,135 @@
 
     // ========================
     // BLE Provisioning (Web Bluetooth API — Android Chrome only)
+    //
+    // Three characteristics on the device:
+    //   config (R/W JSON blob)   — full multi-profile config
+    //   scan   (W "scan" / R [])  — trigger + read WiFi scan results
+    //   command (W "apply")       — persist + reboot
     // ========================
 
-    var BLE_SERVICE_UUID = 'bab71111-0001-1000-8000-00805f9b34fb';
-    var BLE_CHAR_WIFI_SSID = 'bab71111-0002-1000-8000-00805f9b34fb';
-    var BLE_CHAR_WIFI_PASS = 'bab71111-0003-1000-8000-00805f9b34fb';
-    var BLE_CHAR_SERVER_HOST = 'bab71111-0004-1000-8000-00805f9b34fb';
-    var BLE_CHAR_SERVER_PORT = 'bab71111-0005-1000-8000-00805f9b34fb';
-    var BLE_CHAR_ROOM_ID = 'bab71111-0006-1000-8000-00805f9b34fb';
-    var BLE_CHAR_DEVICE_NAME = 'bab71111-0007-1000-8000-00805f9b34fb';
-    var BLE_CHAR_COMMAND = 'bab71111-0008-1000-8000-00805f9b34fb';
+    var BLE_SERVICE_UUID = 'bab71111-0002-1000-8000-00805f9b34fb';
+    var BLE_CHAR_CONFIG  = 'bab71111-0002-1001-8000-00805f9b34fb';
+    var BLE_CHAR_SCAN    = 'bab71111-0002-1002-8000-00805f9b34fb';
+    var BLE_CHAR_COMMAND = 'bab71111-0002-1003-8000-00805f9b34fb';
 
     var bleDevice = null;
     var bleServer = null;
     var bleService = null;
+    var bleConfig = { wifi: [], servers: [], activeServer: 0, deviceName: '' };
+    var BLE_MAX_WIFI = 6;
+    var BLE_MAX_SERVERS = 4;
 
-    document.getElementById('startBleBtn').addEventListener('click', async function() {
-      var wizard = document.getElementById('bleWizard');
-      var status = document.getElementById('bleStatus');
-      var result = document.getElementById('bleResult');
+    function $(id) { return document.getElementById(id); }
+
+    function renderBleWifi() {
+      var host = $('bleWifiRows');
+      host.innerHTML = '';
+      if (!bleConfig.wifi.length) {
+        host.innerHTML = '<div style="color:var(--color-text-muted);font-size:0.82rem;font-style:italic;padding:6px 0;">No WiFi networks yet — scan or add manually.</div>';
+        return;
+      }
+      bleConfig.wifi.forEach(function(p, i) {
+        var div = document.createElement('div');
+        div.style.cssText = 'background:var(--color-surface-alt);padding:8px;border-radius:6px;margin-bottom:6px;display:flex;gap:6px;align-items:flex-start;';
+        div.innerHTML =
+          '<div style="flex:1;min-width:0;">' +
+          '<input type="text" data-i="' + i + '" data-k="ssid" value="' + escapeHtml(p.ssid || '') + '" placeholder="SSID" style="width:100%;margin-bottom:4px;font-size:0.85rem;padding:6px;" />' +
+          '<input type="password" data-i="' + i + '" data-k="password" value="' + escapeHtml(p.password || '') + '" placeholder="Password" style="width:100%;font-size:0.85rem;padding:6px;" />' +
+          '</div>' +
+          '<button type="button" data-rm-w="' + i + '" style="background:var(--color-danger-bg);color:var(--color-danger-text);border:none;border-radius:6px;padding:6px 10px;cursor:pointer;font-weight:600;flex-shrink:0;">×</button>';
+        host.appendChild(div);
+      });
+    }
+
+    function renderBleServers() {
+      var host = $('bleServerRows');
+      host.innerHTML = '';
+      if (!bleConfig.servers.length) {
+        host.innerHTML = '<div style="color:var(--color-text-muted);font-size:0.82rem;font-style:italic;padding:6px 0;">No servers yet.</div>';
+        return;
+      }
+      bleConfig.servers.forEach(function(p, i) {
+        var div = document.createElement('div');
+        div.style.cssText = 'background:var(--color-surface-alt);padding:8px;border-radius:6px;margin-bottom:6px;display:flex;gap:6px;align-items:flex-start;';
+        var active = (i === bleConfig.activeServer) ? 'checked' : '';
+        div.innerHTML =
+          '<div style="flex:1;min-width:0;">' +
+          '<input type="text" data-i="' + i + '" data-k="label" value="' + escapeHtml(p.label || '') + '" placeholder="Label (e.g. Home)" style="width:100%;margin-bottom:4px;font-size:0.85rem;padding:6px;" />' +
+          '<input type="text" data-i="' + i + '" data-k="host" value="' + escapeHtml(p.host || '') + '" placeholder="Host or IP" style="width:100%;margin-bottom:4px;font-size:0.85rem;padding:6px;" />' +
+          '<input type="number" data-i="' + i + '" data-k="port" value="' + (p.port || 3001) + '" placeholder="Port" style="width:100%;margin-bottom:4px;font-size:0.85rem;padding:6px;" />' +
+          '<input type="text" data-i="' + i + '" data-k="roomId" value="' + escapeHtml(p.roomId || '') + '" placeholder="Room ID" style="width:100%;font-size:0.85rem;padding:6px;" />' +
+          '<label style="display:flex;align-items:center;gap:4px;font-size:0.8rem;color:var(--color-text-secondary);margin-top:4px;"><input type="radio" name="ble-active" data-a="' + i + '" ' + active + ' /> Active</label>' +
+          '</div>' +
+          '<button type="button" data-rm-s="' + i + '" style="background:var(--color-danger-bg);color:var(--color-danger-text);border:none;border-radius:6px;padding:6px 10px;cursor:pointer;font-weight:600;flex-shrink:0;">×</button>';
+        host.appendChild(div);
+      });
+    }
+
+    function renderBleEditor() {
+      renderBleWifi();
+      renderBleServers();
+      $('bleDevName').value = bleConfig.deviceName || '';
+    }
+
+    function defaultServerProfile() {
+      var roomId = window.location.pathname.slice(1);
+      var port = window.location.port || (window.location.protocol === 'https:' ? 443 : 80);
+      return {
+        label: window.location.hostname,
+        host: window.location.hostname,
+        port: parseInt(port, 10),
+        roomId: roomId
+      };
+    }
+
+    // Delegate input/click handlers for the dynamically rendered rows
+    document.addEventListener('input', function(e) {
+      var t = e.target;
+      if (!t.dataset || t.dataset.k === undefined) {
+        if (t.id === 'bleDevName') bleConfig.deviceName = t.value;
+        return;
+      }
+      var inWifi = !!t.closest('#bleWifiRows');
+      var list = inWifi ? bleConfig.wifi : bleConfig.servers;
+      var i = parseInt(t.dataset.i, 10);
+      if (!list[i]) return;
+      list[i][t.dataset.k] = (t.dataset.k === 'port') ? parseInt(t.value || '0', 10) : t.value;
+    });
+    document.addEventListener('change', function(e) {
+      if (e.target.dataset && e.target.dataset.a !== undefined) {
+        bleConfig.activeServer = parseInt(e.target.dataset.a, 10);
+      }
+    });
+    document.addEventListener('click', function(e) {
+      var t = e.target;
+      if (!t.dataset) return;
+      if (t.dataset.rmW !== undefined) {
+        bleConfig.wifi.splice(parseInt(t.dataset.rmW, 10), 1);
+        renderBleWifi();
+      } else if (t.dataset.rmS !== undefined) {
+        bleConfig.servers.splice(parseInt(t.dataset.rmS, 10), 1);
+        if (bleConfig.activeServer >= bleConfig.servers.length) {
+          bleConfig.activeServer = Math.max(0, bleConfig.servers.length - 1);
+        }
+        renderBleServers();
+      } else if (t.dataset.pickSsid !== undefined) {
+        if (bleConfig.wifi.length >= BLE_MAX_WIFI) return;
+        bleConfig.wifi.push({ ssid: t.dataset.pickSsid, password: '' });
+        $('bleScanList').innerHTML = '';
+        renderBleWifi();
+      }
+    });
+
+    $('startBleBtn').addEventListener('click', async function() {
+      var wizard = $('bleWizard');
+      var status = $('bleStatus');
+      var result = $('bleResult');
 
       wizard.style.display = 'block';
-      status.textContent = 'Scanning for BabyLink devices...';
+      status.textContent = 'Scanning for BabyLink devices…';
       result.style.display = 'none';
-      document.getElementById('bleWifiForm').style.display = 'none';
+      $('bleEditor').style.display = 'none';
 
       try {
         bleDevice = await navigator.bluetooth.requestDevice({
@@ -756,12 +867,38 @@
           optionalServices: [BLE_SERVICE_UUID]
         });
 
-        status.textContent = 'Connecting to ' + bleDevice.name + '...';
+        status.textContent = 'Connecting to ' + bleDevice.name + '…';
         bleServer = await bleDevice.gatt.connect();
         bleService = await bleServer.getPrimaryService(BLE_SERVICE_UUID);
 
+        // Pull current config from device so the editor shows what's saved
+        status.textContent = 'Reading current config…';
+        try {
+          var cfgChar = await bleService.getCharacteristic(BLE_CHAR_CONFIG);
+          var raw = await cfgChar.readValue();
+          var text = new TextDecoder().decode(raw);
+          if (text && text.trim()) {
+            var parsed = JSON.parse(text);
+            bleConfig = {
+              wifi: parsed.wifi || [],
+              servers: parsed.servers || [],
+              activeServer: parsed.activeServer || 0,
+              deviceName: parsed.deviceName || ''
+            };
+          }
+        } catch (e) {
+          console.warn('Could not read existing config — starting fresh', e);
+          bleConfig = { wifi: [], servers: [], activeServer: 0, deviceName: '' };
+        }
+
+        // If no servers configured yet, pre-seed with this BabyLink instance
+        if (!bleConfig.servers.length) {
+          bleConfig.servers.push(defaultServerProfile());
+        }
+
         status.textContent = 'Connected to ' + bleDevice.name;
-        document.getElementById('bleWifiForm').style.display = 'block';
+        $('bleEditor').style.display = 'block';
+        renderBleEditor();
       } catch (err) {
         if (err.name === 'NotFoundError') {
           status.textContent = 'No device selected.';
@@ -772,53 +909,87 @@
       }
     });
 
-    document.getElementById('bleConfigForm').addEventListener('submit', async function(e) {
-      e.preventDefault();
-      var status = document.getElementById('bleStatus');
-      var result = document.getElementById('bleResult');
-      var roomId = window.location.pathname.slice(1);
+    $('bleScanBtn').addEventListener('click', async function() {
+      var btn = $('bleScanBtn');
+      var sl = $('bleScanList');
+      if (!bleService) { sl.innerHTML = '<div style="color:var(--color-danger);font-size:0.85rem;">Not connected.</div>'; return; }
+      btn.disabled = true;
+      var origLabel = btn.textContent;
+      btn.textContent = 'Scanning…';
+      sl.innerHTML = '';
+      try {
+        var scanChar = await bleService.getCharacteristic(BLE_CHAR_SCAN);
+        await scanChar.writeValue(new TextEncoder().encode('scan'));
+        // Give the device a moment to populate the readable side
+        await new Promise(function(r) { setTimeout(r, 4000); });
+        var raw = await scanChar.readValue();
+        var list = JSON.parse(new TextDecoder().decode(raw) || '[]');
+        if (!list.length) {
+          sl.innerHTML = '<div style="font-size:0.82rem;color:var(--color-text-muted);">No networks found.</div>';
+        } else {
+          sl.innerHTML = '<div style="font-size:0.8rem;color:var(--color-text-secondary);margin:4px 0;">Tap to add:</div>';
+          list.sort(function(a, b) { return (b.rssi || -100) - (a.rssi || -100); });
+          list.forEach(function(n) {
+            var b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'onboarding-btn secondary';
+            b.style.cssText = 'padding:6px 10px;font-size:0.82rem;margin:2px 4px 2px 0;text-align:left;';
+            b.dataset.pickSsid = n.ssid;
+            b.textContent = n.ssid + ' (' + n.rssi + ' dBm' + (n.secure ? '' : ' · open') + ')';
+            sl.appendChild(b);
+          });
+        }
+      } catch (e) {
+        sl.innerHTML = '<div style="color:var(--color-danger);font-size:0.85rem;">Scan failed: ' + e.message + '</div>';
+      }
+      btn.disabled = false;
+      btn.textContent = origLabel;
+    });
 
+    $('bleAddWifi').addEventListener('click', function() {
+      if (bleConfig.wifi.length >= BLE_MAX_WIFI) return;
+      bleConfig.wifi.push({ ssid: '', password: '' });
+      renderBleWifi();
+    });
+    $('bleAddServer').addEventListener('click', function() {
+      if (bleConfig.servers.length >= BLE_MAX_SERVERS) return;
+      bleConfig.servers.push(defaultServerProfile());
+      renderBleServers();
+    });
+
+    $('bleSaveBtn').addEventListener('click', async function() {
+      var status = $('bleStatus');
+      var result = $('bleResult');
       if (!bleService) {
         result.style.display = 'block';
         result.className = 'pin-result error';
         result.textContent = 'Not connected to device';
         return;
       }
-
-      var wifiSsid = document.getElementById('bleWifiSsid').value.trim();
-      var wifiPass = document.getElementById('bleWifiPass').value;
-      var devName = document.getElementById('bleDevName').value.trim() || 'ESP32 Baby';
-      var serverHost = window.location.hostname;
-      var serverPort = window.location.port || (window.location.protocol === 'https:' ? '443' : '80');
-
-      status.textContent = 'Writing configuration...';
-
+      if (!bleConfig.wifi.length || !bleConfig.wifi[0].ssid) {
+        alert('Add at least one WiFi network with an SSID.');
+        return;
+      }
+      if (!bleConfig.servers.length || !bleConfig.servers[0].host || !bleConfig.servers[0].roomId) {
+        alert('Add at least one server with host and room ID.');
+        return;
+      }
+      status.textContent = 'Writing configuration…';
       try {
-        var encoder = new TextEncoder();
+        var blob = JSON.stringify(bleConfig);
+        var cfgChar = await bleService.getCharacteristic(BLE_CHAR_CONFIG);
+        await cfgChar.writeValue(new TextEncoder().encode(blob));
 
-        async function writeChar(uuid, value) {
-          var char = await bleService.getCharacteristic(uuid);
-          await char.writeValue(encoder.encode(value));
-        }
+        status.textContent = 'Applying…';
+        var cmdChar = await bleService.getCharacteristic(BLE_CHAR_COMMAND);
+        await cmdChar.writeValue(new TextEncoder().encode('apply'));
 
-        await writeChar(BLE_CHAR_WIFI_SSID, wifiSsid);
-        await writeChar(BLE_CHAR_WIFI_PASS, wifiPass);
-        await writeChar(BLE_CHAR_SERVER_HOST, serverHost);
-        await writeChar(BLE_CHAR_SERVER_PORT, serverPort);
-        await writeChar(BLE_CHAR_ROOM_ID, roomId);
-        await writeChar(BLE_CHAR_DEVICE_NAME, devName);
-
-        status.textContent = 'Applying configuration...';
-        await writeChar(BLE_CHAR_COMMAND, 'apply');
-
-        // Device will restart — disconnect is expected
         status.textContent = '';
         result.style.display = 'block';
         result.className = 'pin-result success';
-        result.textContent = 'Configuration sent! Device is restarting and will join this room in a few seconds.';
-        document.getElementById('bleWifiForm').style.display = 'none';
+        result.textContent = 'Configuration sent! Device is restarting; it should appear in the devices list within ~15 seconds.';
+        $('bleEditor').style.display = 'none';
 
-        // Clean up BLE connection
         if (bleServer && bleServer.connected) bleServer.disconnect();
         bleDevice = null;
         bleServer = null;
@@ -827,7 +998,7 @@
         status.textContent = 'Connected to ' + (bleDevice ? bleDevice.name : 'device');
         result.style.display = 'block';
         result.className = 'pin-result error';
-        result.textContent = 'Failed to write config: ' + err.message;
+        result.textContent = 'Failed: ' + err.message;
         console.error('BLE write error:', err);
       }
     });
