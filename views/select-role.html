@@ -891,9 +891,27 @@
           bleConfig = { wifi: [], servers: [], activeServer: 0, deviceName: '' };
         }
 
-        // If no servers configured yet, pre-seed with this BabyLink instance
-        if (!bleConfig.servers.length) {
-          bleConfig.servers.push(defaultServerProfile());
+        // Make sure the BabyLink instance the user is provisioning *from*
+        // is in the server list and selected as active. Otherwise the device
+        // would inherit whatever the firmware happened to seed (its dev
+        // defaults) and register against the wrong server — which is the
+        // exact opposite of what the user clicked "Add ESP32" to do.
+        var curHost = window.location.hostname;
+        var curPort = parseInt(window.location.port || (window.location.protocol === 'https:' ? 443 : 80), 10);
+        var curRoom = window.location.pathname.slice(1);
+        var matchIdx = -1;
+        for (var i = 0; i < bleConfig.servers.length; i++) {
+          var s = bleConfig.servers[i];
+          if (s.host === curHost && (s.port || 3001) === curPort && s.roomId === curRoom) {
+            matchIdx = i;
+            break;
+          }
+        }
+        if (matchIdx >= 0) {
+          bleConfig.activeServer = matchIdx;
+        } else {
+          bleConfig.servers.unshift({ label: curHost, host: curHost, port: curPort, roomId: curRoom });
+          bleConfig.activeServer = 0;
         }
 
         status.textContent = 'Connected to ' + bleDevice.name;
@@ -974,33 +992,44 @@
         alert('Add at least one server with host and room ID.');
         return;
       }
+      // The config write must actually succeed — if it fails, no point
+      // applying. The apply write, however, intentionally reboots the
+      // device, which drops the BLE link mid-write. Catch each separately
+      // so an expected post-apply disconnect doesn't surface as "Failed".
       status.textContent = 'Writing configuration…';
       try {
         var blob = JSON.stringify(bleConfig);
         var cfgChar = await bleService.getCharacteristic(BLE_CHAR_CONFIG);
         await cfgChar.writeValue(new TextEncoder().encode(blob));
-
-        status.textContent = 'Applying…';
-        var cmdChar = await bleService.getCharacteristic(BLE_CHAR_COMMAND);
-        await cmdChar.writeValue(new TextEncoder().encode('apply'));
-
-        status.textContent = '';
-        result.style.display = 'block';
-        result.className = 'pin-result success';
-        result.textContent = 'Configuration sent! Device is restarting; it should appear in the devices list within ~15 seconds.';
-        $('bleEditor').style.display = 'none';
-
-        if (bleServer && bleServer.connected) bleServer.disconnect();
-        bleDevice = null;
-        bleServer = null;
-        bleService = null;
       } catch (err) {
         status.textContent = 'Connected to ' + (bleDevice ? bleDevice.name : 'device');
         result.style.display = 'block';
         result.className = 'pin-result error';
-        result.textContent = 'Failed: ' + err.message;
-        console.error('BLE write error:', err);
+        result.textContent = 'Failed to write config: ' + err.message;
+        console.error('BLE config write error:', err);
+        return;
       }
+
+      status.textContent = 'Applying…';
+      try {
+        var cmdChar = await bleService.getCharacteristic(BLE_CHAR_COMMAND);
+        await cmdChar.writeValue(new TextEncoder().encode('apply'));
+      } catch (err) {
+        // Expected: the device reboots immediately on "apply" and the
+        // BLE link drops mid-write. That's success, not failure.
+        console.log('Apply write dropped on reboot (expected):', err && err.message);
+      }
+
+      status.textContent = '';
+      result.style.display = 'block';
+      result.className = 'pin-result success';
+      result.textContent = 'Configuration sent! Device is restarting; it should appear in the devices list within ~15 seconds.';
+      $('bleEditor').style.display = 'none';
+
+      try { if (bleServer && bleServer.connected) bleServer.disconnect(); } catch (e) { /* ignore */ }
+      bleDevice = null;
+      bleServer = null;
+      bleService = null;
     });
 
     // Store verified PIN in sessionStorage for use by app.js
