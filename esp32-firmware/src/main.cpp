@@ -1171,21 +1171,20 @@ void sendHeartbeat() {
 // was registered. Polled from loop() in both normal and config modes.
 //
 void checkResetButton() {
-  // Debounced long-press detector. The I2S read between loop iterations
-  // makes our polling rate ~16 Hz; cheap dev-board buttons bounce HIGH
-  // for a single sample during that window, so we treat the button as
-  // "still held" until it's been HIGH for DEBOUNCE_RELEASE_MS straight.
+  // Strict long-press detector: the press tracker resets the moment we
+  // see HIGH, even for one sample. A previous, more tolerant version
+  // allowed 250ms of HIGH "noise" while counting a press — that was
+  // accumulating phantom factory resets during normal WSS streaming
+  // (GPIO0 picks up enough RF noise to trip every several minutes).
+  // A real human press holds GPIO0 firmly LOW with no bounces during
+  // the hold, so this is safe.
   //
-  // Boot-time grace: ignore any LOW reading in the first 3 seconds after
-  // boot. GPIO0 is the boot strap, can read transiently LOW during
-  // power-up. Without this guard we observed phantom factory resets at
-  // ~10-30s post-boot when the line settled noisily after BLE+WiFi
-  // initialization.
+  // Boot-time grace: ignore any LOW reading in the first 3 seconds
+  // after boot. GPIO0 is also a strapping pin; it can read transiently
+  // LOW during power-up before the internal pull-up settles.
   static unsigned long pressStart = 0;
-  static unsigned long lastLowMs = 0;
   static unsigned long lastBlink = 0;
   static bool blinkState = false;
-  const unsigned long DEBOUNCE_RELEASE_MS = 250;
   const unsigned long BOOT_GRACE_MS = 3000;
 
   unsigned long now = millis();
@@ -1193,18 +1192,13 @@ void checkResetButton() {
 
   bool low = (digitalRead(RESET_BUTTON_PIN) == LOW);
 
-  if (low) {
-    lastLowMs = now;
-    if (pressStart == 0) {
-      pressStart = now;
-    }
+  if (!low) {
+    pressStart = 0;
+    return;
   }
 
-  if (pressStart == 0) return;
-
-  // Released stably (no LOW reading in the debounce window)
-  if (!low && (now - lastLowMs) > DEBOUNCE_RELEASE_MS) {
-    pressStart = 0;
+  if (pressStart == 0) {
+    pressStart = now;
     return;
   }
 
