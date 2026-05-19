@@ -650,10 +650,19 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
         connectionTime = millis();
 
         // Send registration message
+        // Hardware MAC — stable across reboots, used as the server-side
+        // device ID so renames + reconnects don't create ghost entries.
+        uint8_t mac[6];
+        esp_read_mac(mac, ESP_MAC_WIFI_STA);
+        char macHex[13];
+        snprintf(macHex, sizeof(macHex), "%02x%02x%02x%02x%02x%02x",
+                 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+
         StaticJsonDocument<256> doc;
         doc["type"] = "register";
         doc["roomId"] = configRoomId;
         doc["name"] = configDeviceName;
+        doc["mac"] = macHex;
         doc["sampleRate"] = SAMPLE_RATE;
         doc["channels"] = 1;
 

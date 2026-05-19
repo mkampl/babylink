@@ -159,6 +159,89 @@ describe('ESP32 Device Management API', () => {
     });
   });
 
+  describe('MAC-keyed stable IDs', () => {
+    it('uses esp32_<mac> as the device ID when MAC is provided', async () => {
+      const esp32 = createESP32Client(server.port);
+      try {
+        const reg = await esp32.register(DEVICE_ROOM, 'MacDevice', 'AA:BB:CC:DD:EE:01');
+        expect(reg.id).toBe('esp32_aabbccddee01');
+      } finally {
+        await esp32.close();
+      }
+    });
+
+    it('reuses the same ID across reconnects with the same MAC', async () => {
+      const MAC = 'AA:BB:CC:DD:EE:02';
+      const first = createESP32Client(server.port);
+      let firstId;
+      try {
+        const reg = await first.register(DEVICE_ROOM, 'MacReconnect', MAC);
+        firstId = reg.id;
+      } finally {
+        await first.close();
+      }
+
+      // Brief pause to ensure close has propagated
+      await new Promise(r => setTimeout(r, 100));
+
+      const second = createESP32Client(server.port);
+      try {
+        const reg = await second.register(DEVICE_ROOM, 'MacReconnect', MAC);
+        expect(reg.id).toBe(firstId);
+
+        // Only one entry exists for this MAC
+        const list = await request(server.app)
+          .get(`/api/rooms/${DEVICE_ROOM}/esp32/devices`);
+        const matches = list.body.devices.filter(d => d.id === firstId);
+        expect(matches.length).toBe(1);
+      } finally {
+        await second.close();
+      }
+    });
+
+    it('preserves a user-applied rename across a same-MAC reconnect', async () => {
+      const MAC = 'AA:BB:CC:DD:EE:03';
+      const first = createESP32Client(server.port);
+      let id;
+      try {
+        const reg = await first.register(DEVICE_ROOM, 'Initial', MAC);
+        id = reg.id;
+
+        const renameRes = await request(server.app)
+          .patch(`/api/rooms/${DEVICE_ROOM}/esp32/${id}`)
+          .send({ name: 'Nursery' });
+        expect(renameRes.status).toBe(200);
+      } finally {
+        await first.close();
+      }
+
+      await new Promise(r => setTimeout(r, 100));
+
+      const second = createESP32Client(server.port);
+      try {
+        // Firmware re-registers with its hardcoded default — server should keep the rename
+        await second.register(DEVICE_ROOM, 'Initial', MAC);
+        const list = await request(server.app)
+          .get(`/api/rooms/${DEVICE_ROOM}/esp32/devices`);
+        const dev = list.body.devices.find(d => d.id === id);
+        expect(dev).toBeDefined();
+        expect(dev.name).toBe('Nursery');
+      } finally {
+        await second.close();
+      }
+    });
+
+    it('still works for legacy clients that do not send a MAC', async () => {
+      const esp32 = createESP32Client(server.port);
+      try {
+        const reg = await esp32.register(DEVICE_ROOM, 'LegacyDevice');
+        expect(reg.id).toMatch(/^esp32_\d+_[a-z0-9]+$/);
+      } finally {
+        await esp32.close();
+      }
+    });
+  });
+
   describe('POST /api/rooms/:roomId/esp32/:esp32Id/reset', () => {
     it('sends factory-reset to a connected device and removes it from the list', async () => {
       const esp32 = createESP32Client(server.port);

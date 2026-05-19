@@ -11,6 +11,9 @@ class ESP32AudioProxy {
   constructor(io) {
     this.io = io;
     this.esp32Clients = new Map(); // esp32Id -> client info
+    // User-applied renames keyed by ESP32 ID. Lives beyond the client's
+    // connection so a device reboot keeps its label.
+    this.deviceNames = new Map(); // esp32Id -> name
     this.wss = null;
 
     // Crying detection configuration
@@ -158,7 +161,7 @@ class ESP32AudioProxy {
    * Register a new ESP32 device
    */
   registerESP32(ws, registrationData, clientIp) {
-    const { roomId, name, sampleRate = 16000, channels = 1 } = registrationData;
+    const { roomId, name, mac, sampleRate = 16000, channels = 1 } = registrationData;
 
     if (!roomId) {
       logger.error('ESP32 registration missing roomId');
@@ -167,14 +170,36 @@ class ESP32AudioProxy {
       return null;
     }
 
-    // Generate unique ID for this ESP32
-    const esp32Id = `esp32_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    // Stable ID derived from MAC when the firmware provides one. Stable IDs
+    // mean a device reboot reuses the same slot — UI buttons stamped with
+    // the ID stay valid across reconnects, and user renames persist until
+    // the device is factory-reset or the server restarts.
+    // Legacy firmware (no MAC) falls back to a timestamped random ID.
+    const macClean = typeof mac === 'string' ? mac.toLowerCase().replace(/[^0-9a-f]/g, '') : '';
+    const esp32Id = macClean.length === 12
+      ? `esp32_${macClean}`
+      : `esp32_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    const existing = this.esp32Clients.get(esp32Id);
+    if (existing) {
+      // Same physical device reconnecting. Drop the stale socket without
+      // firing the usual participant-left/-joined churn.
+      if (existing.ws && existing.ws !== ws) {
+        existing.ws.esp32Id = null; // prevent close handler from unregistering
+        try { existing.ws.terminate(); } catch (_) { /* ignore */ }
+      }
+      this.cryingState.delete(esp32Id);
+      this.esp32Clients.delete(esp32Id);
+    }
+
+    const persistedName = this.deviceNames.get(esp32Id);
 
     const esp32Info = {
       id: esp32Id,
       ws,
       roomId,
-      name: name || 'ESP32 Baby',
+      name: persistedName || name || 'ESP32 Baby',
+      mac: macClean || null,
       clientIp,
       sampleRate,
       channels,
@@ -195,16 +220,19 @@ class ESP32AudioProxy {
       message: 'Successfully registered as baby device'
     }));
 
-    // Notify Socket.IO room that new baby joined
-    this.io.to(roomId).emit('participant-joined', {
-      socketId: esp32Id,
-      role: 'baby',
-      userName: esp32Info.name,
-      participants: this.getRoomParticipants(roomId),
-      source: 'esp32'
-    });
+    // Only announce a new participant on first registration; reconnects of
+    // the same MAC are transparent to listeners.
+    if (!existing) {
+      this.io.to(roomId).emit('participant-joined', {
+        socketId: esp32Id,
+        role: 'baby',
+        userName: esp32Info.name,
+        participants: this.getRoomParticipants(roomId),
+        source: 'esp32'
+      });
+    }
 
-    logger.info(`✅ ESP32 registered: ${esp32Id} (${esp32Info.name}) in room ${roomId}`);
+    logger.info(`✅ ESP32 ${existing ? 'reconnected' : 'registered'}: ${esp32Id} (${esp32Info.name}) in room ${roomId}`);
 
     return esp32Info;
   }
@@ -457,6 +485,7 @@ class ESP32AudioProxy {
     const client = this.esp32Clients.get(esp32Id);
     if (!client) return null;
     client.name = newName;
+    this.deviceNames.set(esp32Id, newName);
     return {
       id: esp32Id,
       name: client.name,
@@ -491,6 +520,10 @@ class ESP32AudioProxy {
       logger.warn(`Failed to send factory-reset to ${esp32Id}: ${err.message}`);
       return false;
     }
+    // Factory reset wipes the device back to defaults — drop any persisted
+    // rename so the device shows up under its firmware-supplied name when
+    // it (or a different device) reuses the same MAC.
+    this.deviceNames.delete(esp32Id);
     this.unregisterESP32(esp32Id);
     return true;
   }
