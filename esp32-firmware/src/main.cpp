@@ -130,28 +130,21 @@ const byte DNS_PORT = 53;
 
 // Audio Configuration
 //
-// The INMP441 is a 24-bit MEMS mic; data sits MSB-aligned in a 32-bit
-// I2S slot (bits [31:8] are signal, [7:0] are zeros). The firmware now
-// reads I2S as 32-bit, applies modest software gain in int32, then
-// right-shifts to int16 with saturation for transmission. The previous
-// I2S_16BIT config gave us the high half of the slot — almost all
-// sign-extension and headroom — which sounded like loud constant hiss.
+// Reads I2S as 16-bit. This is technically incorrect for the INMP441
+// (which is a 24-bit MEMS mic outputting MSB-aligned data in a 32-bit
+// slot), but in this build's empirical testing the "correct" 32-bit
+// path with various shift values produced only noise instead of voice
+// — likely a slot-alignment caveat in the legacy `driver/i2s.h`. The
+// 16-bit path with software gain has been verified audible. Revisit if
+// migrating to the new ESP-IDF `i2s_std` driver, where the slot/data
+// width separation is cleaner.
 //
-// DMA sizing: 8 buffers × 256 samples × 4 bytes/sample = 1024 bytes per
-// buffer (under the 4092-byte ESP-IDF DMA limit), 2048 samples (~128 ms)
-// total. Down from the previous 8192 samples (~512 ms) which added
-// unnecessary latency.
+// DMA reduced from 8×1024 (~1024 ms in 16-bit) to 8×256 (~128 ms) for
+// lower capture latency without changing audio quality.
 #define SAMPLE_RATE 16000       // Sample rate in Hz
 #define BUFFER_SIZE 256         // Samples per I2S read / per WebSocket frame
-// AUDIO_SHIFT controls loudness. INMP441 in a 32-bit slot has the
-// 24-bit signal in bits [31:8]. A higher shift = quieter output.
-//   >>16 = unity (24-bit -> 16-bit), very quiet
-//   >>14 = ESPHome default, known too quiet
-//   >>11 = practical sweet spot for speech (this default)
-//   >>8  = loud, conversational speech clips
-// Tune up by 1 if you want it quieter, down by 1 for louder.
-#define AUDIO_SHIFT 11
-#define BITS_PER_SAMPLE 16      // Bits per sample on the wire (after conversion)
+#define AUDIO_GAIN 50           // Software gain applied after 16-bit I2S read
+#define BITS_PER_SAMPLE 16      // Bits per sample on the wire
 
 // Status LED Pin
 #define LED_PIN 2
@@ -171,10 +164,7 @@ WebSocketsClient webSocket;
 bool isConnected = false;
 bool isRegistered = false;
 
-// Audio buffers
-//   i2sBuffer:   raw 32-bit samples read from I2S (INMP441 native format)
-//   audioBuffer: int16 PCM after gain + downshift, sent over WebSocket
-int32_t i2sBuffer[BUFFER_SIZE];
+// Audio buffer — int16 PCM read from I2S, then sent over WebSocket
 int16_t audioBuffer[BUFFER_SIZE];
 
 // Statistics
@@ -827,20 +817,17 @@ void setupI2S() {
   digitalWrite(I2S_LR_PIN, LOW);  // Set to LEFT channel
   Serial.println("   L/R pin (GPIO 5) set to LEFT channel (LOW)");
 
-  // I2S configuration — 32-bit slot for INMP441.
-  // Many INMP441 tutorials wrongly suggest 16-bit; that path gives you
-  // the high half of the slot (almost all sign-extension) and produces
-  // loud constant hiss with very little signal. Read as 32-bit, then
-  // downshift to int16 in processAudio().
+  // I2S configuration — 16-bit reads from INMP441 with the legacy driver.
+  // See comment near BUFFER_SIZE about why we're not using 32-bit here.
   i2s_config_t i2s_config = {
     .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
     .sample_rate = SAMPLE_RATE,
-    .bits_per_sample = I2S_BITS_PER_SAMPLE_32BIT,
+    .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT,
     .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
     .communication_format = I2S_COMM_FORMAT_STAND_I2S,
     .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
     .dma_buf_count = 8,
-    .dma_buf_len = BUFFER_SIZE,    // 256 samples × 4 bytes = 1024 bytes (under 4092 limit)
+    .dma_buf_len = BUFFER_SIZE,    // 256 samples × 2 bytes = 512 bytes per DMA
     .use_apll = false,
     .tx_desc_auto_clear = false,
     .fixed_mclk = 0
@@ -867,8 +854,7 @@ void setupI2S() {
     return;
   }
 
-  // Set sample rate (matches the 32-bit config above)
-  i2s_set_clk(I2S_PORT, SAMPLE_RATE, I2S_BITS_PER_SAMPLE_32BIT, I2S_CHANNEL_MONO);
+  i2s_set_clk(I2S_PORT, SAMPLE_RATE, I2S_BITS_PER_SAMPLE_16BIT, I2S_CHANNEL_MONO);
 
   Serial.println("✅ I2S microphone initialized");
   Serial.printf("   Sample rate: %d Hz\n", SAMPLE_RATE);
@@ -1100,29 +1086,26 @@ void processAudio() {
     return;
   }
 
-  // Read 32-bit samples from I2S into i2sBuffer. INMP441 places its
-  // 24-bit signed PCM in the upper bits of each 32-bit slot.
+  // Read 16-bit samples from I2S.
   size_t bytesRead = 0;
   esp_err_t result = i2s_read(
     I2S_PORT,
-    i2sBuffer,
-    BUFFER_SIZE * sizeof(int32_t),
+    audioBuffer,
+    BUFFER_SIZE * sizeof(int16_t),
     &bytesRead,
     portMAX_DELAY
   );
 
   if (result == ESP_OK && bytesRead > 0) {
-    int sampleCount = bytesRead / sizeof(int32_t);
+    int sampleCount = bytesRead / sizeof(int16_t);
 
-    // Convert 32-bit I2S slots to int16 PCM. The right-shift drops the
-    // 8 all-zero LSBs of the slot plus the noisiest LSBs of the 24-bit
-    // signal, leaving 16 bits of usable audio. Clamp because the rare
-    // peak that exceeds int16 range would otherwise wrap-around.
+    // INMP441 has very low output level via the legacy 16-bit I2S path,
+    // so we apply ~50x software gain in int32 and clamp to int16 range.
     for (int i = 0; i < sampleCount; i++) {
-      int32_t shifted = i2sBuffer[i] >> AUDIO_SHIFT;
-      if (shifted > 32767) shifted = 32767;
-      if (shifted < -32768) shifted = -32768;
-      audioBuffer[i] = (int16_t)shifted;
+      int32_t amplified = (int32_t)audioBuffer[i] * AUDIO_GAIN;
+      if (amplified > 32767) amplified = 32767;
+      if (amplified < -32768) amplified = -32768;
+      audioBuffer[i] = (int16_t)amplified;
     }
 
     // Calculate audio level (after amplification)
@@ -1136,15 +1119,8 @@ void processAudio() {
     webSocket.sendBIN((uint8_t*)audioBuffer, sampleCount * sizeof(int16_t));
     audioPacketsSent++;
 
-    // Debug: Print audio level every 50 packets
     if (audioPacketsSent % 50 == 0) {
       Serial.printf("🔊 Audio level: %d (avg of %d samples)\n", avgLevel, sampleCount);
-      // Print first 5 raw 16-bit samples for debugging
-      Serial.print("   Raw 16-bit samples: ");
-      for (int i = 0; i < 5 && i < sampleCount; i++) {
-        Serial.printf("%d ", audioBuffer[i]);
-      }
-      Serial.println();
     }
 
     // Blink LED briefly when sending audio
