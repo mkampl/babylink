@@ -155,7 +155,7 @@
           <div id="bleResult" class="pin-result" style="display:none;"></div>
         </div>
         <div class="device-setup-steps">
-          <p style="font-size:0.88rem;font-weight:600;margin:0 0 var(--space-sm);">Manual Setup (all platforms):</p>
+          <p id="manualSetupHeading" style="font-size:0.88rem;font-weight:600;margin:0 0 var(--space-sm);">Manual Setup (all platforms):</p>
           <ol style="margin:0;padding-left:1.5em;font-size:0.88rem;line-height:1.8;color:var(--color-text-secondary);">
             <li>Power on your ESP32 device</li>
             <li>Connect to WiFi network <strong>BabyLink-Setup</strong></li>
@@ -601,9 +601,14 @@
         document.getElementById('prefillServer').textContent = window.location.hostname;
         document.getElementById('prefillPort').textContent = window.location.port || (window.location.protocol === 'https:' ? '443' : '80');
         document.getElementById('prefillRoom').textContent = window.location.pathname.slice(1);
-        // Show BLE button if Web Bluetooth available
+        // Show BLE button if Web Bluetooth available; otherwise emphasize
+        // the SoftAP manual setup as the primary path (iOS / Safari / desktop).
+        var manualHeading = document.getElementById('manualSetupHeading');
         if (navigator.bluetooth) {
           document.getElementById('bleProvisionBtn').style.display = 'block';
+          if (manualHeading) manualHeading.textContent = 'Manual Setup (all platforms):';
+        } else {
+          if (manualHeading) manualHeading.textContent = 'Set up via WiFi (iOS / Safari / desktop):';
         }
       } else {
         stopDevicePolling();
@@ -662,6 +667,7 @@
           '<div class="device-actions">' +
             '<button class="device-rename-btn" onclick="renameDevice(\'' + d.id + '\',\'' + escapeHtml(d.name) + '\')">Rename</button>' +
             '<button class="device-disconnect-btn" onclick="disconnectDevice(\'' + d.id + '\')">Disconnect</button>' +
+            '<button class="device-reset-btn" onclick="resetDevice(\'' + d.id + '\')">Reset</button>' +
           '</div>' +
         '</div>';
       }).join('');
@@ -688,7 +694,7 @@
     };
 
     window.disconnectDevice = async function(esp32Id) {
-      if (!confirm('Disconnect this device?')) return;
+      if (!confirm('Disconnect this device?\n\nThe device will keep its WiFi + room config and reconnect on next power cycle.')) return;
       var roomId = window.location.pathname.slice(1);
       try {
         await fetch('/api/rooms/' + encodeURIComponent(roomId) + '/esp32/' + encodeURIComponent(esp32Id), {
@@ -697,6 +703,23 @@
         loadDevices();
       } catch (err) {
         console.error('Disconnect failed:', err);
+      }
+    };
+
+    window.resetDevice = async function(esp32Id) {
+      if (!confirm('Reset this device to factory defaults?\n\nClears WiFi credentials, server, and room. The device will reboot into provisioning mode (BLE + setup network).')) return;
+      var roomId = window.location.pathname.slice(1);
+      try {
+        var res = await fetch('/api/rooms/' + encodeURIComponent(roomId) + '/esp32/' + encodeURIComponent(esp32Id) + '/reset', {
+          method: 'POST'
+        });
+        if (!res.ok) {
+          var body = await res.json().catch(function() { return {}; });
+          alert('Reset failed: ' + (body.error || res.statusText));
+        }
+        loadDevices();
+      } catch (err) {
+        console.error('Reset failed:', err);
       }
     };
 

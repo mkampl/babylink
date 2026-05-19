@@ -29,18 +29,45 @@
 #include <NimBLEDevice.h>
 
 // =============================================================================
-// CONFIGURATION - EDIT THESE VALUES
+// CONFIGURATION
 // =============================================================================
+//
+// Defaults are intentionally empty so a fresh device always enters the BLE
+// + SoftAP provisioning portal. For local development you can drop an
+// (untracked) "dev_defaults.h" next to this file with overrides like:
+//
+//   #define DEV_DEFAULT_WIFI_SSID     "MyWifi"
+//   #define DEV_DEFAULT_WIFI_PASSWORD "mypassword"
+//   #define DEV_DEFAULT_SERVER_HOST   "192.168.1.10"
+//   #define DEV_DEFAULT_SERVER_PORT   3001
+//   #define DEV_DEFAULT_ROOM_ID       "dddddddddddddddddddddddddddddddd"
+//
+#if __has_include("dev_defaults.h")
+#include "dev_defaults.h"
+#endif
 
-// DEFAULT WiFi Credentials (fallback if no config saved)
-const char* DEFAULT_WIFI_SSID = "FRITZ!Box 7590 TK";
-const char* DEFAULT_WIFI_PASSWORD = "91058042730434816265";
+#ifndef DEV_DEFAULT_WIFI_SSID
+#define DEV_DEFAULT_WIFI_SSID ""
+#endif
+#ifndef DEV_DEFAULT_WIFI_PASSWORD
+#define DEV_DEFAULT_WIFI_PASSWORD ""
+#endif
+#ifndef DEV_DEFAULT_SERVER_HOST
+#define DEV_DEFAULT_SERVER_HOST ""
+#endif
+#ifndef DEV_DEFAULT_SERVER_PORT
+#define DEV_DEFAULT_SERVER_PORT 3001
+#endif
+#ifndef DEV_DEFAULT_ROOM_ID
+#define DEV_DEFAULT_ROOM_ID ""
+#endif
 
-// DEFAULT BabyLink Server Configuration
-const char* DEFAULT_SERVER_HOST = "babylink.itvoodoo.at";  // Your BabyLink server hostname
-const uint16_t DEFAULT_SERVER_PORT = 443;                   // HTTPS port
-const char* DEFAULT_ROOM_ID = "48080e150509dfc158c896919491becf";  // Room ID to join
-const char* DEFAULT_DEVICE_NAME = "ESP32 Real Hardware";   // Name of this baby device
+const char* DEFAULT_WIFI_SSID = DEV_DEFAULT_WIFI_SSID;
+const char* DEFAULT_WIFI_PASSWORD = DEV_DEFAULT_WIFI_PASSWORD;
+const char* DEFAULT_SERVER_HOST = DEV_DEFAULT_SERVER_HOST;
+const uint16_t DEFAULT_SERVER_PORT = DEV_DEFAULT_SERVER_PORT;
+const char* DEFAULT_ROOM_ID = DEV_DEFAULT_ROOM_ID;
+const char* DEFAULT_DEVICE_NAME = "BabyLink ESP32";
 
 // Configuration Portal Settings
 const char* AP_SSID = "BabyLink-Setup";      // Access Point name for configuration
@@ -77,6 +104,10 @@ const byte DNS_PORT = 53;
 
 // INMP441 L/R Pin (connected to GPIO 5)
 #define I2S_LR_PIN 5
+
+// BOOT button (GPIO0) — hold 5s for factory reset
+#define RESET_BUTTON_PIN 0
+#define RESET_HOLD_MS 5000
 
 // =============================================================================
 // GLOBAL VARIABLES
@@ -264,6 +295,25 @@ void clearConfiguration() {
   preferences.clear();
   preferences.end();
   Serial.println("🗑️  Configuration cleared");
+}
+
+/**
+ * Clear all stored credentials and reboot into the provisioning portal.
+ * Used by both the server-initiated factory-reset command and the
+ * 5-second BOOT-button long-press.
+ */
+void performFactoryReset() {
+  Serial.println("🔁 Performing factory reset — clearing NVS and restarting");
+  // Fast blink to acknowledge
+  for (int i = 0; i < 10; i++) {
+    digitalWrite(LED_PIN, HIGH);
+    delay(50);
+    digitalWrite(LED_PIN, LOW);
+    delay(50);
+  }
+  clearConfiguration();
+  delay(500);
+  ESP.restart();
 }
 
 // =============================================================================
@@ -550,6 +600,12 @@ void setupI2S() {
 // =============================================================================
 
 void setupWiFi() {
+  if (configWifiSsid.length() == 0) {
+    Serial.println("ℹ️  No WiFi configured — entering provisioning portal");
+    startConfigPortal();
+    return;
+  }
+
   Serial.println("📡 Connecting to WiFi...");
   Serial.printf("   SSID: %s\n", configWifiSsid.c_str());
 
@@ -632,6 +688,9 @@ void webSocketEvent(WStype_t type, uint8_t * payload, size_t length) {
           } else if (strcmp(type, "error") == 0) {
             const char* message = doc["message"];
             Serial.printf("❌ Server error: %s\n", message);
+          } else if (strcmp(type, "factory-reset") == 0) {
+            Serial.println("🧹 Factory reset requested by server");
+            performFactoryReset();
           }
         }
       }
@@ -768,6 +827,59 @@ void sendHeartbeat() {
 }
 
 // =============================================================================
+// FACTORY-RESET BUTTON (GPIO0 / BOOT)
+// =============================================================================
+//
+// Hold for RESET_HOLD_MS (5s) to clear NVS and reboot into provisioning.
+// Slow LED blink starts after 1s as feedback so the user knows the press
+// was registered. Polled from loop() in both normal and config modes.
+//
+void checkResetButton() {
+  // Debounced long-press detector. The I2S read between loop iterations
+  // makes our polling rate ~16 Hz; cheap dev-board buttons bounce HIGH
+  // for a single sample during that window, so we treat the button as
+  // "still held" until it's been HIGH for DEBOUNCE_RELEASE_MS straight.
+  static unsigned long pressStart = 0;
+  static unsigned long lastLowMs = 0;
+  static unsigned long lastBlink = 0;
+  static bool blinkState = false;
+  const unsigned long DEBOUNCE_RELEASE_MS = 250;
+
+  bool low = (digitalRead(RESET_BUTTON_PIN) == LOW);
+  unsigned long now = millis();
+
+  if (low) {
+    lastLowMs = now;
+    if (pressStart == 0) {
+      pressStart = now;
+    }
+  }
+
+  if (pressStart == 0) return;
+
+  // Released stably (no LOW reading in the debounce window)
+  if (!low && (now - lastLowMs) > DEBOUNCE_RELEASE_MS) {
+    pressStart = 0;
+    return;
+  }
+
+  unsigned long held = now - pressStart;
+
+  if (held >= RESET_HOLD_MS) {
+    Serial.println("🔘 BOOT held 5s — factory reset");
+    performFactoryReset();
+    return;
+  }
+
+  // After 1s, slow-blink LED as feedback that the press was registered
+  if (held > 1000 && now - lastBlink > 200) {
+    blinkState = !blinkState;
+    digitalWrite(LED_PIN, blinkState ? HIGH : LOW);
+    lastBlink = now;
+  }
+}
+
+// =============================================================================
 // STATUS LED
 // =============================================================================
 
@@ -813,9 +925,10 @@ void setup() {
   // Load configuration from flash (or use defaults)
   loadConfiguration();
 
-  // Initialize LED
+  // Initialize LED + BOOT button (for factory-reset long-press)
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
+  pinMode(RESET_BUTTON_PIN, INPUT_PULLUP);
 
   // Initialize I2S microphone
   setupI2S();
@@ -863,6 +976,9 @@ void setup() {
 // =============================================================================
 
 void loop() {
+  // BOOT button long-press → factory reset (works in both modes)
+  checkResetButton();
+
   // If in configuration mode, handle web server and DNS
   if (isConfigMode) {
     dnsServer.processNextRequest();

@@ -165,6 +165,22 @@ app.delete('/api/rooms/:roomId/esp32/:esp32Id', validateRoomId, (req, res) => {
   res.json({ success: true, message: 'Device disconnected' });
 });
 
+// Factory-reset an ESP32 device (clears WiFi/server/room config, enters portal)
+app.post('/api/rooms/:roomId/esp32/:esp32Id/reset', validateRoomId, (req, res) => {
+  const { roomId, esp32Id } = req.params;
+
+  const client = esp32Proxy.esp32Clients.get(esp32Id);
+  if (!client || client.roomId !== roomId) {
+    return res.status(404).json({ error: 'Device not found in this room' });
+  }
+
+  const ok = esp32Proxy.sendFactoryReset(esp32Id);
+  if (!ok) {
+    return res.status(500).json({ error: 'Failed to send reset command' });
+  }
+  res.json({ success: true, message: 'Reset command sent; device will reboot into provisioning mode' });
+});
+
 // =============================================================================
 // NOTIFICATION API ENDPOINTS
 // =============================================================================

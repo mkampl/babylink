@@ -40,6 +40,9 @@ docker-compose.override.yml
 # Runtime data (room configs, PINs)
 data/
 
+# Local ESP32 firmware overrides (WiFi credentials, dev server)
+esp32-firmware/src/dev_defaults.h
+
 # Temporary files
 tmp/
 temp/

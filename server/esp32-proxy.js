@@ -478,6 +478,24 @@ class ESP32AudioProxy {
   }
 
   /**
+   * Send a factory-reset command to the device. The firmware clears its
+   * stored config (WiFi credentials, server, room) and reboots into the
+   * BLE + SoftAP provisioning portal.
+   */
+  sendFactoryReset(esp32Id) {
+    const client = this.esp32Clients.get(esp32Id);
+    if (!client || !client.ws) return false;
+    try {
+      client.ws.send(JSON.stringify({ type: 'factory-reset' }));
+    } catch (err) {
+      logger.warn(`Failed to send factory-reset to ${esp32Id}: ${err.message}`);
+      return false;
+    }
+    this.unregisterESP32(esp32Id);
+    return true;
+  }
+
+  /**
    * Handle HTTP upgrade for ESP32 WebSocket endpoint
    */
   handleUpgrade(request, socket, head) {

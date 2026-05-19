@@ -158,4 +158,59 @@ describe('ESP32 Device Management API', () => {
       expect(res.status).toBe(404);
     });
   });
+
+  describe('POST /api/rooms/:roomId/esp32/:esp32Id/reset', () => {
+    it('sends factory-reset to a connected device and removes it from the list', async () => {
+      const esp32 = createESP32Client(server.port);
+      try {
+        await esp32.register(DEVICE_ROOM, 'ToReset');
+
+        // Capture the JSON message the firmware would receive
+        const resetMsgPromise = esp32.waitForMessage('factory-reset', 2000);
+
+        const listRes = await request(server.app)
+          .get(`/api/rooms/${DEVICE_ROOM}/esp32/devices`);
+        const device = listRes.body.devices.find(d => d.name === 'ToReset');
+        expect(device).toBeDefined();
+
+        const res = await request(server.app)
+          .post(`/api/rooms/${DEVICE_ROOM}/esp32/${device.id}/reset`);
+        expect(res.status).toBe(200);
+        expect(res.body.success).toBe(true);
+
+        const resetMsg = await resetMsgPromise;
+        expect(resetMsg.type).toBe('factory-reset');
+
+        await new Promise(resolve => setTimeout(resolve, 200));
+        const verifyRes = await request(server.app)
+          .get(`/api/rooms/${DEVICE_ROOM}/esp32/devices`);
+        expect(verifyRes.body.devices.find(d => d.id === device.id)).toBeUndefined();
+      } finally {
+        await esp32.close();
+      }
+    });
+
+    it('returns 404 for non-existent device', async () => {
+      const res = await request(server.app)
+        .post(`/api/rooms/${DEVICE_ROOM}/esp32/esp32_nonexistent/reset`);
+      expect(res.status).toBe(404);
+    });
+
+    it('returns 404 when device is in a different room', async () => {
+      const esp32 = createESP32Client(server.port);
+      try {
+        await esp32.register(DEVICE_ROOM_2, 'OtherRoomDevice');
+        const listRes = await request(server.app)
+          .get(`/api/rooms/${DEVICE_ROOM_2}/esp32/devices`);
+        const device = listRes.body.devices.find(d => d.name === 'OtherRoomDevice');
+
+        // Try resetting via the wrong room — must 404
+        const res = await request(server.app)
+          .post(`/api/rooms/${DEVICE_ROOM}/esp32/${device.id}/reset`);
+        expect(res.status).toBe(404);
+      } finally {
+        await esp32.close();
+      }
+    });
+  });
 });
