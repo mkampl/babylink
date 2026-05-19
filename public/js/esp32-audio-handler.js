@@ -74,13 +74,35 @@ class ESP32AudioHandler {
         amplifiedData[i] = Math.max(-1.0, Math.min(1.0, floatData[i] * sensitivityGain));
       }
 
-      // Create and play audio buffer
+      // Create and play audio buffer. Each PCM frame from the ESP32 is
+      // scheduled to start exactly where the previous one ended so there
+      // are no gaps/clicks at chunk boundaries — calling start() with
+      // no argument starts "as soon as possible," which inserts micro-
+      // gaps under network jitter and produces a regular tick pattern
+      // proportional to the chunk rate.
+      //
+      // The per-context nextStartTime clock keeps ~50ms of lead so we
+      // can absorb small jitter. If chunks arrive much faster than they
+      // play (sustained > MAX_LEAD ahead of currentTime), or much slower
+      // (already in the past), we re-anchor with fresh lead — drift
+      // would otherwise grow unbounded over a long session.
       const audioBuffer = ctx.audioContext.createBuffer(ctx.channels, amplifiedData.length, ctx.sampleRate);
       audioBuffer.getChannelData(0).set(amplifiedData);
       const source = ctx.audioContext.createBufferSource();
       source.buffer = audioBuffer;
       source.connect(ctx.gainNode);
-      source.start();
+
+      const now = ctx.audioContext.currentTime;
+      const MIN_LEAD = 0.05;   // 50ms cushion against jitter
+      const MAX_LEAD = 0.30;   // re-anchor if scheduling falls > 300ms ahead
+
+      if (!ctx.nextStartTime || ctx.nextStartTime < now + 0.001) {
+        ctx.nextStartTime = now + MIN_LEAD;
+      } else if (ctx.nextStartTime - now > MAX_LEAD) {
+        ctx.nextStartTime = now + MIN_LEAD;
+      }
+      source.start(ctx.nextStartTime);
+      ctx.nextStartTime += audioBuffer.duration;
 
       // Update audio level visualization
       if (multiBabyUI && multiBabyUI.babyCards.has(fromId)) {
