@@ -99,14 +99,14 @@ unsigned long connectionTime = 0;
 // =============================================================================
 
 // BLE Service and Characteristic UUIDs
-#define BLE_SERVICE_UUID        "4babl1nk-0001-1000-8000-00805f9b34fb"
-#define BLE_CHAR_WIFI_SSID      "4babl1nk-0002-1000-8000-00805f9b34fb"
-#define BLE_CHAR_WIFI_PASS      "4babl1nk-0003-1000-8000-00805f9b34fb"
-#define BLE_CHAR_SERVER_HOST    "4babl1nk-0004-1000-8000-00805f9b34fb"
-#define BLE_CHAR_SERVER_PORT    "4babl1nk-0005-1000-8000-00805f9b34fb"
-#define BLE_CHAR_ROOM_ID        "4babl1nk-0006-1000-8000-00805f9b34fb"
-#define BLE_CHAR_DEVICE_NAME    "4babl1nk-0007-1000-8000-00805f9b34fb"
-#define BLE_CHAR_COMMAND        "4babl1nk-0008-1000-8000-00805f9b34fb"
+#define BLE_SERVICE_UUID        "bab71111-0001-1000-8000-00805f9b34fb"
+#define BLE_CHAR_WIFI_SSID      "bab71111-0002-1000-8000-00805f9b34fb"
+#define BLE_CHAR_WIFI_PASS      "bab71111-0003-1000-8000-00805f9b34fb"
+#define BLE_CHAR_SERVER_HOST    "bab71111-0004-1000-8000-00805f9b34fb"
+#define BLE_CHAR_SERVER_PORT    "bab71111-0005-1000-8000-00805f9b34fb"
+#define BLE_CHAR_ROOM_ID        "bab71111-0006-1000-8000-00805f9b34fb"
+#define BLE_CHAR_DEVICE_NAME    "bab71111-0007-1000-8000-00805f9b34fb"
+#define BLE_CHAR_COMMAND        "bab71111-0008-1000-8000-00805f9b34fb"
 
 // BLE provisioning state
 bool isBLEActive = false;
@@ -149,7 +149,7 @@ class BLEProvisionCallbacks : public NimBLECharacteristicCallbacks {
         preferences.putString("wifi_ssid", configWifiSsid);
         preferences.putString("wifi_pass", configWifiPassword);
         preferences.putString("server_host", configServerHost);
-        preferences.putUShort("server_port", configServerPort);
+        preferences.putUInt("server_port", configServerPort);
         preferences.putString("room_id", configRoomId);
         preferences.putString("device_name", configDeviceName);
         preferences.end();
