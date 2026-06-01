@@ -139,10 +139,14 @@ const byte DNS_PORT = 53;
 // migrating to the new ESP-IDF `i2s_std` driver, where the slot/data
 // width separation is cleaner.
 //
-// DMA reduced from 8×1024 (~1024 ms in 16-bit) to 8×256 (~128 ms) for
-// lower capture latency without changing audio quality.
+// DMA kept at 8×1024 (~64 ms per chunk, 1024 ms ring). A previous
+// attempt to lower this to 8×256 (~16 ms) for latency made playback
+// "blurry/unintelligible" in the browser: the parent-side scheduler
+// re-anchors when buffer lead exceeds 300 ms, and 300 ms / 16 ms is
+// only ~19 chunks of headroom — easily overrun by network bursts. At
+// 64 ms/chunk a 300 ms cushion is ~4.7 chunks, which holds up.
 #define SAMPLE_RATE 16000       // Sample rate in Hz
-#define BUFFER_SIZE 256         // Samples per I2S read / per WebSocket frame
+#define BUFFER_SIZE 1024        // Samples per I2S read / per WebSocket frame
 #define AUDIO_GAIN 50           // Software gain applied after 16-bit I2S read
 #define BITS_PER_SAMPLE 16      // Bits per sample on the wire
 
@@ -827,7 +831,7 @@ void setupI2S() {
     .communication_format = I2S_COMM_FORMAT_STAND_I2S,
     .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
     .dma_buf_count = 8,
-    .dma_buf_len = BUFFER_SIZE,    // 256 samples × 2 bytes = 512 bytes per DMA
+    .dma_buf_len = BUFFER_SIZE,    // 1024 samples × 2 bytes = 2048 bytes per DMA
     .use_apll = false,
     .tx_desc_auto_clear = false,
     .fixed_mclk = 0
