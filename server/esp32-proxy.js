@@ -162,6 +162,12 @@ class ESP32AudioProxy {
    */
   registerESP32(ws, registrationData, clientIp) {
     const { roomId, name, mac, sampleRate = 16000, channels = 1 } = registrationData;
+    // Hardware generation tag. Classic ESP32 + INMP441 firmware omits this
+    // field — default to 'esp32-classic' so old clients still get a sensible
+    // label without a firmware update. New XIAO-S3 firmware sends 'esp32-s3'.
+    const deviceType = (typeof registrationData.device_type === 'string' && registrationData.device_type)
+      ? registrationData.device_type
+      : 'esp32-classic';
 
     if (!roomId) {
       logger.error('ESP32 registration missing roomId');
@@ -203,6 +209,7 @@ class ESP32AudioProxy {
       clientIp,
       sampleRate,
       channels,
+      deviceType,
       connectedAt: new Date(),
       audioPacketsReceived: 0,
       lastAudioPacket: null
@@ -228,7 +235,8 @@ class ESP32AudioProxy {
         role: 'baby',
         userName: esp32Info.name,
         participants: this.getRoomParticipants(roomId),
-        source: 'esp32'
+        source: 'esp32',
+        deviceType
       });
     }
 
@@ -422,7 +430,8 @@ class ESP32AudioProxy {
           socketId: esp32Id,
           role: 'baby',
           userName: client.name,
-          source: 'esp32'
+          source: 'esp32',
+          deviceType: client.deviceType || 'esp32-classic'
         });
       }
     });
@@ -471,7 +480,8 @@ class ESP32AudioProxy {
           lastAudioPacket: client.lastAudioPacket,
           uptime: Date.now() - client.connectedAt.getTime(),
           sampleRate: client.sampleRate,
-          channels: client.channels
+          channels: client.channels,
+          deviceType: client.deviceType || 'esp32-classic'
         });
       }
     });

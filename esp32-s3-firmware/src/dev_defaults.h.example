@@ -1,0 +1,15 @@
+// Local dev defaults — NOT checked into git (see .gitignore).
+// Copy to dev_defaults.h and fill in to pre-populate the firmware so a
+// freshly-flashed device on this developer's bench auto-joins the
+// configured server.
+//
+// Production / fresh builds (without this file) start with empty
+// defaults and wait for provisioning (BLE / SoftAP — Branch 3).
+
+#pragma once
+
+#define DEV_DEFAULT_WIFI_SSID     ""
+#define DEV_DEFAULT_WIFI_PASSWORD ""
+#define DEV_DEFAULT_SERVER_HOST   ""
+#define DEV_DEFAULT_SERVER_PORT   443
+#define DEV_DEFAULT_ROOM_ID       ""

@@ -24,10 +24,10 @@ function createESP32Client(port) {
     },
 
     /** Send a register message and wait for response */
-    async register(roomId, name = 'Test ESP32', mac = null) {
+    async register(roomId, name = 'Test ESP32', mac = null, extras = {}) {
       await helpers.waitForOpen();
       const responsePromise = helpers.waitForMessage('registered');
-      const payload = { type: 'register', roomId, name };
+      const payload = { type: 'register', roomId, name, ...extras };
       if (mac) payload.mac = mac;
       ws.send(JSON.stringify(payload));
       return responsePromise;
