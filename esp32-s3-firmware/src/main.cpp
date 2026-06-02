@@ -14,6 +14,8 @@
 #include <Preferences.h>
 #include <esp_mac.h>   // esp_read_mac, ESP_MAC_WIFI_STA
 #include <vector>
+#include <WebServer.h>
+#include <DNSServer.h>
 #include <WebSocketsClient.h>
 #include <ArduinoJson.h>
 #include <ESP_I2S.h>   // Arduino-ESP32 3.x PDM API (Seeed reference)
@@ -43,6 +45,14 @@ static const char* DEVICE_TYPE = "esp32-s3";
 // device class). Limits chosen to fit a single BLE ATT-MTU-517 write.
 static const int MAX_WIFI_PROFILES   = 6;
 static const int MAX_SERVER_PROFILES = 4;
+
+// SoftAP fallback (used when no WiFi profile connects).
+static const char* AP_SSID     = "BabyLinkS3-Setup";
+static const char* AP_PASSWORD = "";  // open AP — easier for non-techy setup
+static const byte  DNS_PORT    = 53;
+// BOOT button — same as the classic ESP32. 5 s hold = factory reset.
+static const int   RESET_BUTTON_PIN = 0;
+static const unsigned long RESET_HOLD_MS = 5000;
 
 struct WifiProfile  { String ssid;  String password; };
 struct ServerProfile { String label; String host; uint16_t port; String roomId; };
@@ -109,10 +119,13 @@ static const float DC_ALPHA = 0.001f;
 // =============================================================================
 
 WebSocketsClient webSocket;
+WebServer  webServer(80);
+DNSServer  dnsServer;
 I2SClass I2S;
 bool isConnected = false;
 bool isRegistered = false;
 bool isI2SReady = false;
+bool isConfigMode = false;   // SoftAP fallback active
 String deviceId;
 unsigned long lastLedToggle = 0;
 bool ledState = false;
@@ -613,6 +626,224 @@ void startBLE() {
 }
 
 // =============================================================================
+// FACTORY RESET (BOOT button long-press + server-initiated)
+// =============================================================================
+
+void performFactoryReset() {
+  Serial.println("[reset] Performing factory reset — clearing NVS and restarting");
+  // Fast blink acknowledge so the user has visual confirmation.
+  for (int i = 0; i < 10; i++) {
+    setLED(true);  delay(50);
+    setLED(false); delay(50);
+  }
+  clearConfig();
+  delay(500);
+  ESP.restart();
+}
+
+// Poll GPIO0 for a 5-second long-press. Implemented with a STRICT
+// debounce: any HIGH reading immediately resets the press timer.
+// Lessons from the classic firmware — BLE + WiFi RF noise can briefly
+// pull GPIO0 to ~250 ms of intermittent HIGH during normal streaming,
+// and a permissive debounce would integrate that into a 5-second
+// "press" by accident. Strict reset on any HIGH eliminates that.
+//
+// Skipped while in config portal mode — BLE + WiFi RF noise is
+// strongest there and we don't want to factory-reset a device that's
+// already in the middle of being provisioned.
+static void checkResetButton() {
+  if (isConfigMode) return;
+  // Grace period to ignore strapping-pin transients right after boot.
+  if (millis() < 3000) return;
+
+  static unsigned long pressStart = 0;
+  int level = digitalRead(RESET_BUTTON_PIN);
+  if (level == LOW) {
+    if (pressStart == 0) pressStart = millis();
+    unsigned long held = millis() - pressStart;
+    // Slow blink as visual feedback during the hold.
+    if (held > 1000) {
+      bool on = (held / 250) & 1;
+      setLED(on);
+    }
+    if (held >= RESET_HOLD_MS) {
+      Serial.println("[reset] 5s hold — factory reset");
+      pressStart = 0;
+      performFactoryReset();
+    }
+  } else {
+    // Any HIGH reading resets the timer — see comment above.
+    pressStart = 0;
+  }
+}
+
+// =============================================================================
+// SOFTAP CAPTIVE PORTAL (fallback when no WiFi profile connects, or for
+//                       browsers without Web Bluetooth — e.g. Safari, FF)
+// =============================================================================
+
+// Same HTML as the classic firmware's portal. cfg_v3 schema matches cfg_v2
+// exactly, so the JS / form / payload work without changes.
+static const char CONFIG_HTML[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>BabyLink S3 Setup</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);min-height:100vh;padding:20px;color:#222}
+.container{background:#fff;border-radius:20px;box-shadow:0 20px 60px rgba(0,0,0,.3);max-width:560px;margin:0 auto;padding:32px}
+h1{color:#667eea;text-align:center;font-size:26px;margin-bottom:4px}
+h2{font-size:15px;color:#444;margin:24px 0 10px;padding-bottom:6px;border-bottom:1px solid #eee}
+.subtitle{text-align:center;color:#666;font-size:13px;margin-bottom:16px}
+.info{background:#f0f4ff;padding:12px;border-radius:8px;margin-bottom:14px;font-size:12.5px;color:#555}
+label{display:block;font-weight:500;color:#333;font-size:13px;margin-bottom:5px}
+input,select{width:100%;padding:10px;border:2px solid #e0e0e0;border-radius:7px;font-size:14px;font-family:inherit}
+input:focus,select:focus{outline:none;border-color:#667eea}
+.row{display:flex;gap:6px;align-items:flex-start;background:#fafafe;padding:10px;border-radius:8px;margin-bottom:8px;border:1px solid #ececf6}
+.row .col{flex:1;min-width:0}
+.row input{padding:8px;font-size:13px;margin-bottom:6px}
+.row input:last-child{margin-bottom:0}
+.row .rm{background:#fee;color:#c33;border:none;border-radius:6px;padding:6px 10px;cursor:pointer;font-weight:600;flex-shrink:0;font-size:13px}
+.row .rm:hover{background:#c33;color:#fff}
+.row label{font-size:11.5px;color:#777;margin-bottom:3px}
+.row .active-pick{font-size:12px;color:#666;margin-top:6px;display:flex;align-items:center;gap:6px}
+.btn{width:100%;padding:13px;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;margin-top:14px}
+.btn.secondary{background:#eef;color:#557;font-weight:500;padding:9px;font-size:13px;margin-top:6px}
+.btn.scan{background:#28a745;padding:9px;font-size:13px;margin:0 0 8px 0}
+.btn:hover{filter:brightness(1.05)}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.msg{padding:10px;border-radius:7px;font-size:13px;margin-top:10px}
+.msg.ok{background:#e6ffea;color:#0a6}
+.msg.err{background:#fee;color:#c33}
+.empty{color:#888;font-size:12.5px;font-style:italic;padding:8px}
+</style></head>
+<body><div class="container">
+<h1>🍼 BabyLink S3</h1>
+<div class="subtitle">XIAO ESP32-S3 setup</div>
+<div class="info">Save the WiFi networks this device will roam between. On boot it picks whichever known network has the strongest signal. The active server &amp; room is the BabyLink instance this device will register with.</div>
+<h2>WiFi networks</h2>
+<button id="scanBtn" class="btn scan" type="button">📡 Scan nearby networks</button>
+<div id="scanList"></div>
+<div id="wifiRows"></div>
+<button id="addWifi" class="btn secondary" type="button">+ Add WiFi manually</button>
+<h2>Server profiles</h2>
+<div id="serverRows"></div>
+<button id="addServer" class="btn secondary" type="button">+ Add server</button>
+<h2>Device</h2>
+<input id="devName" placeholder="Device name (e.g. Nursery)">
+<button id="saveBtn" class="btn" type="button">💾 Save &amp; Connect</button>
+<div id="msg"></div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+let cfg={wifi:[],servers:[],activeServer:0,deviceName:""};
+const MAX_WIFI=6,MAX_SRV=4;
+function render(){
+  const w=$('wifiRows');w.innerHTML='';
+  if(!cfg.wifi.length)w.innerHTML='<div class="empty">No WiFi networks saved yet — scan or add one manually.</div>';
+  cfg.wifi.forEach((p,i)=>{const r=document.createElement('div');r.className='row';
+    r.innerHTML=`<div class="col"><label>SSID</label><input data-i="${i}" data-k="ssid" value="${p.ssid||''}"><label>Password</label><input data-i="${i}" data-k="password" type="password" value="${p.password||''}"></div><button class="rm" data-rm-w="${i}" type="button">×</button>`;
+    w.appendChild(r);});
+  const s=$('serverRows');s.innerHTML='';
+  if(!cfg.servers.length)s.innerHTML='<div class="empty">No servers saved yet.</div>';
+  cfg.servers.forEach((p,i)=>{const r=document.createElement('div');r.className='row';
+    r.innerHTML=`<div class="col"><label>Label</label><input data-i="${i}" data-k="label" value="${p.label||''}" placeholder="e.g. Home"><label>Host</label><input data-i="${i}" data-k="host" value="${p.host||''}" placeholder="192.168.1.10 or babylink.example"><label>Port</label><input data-i="${i}" data-k="port" type="number" value="${p.port||3001}"><label>Room ID</label><input data-i="${i}" data-k="roomId" value="${p.roomId||''}"><div class="active-pick"><input type="radio" name="active" ${i==cfg.activeServer?'checked':''} data-a="${i}"> Active for this device</div></div><button class="rm" data-rm-s="${i}" type="button">×</button>`;
+    s.appendChild(r);});
+  $('devName').value=cfg.deviceName||'';
+}
+document.addEventListener('input',e=>{const t=e.target;if(t.dataset.k){const i=+t.dataset.i,k=t.dataset.k;const list=t.closest('#wifiRows')?cfg.wifi:cfg.servers;list[i][k]=k=='port'?+t.value:t.value;}else if(t.id=='devName'){cfg.deviceName=t.value;}});
+document.addEventListener('change',e=>{if(e.target.dataset.a!==undefined){cfg.activeServer=+e.target.dataset.a;}});
+document.addEventListener('click',e=>{const t=e.target;if(t.dataset.rmW!==undefined){cfg.wifi.splice(+t.dataset.rmW,1);render();}else if(t.dataset.rmS!==undefined){cfg.servers.splice(+t.dataset.rmS,1);if(cfg.activeServer>=cfg.servers.length)cfg.activeServer=Math.max(0,cfg.servers.length-1);render();}else if(t.dataset.pick){cfg.wifi.push({ssid:t.dataset.pick,password:""});render();$('scanList').innerHTML='';}});
+$('addWifi').onclick=()=>{if(cfg.wifi.length<MAX_WIFI){cfg.wifi.push({ssid:"",password:""});render();}};
+$('addServer').onclick=()=>{if(cfg.servers.length<MAX_SRV){cfg.servers.push({label:"",host:"",port:3001,roomId:""});render();}};
+$('scanBtn').onclick=async()=>{$('scanBtn').disabled=true;$('scanBtn').textContent='Scanning...';
+  try{const r=await fetch('/scan');const list=await r.json();const sl=$('scanList');
+    sl.innerHTML=list.length?'<div style="font-size:12px;color:#555;margin:4px 0">Tap a network to add it:</div>':'<div class="msg err">No networks found.</div>';
+    list.sort((a,b)=>b.rssi-a.rssi).forEach(n=>{const b=document.createElement('button');b.type='button';b.className='btn secondary';b.style.textAlign='left';b.dataset.pick=n.ssid;b.textContent=`${n.ssid} (${n.rssi} dBm${n.secure?'':' · open'})`;sl.appendChild(b);});
+  }catch(e){$('scanList').innerHTML='<div class="msg err">Scan failed: '+e.message+'</div>';}
+  $('scanBtn').disabled=false;$('scanBtn').textContent='📡 Scan nearby networks';};
+$('saveBtn').onclick=async()=>{if(!cfg.wifi.length||!cfg.wifi[0].ssid){$('msg').innerHTML='<div class="msg err">Add at least one WiFi network.</div>';return;}
+  if(!cfg.servers.length||!cfg.servers[0].host||!cfg.servers[0].roomId){$('msg').innerHTML='<div class="msg err">Add at least one server with host + room.</div>';return;}
+  $('saveBtn').disabled=true;
+  try{const r=await fetch('/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)});const j=await r.json();
+    if(r.ok){$('msg').innerHTML='<div class="msg ok">✅ Saved! Device is rebooting…</div>';}
+    else{$('msg').innerHTML='<div class="msg err">'+(j.error||'Save failed')+'</div>';$('saveBtn').disabled=false;}
+  }catch(e){$('msg').innerHTML='<div class="msg err">'+e.message+'</div>';$('saveBtn').disabled=false;}};
+(async()=>{try{const r=await fetch('/config');cfg=await r.json();if(!cfg.wifi)cfg.wifi=[];if(!cfg.servers)cfg.servers=[];}catch(e){}render();})();
+</script></body></html>
+)rawliteral";
+
+static void handleRoot()      { webServer.send_P(200, "text/html", CONFIG_HTML); }
+static void handleGetConfig() { webServer.send(200, "application/json", serializeConfig()); }
+
+static void handleApScan() {
+  // We're in WIFI_AP_STA mode here — sync scan is fine, no active STA
+  // connection to drop.
+  int n = WiFi.scanNetworks(false, true);
+  DynamicJsonDocument doc(2048);
+  JsonArray arr = doc.to<JsonArray>();
+  for (int i = 0; i < n && i < 24; i++) {
+    JsonObject o = arr.createNestedObject();
+    o["ssid"]   = WiFi.SSID(i);
+    o["rssi"]   = WiFi.RSSI(i);
+    o["secure"] = (WiFi.encryptionType(i) != WIFI_AUTH_OPEN);
+  }
+  String out;
+  serializeJson(doc, out);
+  webServer.send(200, "application/json", out);
+}
+
+static void handleSave() {
+  if (!webServer.hasArg("plain")) {
+    webServer.send(400, "application/json", "{\"error\":\"missing JSON body\"}");
+    return;
+  }
+  String body = webServer.arg("plain");
+  if (!deserializeConfig(body)) {
+    webServer.send(400, "application/json", "{\"error\":\"invalid config JSON\"}");
+    return;
+  }
+  if (wifiProfiles.empty() || serverProfiles.empty()) {
+    webServer.send(400, "application/json",
+                   "{\"error\":\"need at least one WiFi profile and one server profile\"}");
+    return;
+  }
+  saveConfig();
+  webServer.send(200, "application/json", "{\"ok\":true}");
+  delay(800);
+  ESP.restart();
+}
+
+void startConfigPortal() {
+  if (isConfigMode) return;
+  Serial.println("[portal] Starting WiFi-AP + DNS + WebServer captive portal");
+
+  // AP_STA so WiFi.scanNetworks() in /scan still works while the AP is
+  // up — captive-portal users want a "pick from nearby" list.
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.softAP(AP_SSID, AP_PASSWORD);
+  IPAddress ip = WiFi.softAPIP();
+  Serial.printf("[portal] AP '%s'  IP=%s  → http://192.168.4.1\n",
+                AP_SSID, ip.toString().c_str());
+
+  dnsServer.start(DNS_PORT, "*", ip);
+  webServer.on("/",       handleRoot);
+  webServer.on("/config", HTTP_GET,  handleGetConfig);
+  webServer.on("/scan",   HTTP_GET,  handleApScan);
+  webServer.on("/save",   HTTP_POST, handleSave);
+  webServer.onNotFound(handleRoot);
+  webServer.begin();
+  isConfigMode = true;
+}
+
+static void portalLoopTick() {
+  if (!isConfigMode) return;
+  dnsServer.processNextRequest();
+  webServer.handleClient();
+}
+
+// =============================================================================
 // WIFI
 // =============================================================================
 
@@ -652,14 +883,18 @@ static int pickBestWifiProfile() {
 }
 
 void connectWiFi() {
-  if (wifiProfiles.empty()) {
-    Serial.println("[WiFi] No profiles configured. Halting until provisioning lands.");
+  if (wifiProfiles.empty() || serverProfiles.empty()) {
+    Serial.println("[WiFi] No profiles configured — entering provisioning portal.");
+    startConfigPortal();
     return;
   }
 
   WiFi.mode(WIFI_STA);
   int idx = pickBestWifiProfile();
-  if (idx < 0) return;
+  if (idx < 0) {
+    startConfigPortal();
+    return;
+  }
 
   const WifiProfile& w = wifiProfiles[idx];
   Serial.printf("[WiFi] Connecting to %s ...\n", w.ssid.c_str());
@@ -676,7 +911,8 @@ void connectWiFi() {
     Serial.printf("[WiFi] Connected. IP=%s RSSI=%d\n",
                   WiFi.localIP().toString().c_str(), WiFi.RSSI());
   } else {
-    Serial.println("[WiFi] Failed to connect.");
+    Serial.println("[WiFi] Failed to connect — entering provisioning portal.");
+    startConfigPortal();
   }
 }
 
@@ -732,7 +968,8 @@ void onWebSocketEvent(WStype_t type, uint8_t* payload, size_t length) {
       } else if (strcmp(msgType, "pong") == 0) {
         // heartbeat ack
       } else if (strcmp(msgType, "factory-reset") == 0) {
-        Serial.println("[WS] factory-reset requested (NVS wipe lands in Branch 3)");
+        Serial.println("[WS] factory-reset requested by server");
+        performFactoryReset();   // clears NVS + reboots into portal
       } else if (strcmp(msgType, "error") == 0) {
         Serial.printf("[WS] server error: %s\n", (const char*)(doc["message"] | ""));
       }
@@ -748,6 +985,10 @@ void onWebSocketEvent(WStype_t type, uint8_t* payload, size_t length) {
 }
 
 void connectWebSocket() {
+  if (isConfigMode) {
+    Serial.println("[WS] In config portal — skipping WS connect.");
+    return;
+  }
   if (!hasActiveServer()) {
     Serial.println("[WS] No server configured. Skipping.");
     return;
@@ -781,6 +1022,7 @@ void setup() {
 
   pinMode(LED_PIN, OUTPUT);
   setLED(false);
+  pinMode(RESET_BUTTON_PIN, INPUT_PULLUP);
 
   loadConfig();
   setupPDM();
@@ -790,6 +1032,14 @@ void setup() {
 }
 
 void loop() {
+  checkResetButton();
+  if (isConfigMode) {
+    portalLoopTick();
+    updateLED();
+    pollBleScanComplete();
+    delay(1);   // yield; no audio in portal mode
+    return;
+  }
   webSocket.loop();
   updateLED();
   pollBleScanComplete();
