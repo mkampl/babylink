@@ -1,7 +1,7 @@
 idf_component_register(
     SRCS "main.cpp"
     INCLUDE_DIRS "."
-    REQUIRES espressif__arduino-esp32
+    REQUIRES espressif__arduino-esp32 ArduinoJson
 )
 
 # ARDUINO_USB_CDC_ON_BOOT / ARDUINO_USB_MODE are set at the project
