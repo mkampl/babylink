@@ -957,8 +957,10 @@ void setup() {
                 deviceId.c_str(), DEVICE_TYPE, configDeviceName.c_str());
 
   loadConfig();
-  WiFi.mode(WIFI_STA);
   setupPDM();
+  // BLE first, then WiFi — matches PIO; lets connectWiFi /
+  // startConfigPortal own the WiFi.mode() decision based on whether
+  // there are profiles to connect with.
   startBLE();
   connectWiFi();         // falls through to startConfigPortal on failure
   connectWebSocket();    // no-op while isConfigMode
