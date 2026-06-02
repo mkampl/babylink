@@ -448,9 +448,22 @@ void publishInfoToBle() {
 }
 
 static void publishScanResults(int n) {
+  // BLE 5.0 caps characteristic values at 512 bytes — the maxLen in
+  // createCharacteristic() can't actually exceed that. With ~48-50
+  // bytes per `{"ssid":"…","rssi":-45,"secure":true}` entry, 8 entries
+  // ≈ 400 bytes — comfortably under the cap, includes a 5-byte SSID
+  // safety margin. The wizard only needs the strongest few for
+  // "pick from nearby" UX; users with hidden / weaker networks just
+  // type the SSID by hand.
   DynamicJsonDocument doc(2048);
   JsonArray arr = doc.to<JsonArray>();
-  for (int i = 0; i < n && i < 24; i++) {
+  std::vector<int> idx;
+  for (int i = 0; i < n; i++) idx.push_back(i);
+  std::sort(idx.begin(), idx.end(),
+            [](int a, int b) { return WiFi.RSSI(a) > WiFi.RSSI(b); });
+  const int CAP = 8;
+  for (int k = 0; k < (int)idx.size() && k < CAP; k++) {
+    int i = idx[k];
     JsonObject o = arr.createNestedObject();
     o["ssid"]   = WiFi.SSID(i);
     o["rssi"]   = WiFi.RSSI(i);
@@ -565,16 +578,19 @@ void startBLE() {
 
   static BLEProvisionCallbacks callbacks;
 
+  // Per-char max value lengths. BLE 5.0 caps characteristic values
+  // at 512 bytes; we just use the default everywhere. publishScanResults
+  // and serializeConfig keep their payloads under that ceiling.
   auto mkChar = [&](const char* uuid, uint32_t props) {
     NimBLECharacteristic* c = service->createCharacteristic(uuid, props);
     c->setCallbacks(&callbacks);
     return c;
   };
 
-  bleConfigChar = mkChar(BLE_CHAR_CONFIG, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE);
-  bleScanChar   = mkChar(BLE_CHAR_SCAN,   NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE);
+  bleConfigChar = mkChar(BLE_CHAR_CONFIG,  NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE);
+  bleScanChar   = mkChar(BLE_CHAR_SCAN,    NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE);
                   mkChar(BLE_CHAR_COMMAND, NIMBLE_PROPERTY::WRITE);
-  bleInfoChar   = mkChar(BLE_CHAR_INFO,   NIMBLE_PROPERTY::READ);
+  bleInfoChar   = mkChar(BLE_CHAR_INFO,    NIMBLE_PROPERTY::READ);
 
   publishConfigToBle();
   publishScanToBle();
