@@ -11,9 +11,13 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <Wire.h>
+#include <Preferences.h>
+#include <esp_mac.h>   // esp_read_mac, ESP_MAC_WIFI_STA
+#include <vector>
 #include <WebSocketsClient.h>
 #include <ArduinoJson.h>
 #include <ESP_I2S.h>   // Arduino-ESP32 3.x PDM API (Seeed reference)
+#include <NimBLEDevice.h>
 
 #if __has_include("dev_defaults.h")
   #include "dev_defaults.h"
@@ -29,14 +33,25 @@
 // CONFIGURATION
 // =============================================================================
 
-static const char* WIFI_SSID     = DEV_DEFAULT_WIFI_SSID;
-static const char* WIFI_PASSWORD = DEV_DEFAULT_WIFI_PASSWORD;
-static const char* SERVER_HOST   = DEV_DEFAULT_SERVER_HOST;
-static const uint16_t SERVER_PORT = DEV_DEFAULT_SERVER_PORT;
-static const char* ROOM_ID       = DEV_DEFAULT_ROOM_ID;
-static const char* WS_PATH       = "/esp32-baby";
-static const char* DEVICE_NAME   = "BabyLink S3";
-static const char* DEVICE_TYPE   = "esp32-s3";
+static const char* WS_PATH     = "/esp32-baby";
+static const char* DEVICE_TYPE = "esp32-s3";
+
+// cfg_v3 NVS schema — JSON blob under namespace "babylink", key "cfg_v3".
+// Same field names as the classic firmware's cfg_v2 on purpose so the
+// existing PWA wizard JSON works unchanged. The "v3" suffix only avoids
+// reading a classic-firmware NVS image on a flashed S3 board (different
+// device class). Limits chosen to fit a single BLE ATT-MTU-517 write.
+static const int MAX_WIFI_PROFILES   = 6;
+static const int MAX_SERVER_PROFILES = 4;
+
+struct WifiProfile  { String ssid;  String password; };
+struct ServerProfile { String label; String host; uint16_t port; String roomId; };
+
+std::vector<WifiProfile>   wifiProfiles;
+std::vector<ServerProfile> serverProfiles;
+int activeServer = 0;
+String configDeviceName = "BabyLink S3";
+Preferences preferences;
 
 // XIAO ESP32-S3 user LED is GPIO21, active-low. setLED() inverts so the
 // rest of the code reads naturally (HIGH = on).
@@ -107,6 +122,131 @@ unsigned long audioPacketsSent = 0;
 int16_t audioBuffer[BUFFER_SIZE];
 
 // =============================================================================
+// CONFIG (cfg_v3 JSON ↔ NVS, seed from dev_defaults on first boot)
+// =============================================================================
+
+// Active profile shortcuts — re-evaluated after each (re)load.
+bool hasActiveServer() {
+  return !serverProfiles.empty()
+      && activeServer >= 0
+      && activeServer < (int)serverProfiles.size();
+}
+
+String serializeConfig() {
+  DynamicJsonDocument doc(4096);
+  doc["version"] = 3;
+  doc["deviceName"] = configDeviceName;
+  doc["activeServer"] = activeServer;
+  JsonArray wifi = doc.createNestedArray("wifi");
+  for (auto& w : wifiProfiles) {
+    JsonObject o = wifi.createNestedObject();
+    o["ssid"] = w.ssid;
+    o["password"] = w.password;
+  }
+  JsonArray servers = doc.createNestedArray("servers");
+  for (auto& s : serverProfiles) {
+    JsonObject o = servers.createNestedObject();
+    o["label"]  = s.label;
+    o["host"]   = s.host;
+    o["port"]   = s.port;
+    o["roomId"] = s.roomId;
+  }
+  String out;
+  serializeJson(doc, out);
+  return out;
+}
+
+bool deserializeConfig(const String& blob) {
+  DynamicJsonDocument doc(4096);
+  DeserializationError err = deserializeJson(doc, blob);
+  if (err) {
+    Serial.printf("[cfg] parse error: %s\n", err.c_str());
+    return false;
+  }
+  wifiProfiles.clear();
+  serverProfiles.clear();
+  for (JsonObject p : doc["wifi"].as<JsonArray>()) {
+    if (wifiProfiles.size() >= (size_t)MAX_WIFI_PROFILES) break;
+    WifiProfile w;
+    w.ssid = p["ssid"].as<String>();
+    w.password = p["password"].as<String>();
+    if (w.ssid.length() > 0) wifiProfiles.push_back(w);
+  }
+  for (JsonObject p : doc["servers"].as<JsonArray>()) {
+    if (serverProfiles.size() >= (size_t)MAX_SERVER_PROFILES) break;
+    ServerProfile s;
+    s.label  = p["label"].as<String>();
+    s.host   = p["host"].as<String>();
+    s.port   = p["port"].as<uint16_t>();
+    s.roomId = p["roomId"].as<String>();
+    if (s.host.length() > 0 && s.roomId.length() > 0) serverProfiles.push_back(s);
+  }
+  activeServer = doc["activeServer"] | 0;
+  if (!hasActiveServer()) activeServer = 0;
+  String name = doc["deviceName"] | "";
+  if (name.length() > 0) configDeviceName = name;
+  return true;
+}
+
+void saveConfig() {
+  String blob = serializeConfig();
+  preferences.begin("babylink", false);
+  preferences.putString("cfg_v3", blob);
+  preferences.end();
+  Serial.printf("[cfg] saved %u bytes (%u WiFi, %u servers)\n",
+                (unsigned)blob.length(),
+                (unsigned)wifiProfiles.size(),
+                (unsigned)serverProfiles.size());
+}
+
+void clearConfig() {
+  preferences.begin("babylink", false);
+  preferences.clear();
+  preferences.end();
+  wifiProfiles.clear();
+  serverProfiles.clear();
+  activeServer = 0;
+  Serial.println("[cfg] cleared");
+}
+
+// Populate from dev_defaults.h if NVS is empty and the developer has
+// dropped a local override file. Production builds without dev_defaults
+// land here with no profiles, which is the signal to start provisioning
+// (BLE / SoftAP).
+static void seedFromDevDefaults() {
+  if (strlen(DEV_DEFAULT_WIFI_SSID) > 0) {
+    WifiProfile w;
+    w.ssid = DEV_DEFAULT_WIFI_SSID;
+    w.password = DEV_DEFAULT_WIFI_PASSWORD;
+    wifiProfiles.push_back(w);
+  }
+  if (strlen(DEV_DEFAULT_SERVER_HOST) > 0 && strlen(DEV_DEFAULT_ROOM_ID) > 0) {
+    ServerProfile s;
+    s.label  = "default";
+    s.host   = DEV_DEFAULT_SERVER_HOST;
+    s.port   = DEV_DEFAULT_SERVER_PORT;
+    s.roomId = DEV_DEFAULT_ROOM_ID;
+    serverProfiles.push_back(s);
+  }
+}
+
+void loadConfig() {
+  preferences.begin("babylink", true);
+  String blob = preferences.getString("cfg_v3", "");
+  preferences.end();
+
+  if (blob.length() > 0 && deserializeConfig(blob)) {
+    Serial.printf("[cfg] loaded: %u WiFi, %u servers (active=%d), device='%s'\n",
+                  (unsigned)wifiProfiles.size(), (unsigned)serverProfiles.size(),
+                  activeServer, configDeviceName.c_str());
+    return;
+  }
+  seedFromDevDefaults();
+  Serial.printf("[cfg] seeded from dev_defaults: %u WiFi, %u servers\n",
+                (unsigned)wifiProfiles.size(), (unsigned)serverProfiles.size());
+}
+
+// =============================================================================
 // LED HELPERS
 // =============================================================================
 
@@ -134,9 +274,13 @@ void updateLED() {
 // MAC HELPERS
 // =============================================================================
 
+// Burned-in eFuse MAC (stable across reboots). Arduino-ESP32 3.x's
+// WiFi.macAddress() can return a randomized STA MAC after WiFi init,
+// which would break our MAC-keyed device IDs on the server. esp_read_mac
+// with ESP_MAC_WIFI_STA always returns the hardware MAC.
 String macHex() {
   uint8_t mac[6];
-  WiFi.macAddress(mac);
+  esp_read_mac(mac, ESP_MAC_WIFI_STA);
   char buf[13];
   snprintf(buf, sizeof(buf), "%02x%02x%02x%02x%02x%02x",
            mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
@@ -249,18 +393,261 @@ void processAudio() {
 }
 
 // =============================================================================
+// BLE PROVISIONING (NimBLE GATT server, same UUIDs as classic firmware so
+//                   the existing PWA wizard works unchanged)
+// =============================================================================
+
+// Service + characteristic UUIDs match the classic esp32-firmware so the
+// PWA wizard (Web Bluetooth) works against both. The "device_info" char
+// at 1004 is new — read-only metadata the wizard can use to show what
+// it's pairing with. Old PWA wizards just ignore the extra char.
+#define BLE_SERVICE_UUID  "bab71111-0002-1000-8000-00805f9b34fb"
+#define BLE_CHAR_CONFIG   "bab71111-0002-1001-8000-00805f9b34fb"
+#define BLE_CHAR_SCAN     "bab71111-0002-1002-8000-00805f9b34fb"
+#define BLE_CHAR_COMMAND  "bab71111-0002-1003-8000-00805f9b34fb"
+#define BLE_CHAR_INFO     "bab71111-0002-1004-8000-00805f9b34fb"
+
+NimBLECharacteristic* bleConfigChar = nullptr;
+NimBLECharacteristic* bleScanChar   = nullptr;
+NimBLECharacteristic* bleInfoChar   = nullptr;
+String lastScanJson = "[]";
+volatile bool bleScanInProgress = false;
+bool isBLEActive = false;
+
+void publishConfigToBle() {
+  if (!bleConfigChar) return;
+  String json = serializeConfig();
+  // Always pass (uint8_t*, len) explicitly — the (const char*) overload
+  // in some NimBLE versions stores the pointer rather than copying the
+  // payload, leaking pointer values on the wire.
+  bleConfigChar->setValue((const uint8_t*)json.c_str(), json.length());
+}
+
+void publishScanToBle() {
+  if (!bleScanChar) return;
+  bleScanChar->setValue((const uint8_t*)lastScanJson.c_str(), lastScanJson.length());
+}
+
+static String buildInfoJson() {
+  StaticJsonDocument<256> doc;
+  doc["model"]    = "xiao-esp32-s3";
+  doc["fw"]       = "branch-3a";
+  doc["mic"]      = "pdm";
+  doc["camera"]   = true;
+  doc["channels"] = 1;
+  doc["mac"]      = macHex();
+  String out;
+  serializeJson(doc, out);
+  return out;
+}
+
+void publishInfoToBle() {
+  if (!bleInfoChar) return;
+  String json = buildInfoJson();
+  bleInfoChar->setValue((const uint8_t*)json.c_str(), json.length());
+}
+
+static void publishScanResults(int n) {
+  DynamicJsonDocument doc(2048);
+  JsonArray arr = doc.to<JsonArray>();
+  for (int i = 0; i < n && i < 24; i++) {
+    JsonObject o = arr.createNestedObject();
+    o["ssid"]   = WiFi.SSID(i);
+    o["rssi"]   = WiFi.RSSI(i);
+    o["secure"] = (WiFi.encryptionType(i) != WIFI_AUTH_OPEN);
+  }
+  lastScanJson = "";
+  serializeJson(doc, lastScanJson);
+  publishScanToBle();
+}
+
+void pollBleScanComplete() {
+  if (!bleScanInProgress) return;
+  int n = WiFi.scanComplete();
+  if (n == WIFI_SCAN_RUNNING) return;
+  bleScanInProgress = false;
+  if (n < 0) {
+    Serial.printf("[BLE] Async scan failed (%d)\n", n);
+    lastScanJson = "[]";
+    publishScanToBle();
+    return;
+  }
+  publishScanResults(n);
+  WiFi.scanDelete();
+  Serial.printf("[BLE] Scan complete: %d networks (%u bytes)\n",
+                n, (unsigned)lastScanJson.length());
+}
+
+static void doWifiScanForBle() {
+  if (bleScanInProgress) {
+    Serial.println("[BLE] Scan already in progress");
+    return;
+  }
+  Serial.println("[BLE] Starting async WiFi scan");
+  WiFi.scanNetworks(true /*async*/, true /*show_hidden*/);
+  bleScanInProgress = true;
+}
+
+// Restart advertising after each disconnect — NimBLE 2.x does NOT do
+// this automatically, so without this the device becomes invisible
+// after the first BLE client (PWA wizard / Python CLI) disconnects.
+class BabyLinkBLEServer : public NimBLEServerCallbacks {
+  void onDisconnect(NimBLEServer* server,
+                    NimBLEConnInfo& /*info*/,
+                    int /*reason*/) override {
+    Serial.println("[BLE] client disconnected, restart advertising");
+    NimBLEDevice::getAdvertising()->start();
+  }
+};
+
+class BLEProvisionCallbacks : public NimBLECharacteristicCallbacks {
+  void onWrite(NimBLECharacteristic* pCharacteristic,
+               NimBLEConnInfo& /*connInfo*/) override {
+    String uuid = String(pCharacteristic->getUUID().toString().c_str());
+    // Preserve any embedded bytes (e.g. NULs in JSON whitespace).
+    std::string raw = pCharacteristic->getValue();
+    String value;
+    value.reserve(raw.length());
+    for (size_t i = 0; i < raw.length(); i++) value += (char)raw[i];
+
+    Serial.printf("[BLE] onWrite uuid=%s len=%u\n",
+                  uuid.c_str(), (unsigned)raw.length());
+
+    if (uuid.indexOf("1001") > 0) {
+      Serial.printf("[BLE] Config write (%u bytes)\n", (unsigned)value.length());
+      if (deserializeConfig(value)) {
+        publishConfigToBle();
+        Serial.println("[BLE] Config staged — write 'apply' to command to persist");
+      }
+    } else if (uuid.indexOf("1002") > 0) {
+      if (value == "scan") {
+        doWifiScanForBle();
+        // Reset readable value so a quick read-back doesn't return
+        // "scan" before the async scan results land.
+        publishScanToBle();
+      }
+    } else if (uuid.indexOf("1003") > 0) {
+      if (value == "apply") {
+        Serial.println("[BLE] Apply — persisting + restart");
+        saveConfig();
+        delay(500);
+        ESP.restart();
+      } else if (value == "wifi-reset") {
+        Serial.println("[BLE] Wifi-reset — clearing config + restart");
+        clearConfig();
+        delay(500);
+        ESP.restart();
+      } else {
+        Serial.printf("[BLE] Unknown command '%s'\n", value.c_str());
+      }
+    }
+  }
+};
+
+void startBLE() {
+  if (isBLEActive) return;
+  uint8_t mac[6];
+  esp_read_mac(mac, ESP_MAC_WIFI_STA);
+  char bleName[24];
+  snprintf(bleName, sizeof(bleName), "BabyLinkS3-%02X%02X", mac[4], mac[5]);
+
+  Serial.printf("[BLE] Starting BLE as '%s'\n", bleName);
+
+  NimBLEDevice::init(bleName);
+  NimBLEDevice::setPower(9);  // max TX power
+  NimBLEDevice::setMTU(517);
+
+  NimBLEServer*  server  = NimBLEDevice::createServer();
+  static BabyLinkBLEServer serverCallbacks;
+  server->setCallbacks(&serverCallbacks);
+
+  NimBLEService* service = server->createService(BLE_SERVICE_UUID);
+
+  static BLEProvisionCallbacks callbacks;
+
+  auto mkChar = [&](const char* uuid, uint32_t props) {
+    NimBLECharacteristic* c = service->createCharacteristic(uuid, props);
+    c->setCallbacks(&callbacks);
+    return c;
+  };
+
+  bleConfigChar = mkChar(BLE_CHAR_CONFIG, NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE);
+  bleScanChar   = mkChar(BLE_CHAR_SCAN,   NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE);
+                  mkChar(BLE_CHAR_COMMAND, NIMBLE_PROPERTY::WRITE);
+  bleInfoChar   = mkChar(BLE_CHAR_INFO,   NIMBLE_PROPERTY::READ);
+
+  publishConfigToBle();
+  publishScanToBle();
+  publishInfoToBle();
+
+  // NimBLE 2.x auto-starts services when advertising starts; explicit
+  // service->start() is deprecated and a no-op.
+
+  // NimBLE 2.x does NOT automatically include the device name in the
+  // advertising payload — must be set on the advertising object too.
+  NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
+  adv->setName(bleName);
+  adv->addServiceUUID(BLE_SERVICE_UUID);
+  adv->enableScanResponse(true);
+  adv->start();
+
+  isBLEActive = true;
+  Serial.printf("[BLE] Advertising. Free heap: %lu\n",
+                (unsigned long)ESP.getFreeHeap());
+}
+
+// =============================================================================
 // WIFI
 // =============================================================================
 
+// Pick the configured WiFi profile with the strongest reachable RSSI.
+// Returns the index into wifiProfiles, or -1 if none of the configured
+// SSIDs were seen in the scan. Falls through to profile 0 if no scan
+// hit but profiles exist (best-effort connect).
+static int pickBestWifiProfile() {
+  if (wifiProfiles.empty()) return -1;
+  Serial.println("[WiFi] Scanning networks ...");
+  int n = WiFi.scanNetworks(false /*sync*/, true /*show hidden*/);
+  if (n < 0) {
+    Serial.printf("[WiFi] Scan failed (%d) — trying profile 0\n", n);
+    WiFi.scanDelete();
+    return 0;
+  }
+  int bestProfile = -1;
+  int bestRssi = -200;
+  for (int i = 0; i < n; i++) {
+    String ssid = WiFi.SSID(i);
+    int rssi = WiFi.RSSI(i);
+    for (int p = 0; p < (int)wifiProfiles.size(); p++) {
+      if (wifiProfiles[p].ssid == ssid && rssi > bestRssi) {
+        bestRssi = rssi;
+        bestProfile = p;
+      }
+    }
+  }
+  WiFi.scanDelete();
+  if (bestProfile < 0) {
+    Serial.println("[WiFi] No configured SSID visible — falling back to profile 0");
+    return 0;
+  }
+  Serial.printf("[WiFi] Pick: profile %d '%s' @ %d dBm\n",
+                bestProfile, wifiProfiles[bestProfile].ssid.c_str(), bestRssi);
+  return bestProfile;
+}
+
 void connectWiFi() {
-  if (strlen(WIFI_SSID) == 0) {
-    Serial.println("[WiFi] No SSID configured. Halting until provisioning lands.");
+  if (wifiProfiles.empty()) {
+    Serial.println("[WiFi] No profiles configured. Halting until provisioning lands.");
     return;
   }
 
-  Serial.printf("[WiFi] Connecting to %s ...\n", WIFI_SSID);
   WiFi.mode(WIFI_STA);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+  int idx = pickBestWifiProfile();
+  if (idx < 0) return;
+
+  const WifiProfile& w = wifiProfiles[idx];
+  Serial.printf("[WiFi] Connecting to %s ...\n", w.ssid.c_str());
+  WiFi.begin(w.ssid.c_str(), w.password.c_str());
 
   unsigned long start = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - start < 20000) {
@@ -282,10 +669,12 @@ void connectWiFi() {
 // =============================================================================
 
 void sendRegister() {
+  if (!hasActiveServer()) return;
+  const ServerProfile& s = serverProfiles[activeServer];
   StaticJsonDocument<384> doc;
   doc["type"]        = "register";
-  doc["roomId"]      = ROOM_ID;
-  doc["name"]        = DEVICE_NAME;
+  doc["roomId"]      = s.roomId;
+  doc["name"]        = configDeviceName;
   doc["mac"]         = macHex();
   doc["sampleRate"]  = SAMPLE_RATE;
   doc["channels"]    = 1;
@@ -343,15 +732,16 @@ void onWebSocketEvent(WStype_t type, uint8_t* payload, size_t length) {
 }
 
 void connectWebSocket() {
-  if (strlen(SERVER_HOST) == 0) {
+  if (!hasActiveServer()) {
     Serial.println("[WS] No server configured. Skipping.");
     return;
   }
-  Serial.printf("[WS] Connecting to %s:%u%s\n", SERVER_HOST, SERVER_PORT, WS_PATH);
-  if (SERVER_PORT == 443) {
-    webSocket.beginSSL(SERVER_HOST, SERVER_PORT, WS_PATH);
+  const ServerProfile& s = serverProfiles[activeServer];
+  Serial.printf("[WS] Connecting to %s:%u%s\n", s.host.c_str(), s.port, WS_PATH);
+  if (s.port == 443) {
+    webSocket.beginSSL(s.host.c_str(), s.port, WS_PATH);
   } else {
-    webSocket.begin(SERVER_HOST, SERVER_PORT, WS_PATH);
+    webSocket.begin(s.host.c_str(), s.port, WS_PATH);
   }
   webSocket.onEvent(onWebSocketEvent);
   webSocket.setReconnectInterval(5000);
@@ -376,7 +766,9 @@ void setup() {
   pinMode(LED_PIN, OUTPUT);
   setLED(false);
 
+  loadConfig();
   setupPDM();
+  startBLE();
   connectWiFi();
   connectWebSocket();
 }
@@ -384,5 +776,6 @@ void setup() {
 void loop() {
   webSocket.loop();
   updateLED();
+  pollBleScanComplete();
   processAudio();  // blocks ~64 ms per call until next DMA chunk
 }
