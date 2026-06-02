@@ -62,3 +62,11 @@ CONFIG_BT_NIMBLE_ROLE_OBSERVER=n
 # default-full bundle is ~250 KB embedded, still fits comfortably.
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
 CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
+
+# DTLS + SRTP — required by espressif/esp_peer for WebRTC media
+# encryption. Without these the component fails to compile with
+# implicit-function-declaration errors for mbedtls_ssl_conf_dtls_*.
+# Branch 5.1c only link-verifies; the symbols stay unused until 5.2
+# wires them through PeerConnection.
+CONFIG_MBEDTLS_SSL_PROTO_DTLS=y
+CONFIG_MBEDTLS_SSL_DTLS_SRTP=y

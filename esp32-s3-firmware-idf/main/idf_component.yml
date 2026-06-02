@@ -15,3 +15,10 @@ dependencies:
   espressif/arduino-esp32: "^3.3.0"
   h2zero/esp-nimble-cpp: "^2.0.0"
   espressif/esp_websocket_client: "^1.5.0"
+  # Pulled in for Sub-Branch 5.2 (Opus + RTP/SRTP/ICE). The plan called
+  # this "espressif/esp_webrtc" — that name doesn't exist in the
+  # registry; the actual published component is "espressif/esp_peer"
+  # (PeerConnection Library: ICE/DTLS/SRTP), part of the same
+  # esp-webrtc-solution repo. 5.1c is a link-verification step only,
+  # no API use yet.
+  espressif/esp_peer: "^1.4.0"
