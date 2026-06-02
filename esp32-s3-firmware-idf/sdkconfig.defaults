@@ -1,0 +1,43 @@
+# Sdkconfig defaults — applied as a starting point by idf.py before any
+# `idf.py menuconfig` overrides. Pinned values that the XIAO S3 + Arduino
+# component need.
+
+# Arduino requires the FreeRTOS tick rate at 1000 Hz (10 ms in PIO is
+# 1 Hz here — the docs are explicit about this).
+CONFIG_FREERTOS_HZ=1000
+
+# Use the app_main() entry-point pattern, not auto-call setup()/loop().
+CONFIG_AUTOSTART_ARDUINO=n
+
+# Match the PlatformIO build (was board_build.partitions = min_spiffs.csv).
+# Needed because the firmware exceeds the 1.3 MB default app slot once
+# NimBLE + provisioning + (later) esp_webrtc are linked.
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# OPI PSRAM on the XIAO ESP32-S3 R8 (8 MB).
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_TYPE_AUTO=y
+CONFIG_SPIRAM_SPEED_80M=y
+
+# Serial console on the XIAO S3's USB port via the USB-Serial-JTAG
+# controller (enumerates as 303a:1001 /dev/ttyACM0 — same as PIO).
+# Arduino's `Serial` object is aliased to HWCDCSerial (the JTAG-CDC
+# wrapper) when ARDUINO_USB_CDC_ON_BOOT=1 AND ARDUINO_USB_MODE=1.
+# Those two come in via build_flags in main/CMakeLists.txt because
+# they're plain C #defines, not Kconfig options.
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
+# Avoid the DTR/RTS post-flash reset that USB-Serial-JTAG also doesn't
+# honour (esptool fails with EPROTO at "Hard resetting via RTS pin",
+# though the flash itself succeeds). User power-cycles after flash.
+CONFIG_ESPTOOLPY_AFTER_NORESET=y
+
+# Higher CPU clock for the audio path.
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+
+# XIAO ESP32-S3 R8 has 8 MB flash. Default is 2 MB and our partition
+# table doesn't fit there.
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="8MB"
