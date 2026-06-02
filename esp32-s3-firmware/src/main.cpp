@@ -10,6 +10,7 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <Wire.h>
 #include <WebSocketsClient.h>
 #include <ArduinoJson.h>
 #include <ESP_I2S.h>   // Arduino-ESP32 3.x PDM API (Seeed reference)
@@ -42,12 +43,21 @@ static const char* DEVICE_TYPE   = "esp32-s3";
 static const int LED_PIN = 21;
 static const bool LED_ACTIVE_LOW = true;
 
-// NOTE on camera heat: the XIAO ESP32-S3 Sense has NO software-
-// controllable PWDN GPIO for the camera (PWDN_GPIO_NUM = -1 in
-// the board's camera_pins.h). The OV3660 stays powered whenever the
-// Sense expansion is attached, which warms the LDO underside. A
-// proper SCCB-based camera sleep lives in a follow-up branch
-// (feat/s3-camera-sleep); this firmware just leaves it alone.
+// XIAO ESP32-S3 Sense onboard OV3660 camera. PWDN is not a GPIO on
+// this board (camera_pins.h has PWDN_GPIO_NUM = -1), so we can't
+// just yank a pin to silence the chip. Instead we put it into
+// software standby via SCCB-I2C right at boot:
+//   1. drive XCLK with LEDC at 24 MHz on GPIO 10 (the camera's
+//      internal logic uses this clock; without it SCCB doesn't ack)
+//   2. open Wire on SIOD=GPIO40 / SIOC=GPIO39
+//   3. write register 0x3008 = 0x42 (bit 6 = software power down)
+//   4. tear LEDC and Wire back down — keeps the OV3660 latched in
+//      sleep with minimal current (~10 µA per datasheet vs ~90 mA
+//      idle), so the LDO no longer heats the underside.
+static const int CAM_XCLK_PIN  = 10;
+static const int CAM_SIOD_PIN  = 40;
+static const int CAM_SIOC_PIN  = 39;
+static const uint8_t OV3660_I2C_ADDR = 0x3C;
 
 // XIAO ESP32-S3 Sense onboard PDM mic (MSM261D3526H1CPM).
 // CLK on GPIO42, DATA on GPIO41. Same Seeed reference config.
@@ -131,6 +141,54 @@ String macHex() {
   snprintf(buf, sizeof(buf), "%02x%02x%02x%02x%02x%02x",
            mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
   return String(buf);
+}
+
+// =============================================================================
+// CAMERA SLEEP (OV3660 software standby via SCCB)
+// =============================================================================
+
+// Write one byte to a 16-bit-addressed register on the camera.
+// Returns Wire.endTransmission()'s status (0 = success).
+static uint8_t cameraWriteReg(uint16_t reg, uint8_t value) {
+  Wire.beginTransmission(OV3660_I2C_ADDR);
+  Wire.write((uint8_t)(reg >> 8));
+  Wire.write((uint8_t)(reg & 0xFF));
+  Wire.write(value);
+  return Wire.endTransmission();
+}
+
+// Put the camera into software standby and release everything. Idempotent
+// at boot — if the camera doesn't ACK (e.g. no Sense expansion attached),
+// we just log and continue.
+void cameraSleep() {
+  // 1. XCLK on GPIO 10 via LEDC. OV3660 is happy in 6–27 MHz, so we
+  //    just need ANY in-band clock long enough to write the sleep
+  //    register. Arduino-ESP32 3.x's LEDC defaults to XTAL_CLK
+  //    (40 MHz) as the timer source on the S3, so freq * 2^resolution
+  //    must stay ≤ 40 MHz: 8 MHz × 2 = 16 MHz ✓, div = 40/16 = 2.5.
+  if (!ledcAttach(CAM_XCLK_PIN, 8000000, 1)) {
+    Serial.println("[cam] ledcAttach failed — skipping camera sleep");
+    return;
+  }
+  ledcWrite(CAM_XCLK_PIN, 1);   // 50% duty cycle for resolution 1
+  delay(20);                     // camera needs a few ms of clock first
+
+  // 2. SCCB bus.
+  Wire.begin(CAM_SIOD_PIN, CAM_SIOC_PIN, 100000);
+  delay(5);
+
+  // 3. Software power down (register 0x3008, bit 6 = HIGH).
+  uint8_t status = cameraWriteReg(0x3008, 0x42);
+  if (status == 0) {
+    Serial.println("[cam] OV3660 → software standby");
+  } else {
+    Serial.printf("[cam] OV3660 no ACK (err %u) — Sense maybe detached?\n", status);
+  }
+
+  // 4. Tear bus and clock back down. Camera latches the sleep bit
+  //    internally; it doesn't need XCLK to stay asleep.
+  Wire.end();
+  ledcDetach(CAM_XCLK_PIN);
 }
 
 // =============================================================================
@@ -307,8 +365,13 @@ void connectWebSocket() {
 void setup() {
   Serial.begin(115200);
   delay(200);
-  Serial.println("\n=== BabyLink XIAO ESP32-S3 (Branch 2 — PDM audio) ===");
+  Serial.println("\n=== BabyLink XIAO ESP32-S3 ===");
   Serial.printf("MAC: %s\n", macHex().c_str());
+
+  // Camera into software standby first — keeps the underside cool
+  // while the rest of the boot runs. Safe to call before WiFi /
+  // I2S; uses its own dedicated pins.
+  cameraSleep();
 
   pinMode(LED_PIN, OUTPUT);
   setLED(false);
