@@ -16,6 +16,12 @@
  *   // on participant-left:
  *   receiver.detach(participant.socketId);
  */
+// Shared set of espIds currently receiving audio via WebRTC. Lets the
+// legacy WSS-PCM path (ESP32AudioHandler) know to suppress its own
+// playback for the same baby — otherwise both streams overlap with a
+// small phase offset and the parent hears a "hall" / echo effect.
+const webrtcActiveBabies = new Set();
+
 class WebRTCBabyReceiver {
   constructor(socket, multiBabyUI, rtcConfig = null) {
     this.socket = socket;
@@ -50,14 +56,37 @@ class WebRTCBabyReceiver {
     };
 
     pc.ontrack = (ev) => {
-      // Branch 5: attach ev.streams[0] to an <audio> element + an
-      // AnalyserNode (same pattern as multi-stream-manager.js) so the
-      // baby card meter behaves identically to the PWA-baby's.
-      console.debug('[webrtc-receiver] ontrack from', espId, ev.streams);
+      const stream = ev.streams && ev.streams[0];
+      if (!stream) return;
+      console.log('[webrtc-receiver] ontrack from', espId, stream);
+      // Minimal playback wiring — full baby-card meter integration
+      // lands in 5.2 mc4. For mc3 we just need to hear it.
+      let audioEl = document.getElementById(`webrtc-audio-${espId}`);
+      if (!audioEl) {
+        audioEl = document.createElement('audio');
+        audioEl.id = `webrtc-audio-${espId}`;
+        audioEl.autoplay = true;
+        audioEl.playsInline = true;
+        audioEl.style.display = 'none';
+        document.body.appendChild(audioEl);
+      }
+      audioEl.srcObject = stream;
+      audioEl.play().catch(err => {
+        console.warn('[webrtc-receiver] play failed:', err.message);
+      });
+      // Tell ESP32AudioHandler to stop playing the WSS-PCM stream for
+      // this baby — otherwise both paths play simultaneously with a
+      // small phase offset and the parent hears an echo.
+      webrtcActiveBabies.add(espId);
     };
 
     pc.onconnectionstatechange = () => {
       console.debug('[webrtc-receiver]', espId, 'state =', pc.connectionState);
+      if (pc.connectionState === 'failed' ||
+          pc.connectionState === 'disconnected' ||
+          pc.connectionState === 'closed') {
+        webrtcActiveBabies.delete(espId);
+      }
     };
 
     this.peers.set(espId, pc);
@@ -75,6 +104,9 @@ class WebRTCBabyReceiver {
     if (!pc) return;
     pc.close();
     this.peers.delete(espId);
+    webrtcActiveBabies.delete(espId);
+    const audioEl = document.getElementById(`webrtc-audio-${espId}`);
+    if (audioEl) audioEl.remove();
   }
 
   /**
@@ -110,6 +142,9 @@ class WebRTCBabyReceiver {
 }
 
 // Make available without a module loader, matching the rest of public/js.
+// Expose webrtcActiveBabies on window so ESP32AudioHandler can check it
+// (cross-file globals are how the rest of public/js coordinates).
 if (typeof window !== 'undefined') {
   window.WebRTCBabyReceiver = WebRTCBabyReceiver;
+  window._webrtcActiveBabies = webrtcActiveBabies;
 }

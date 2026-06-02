@@ -104,6 +104,9 @@ int16_t audioBuffer[BUFFER_SIZE];
 esp_websocket_client_handle_t webSocket = nullptr;
 esp_peer_handle_t webrtcPeer = nullptr;
 volatile bool webrtcPeerRunning = false;
+volatile bool webrtcConnected = false;     // set/cleared by onPeerState
+unsigned long webrtcPacketsSent = 0;
+uint32_t webrtcAudioPts = 0;
 TaskHandle_t webrtcLoopTaskHandle = nullptr;
 // Latest parent socketId we've seen — captured from any inbound signal
 // frame, then used as the `to` field on outbound SDP/ICE messages so the
@@ -370,7 +373,7 @@ void setupPDM() {
 }
 
 void processAudio() {
-  if (!isConnected || !isRegistered || !isI2SReady || !webSocket) return;
+  if (!isI2SReady) return;
 
   size_t bytesRead = I2S.readBytes((char*)audioBuffer,
                                    BUFFER_SIZE * sizeof(int16_t));
@@ -392,16 +395,37 @@ void processAudio() {
     sumAbs += abs((int)audioBuffer[i]);
   }
 
-  esp_websocket_client_send_bin(webSocket,
-                                (const char*)audioBuffer,
-                                sampleCount * sizeof(int16_t),
-                                portMAX_DELAY);
-  audioPacketsSent++;
+  const int chunkBytes = sampleCount * sizeof(int16_t);
+
+  // WebRTC path: ship to esp_peer if the tunnel is up. esp_peer takes
+  // raw PCM at the codec's sample rate and Opus-encodes internally.
+  // PTS is monotonic samples-since-tunnel-open — esp_peer uses it to
+  // drive the RTP timestamp.
+  if (webrtcConnected && webrtcPeer) {
+    esp_peer_audio_frame_t frame = {};
+    frame.pts  = webrtcAudioPts;
+    frame.data = (uint8_t*)audioBuffer;
+    frame.size = chunkBytes;
+    if (esp_peer_send_audio(webrtcPeer, &frame) == ESP_PEER_ERR_NONE) {
+      webrtcPacketsSent++;
+    }
+    webrtcAudioPts += sampleCount;
+  }
+
+  // Legacy WSS path: keep streaming PCM so the server-side crying
+  // detection (preserved at the baseline RMS thresholds — see
+  // project_audio_metric_baseline) still works, and so parents on
+  // older browsers / before-WebRTC-state continue to hear audio.
+  if (isConnected && isRegistered && webSocket) {
+    esp_websocket_client_send_bin(webSocket, (const char*)audioBuffer,
+                                  chunkBytes, portMAX_DELAY);
+    audioPacketsSent++;
+  }
 
   if (audioPacketsSent % 156 == 0) {
     int avgLevel = sumAbs / sampleCount;
-    Serial.printf("[stats] sent=%lu avgLevel=%d rssi=%ddBm heap=%lu\n",
-                  audioPacketsSent, avgLevel, WiFi.RSSI(),
+    Serial.printf("[stats] wss=%lu wrtc=%lu avgLevel=%d rssi=%ddBm heap=%lu\n",
+                  audioPacketsSent, webrtcPacketsSent, avgLevel, WiFi.RSSI(),
                   (unsigned long)ESP.getFreeHeap());
   }
 }
@@ -1018,6 +1042,14 @@ static const char* peerStateName(esp_peer_state_t s) {
 
 static int onPeerState(esp_peer_state_t state, void* /*ctx*/) {
   Serial.printf("[peer] state=%s (%d)\n", peerStateName(state), (int)state);
+  if (state == ESP_PEER_STATE_CONNECTED) {
+    webrtcConnected = true;
+    webrtcAudioPts  = 0;       // restart timestamps on every fresh tunnel
+  } else if (state == ESP_PEER_STATE_DISCONNECTED ||
+             state == ESP_PEER_STATE_CONNECT_FAILED ||
+             state == ESP_PEER_STATE_CLOSED) {
+    webrtcConnected = false;
+  }
   return 0;
 }
 
