@@ -916,8 +916,17 @@ static void handleWsTextFrame(const char* data, size_t len) {
       esp_peer_new_connection(webrtcPeer);
       return;
     }
-    if (doc["answer"].is<const char*>()) {
-      String answer = doc["answer"].as<String>();
+    // MultiStreamManager (browser) sends answers as
+    // {type, sdp} objects from RTCPeerConnection.createAnswer().
+    // Accept the legacy raw-string form too in case anything else
+    // (a Python test harness, an older receiver) still sends that.
+    if (doc["answer"].is<JsonObject>() || doc["answer"].is<const char*>()) {
+      String answer;
+      if (doc["answer"].is<JsonObject>()) {
+        answer = doc["answer"]["sdp"].as<String>();
+      } else {
+        answer = doc["answer"].as<String>();
+      }
       esp_peer_msg_t pmsg = {};
       pmsg.type = ESP_PEER_MSG_TYPE_SDP;
       pmsg.data = (uint8_t*)answer.c_str();
@@ -1079,7 +1088,12 @@ static int onPeerMsg(esp_peer_msg_t* msg, void* /*ctx*/) {
     int idx = payload.indexOf("a=setup:passive");
     if (idx >= 0) payload = payload.substring(0, idx) + "a=setup:actpass" +
                             payload.substring(idx + strlen("a=setup:passive"));
-    doc["offer"] = payload;
+    // Wrap SDP in {type, sdp} so the browser-side MultiStreamManager
+    // can hand it straight to `new RTCSessionDescription(offer)` —
+    // matches the shape PWA-baby offers use.
+    JsonObject offer = doc.createNestedObject("offer");
+    offer["type"] = "offer";
+    offer["sdp"]  = payload;
   } else if (msg->type == ESP_PEER_MSG_TYPE_CANDIDATE) {
     JsonObject ice = doc.createNestedObject("ice");
     ice["candidate"]     = payload;

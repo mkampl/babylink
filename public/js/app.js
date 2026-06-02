@@ -28,9 +28,6 @@
   const wakeLockMgr = new WakeLockManager();
   const alarmMgr = new AlarmManager();
   const esp32Handler = new ESP32AudioHandler(esp32AudioContexts);
-  // Lazy — instantiated on first S3 participant so we don't create
-  // an unused signal listener for browser-only rooms.
-  let webrtcBabyReceiver = null;
 
   // Enable all audio (WebRTC + ESP32) — resumes suspended AudioContexts
   function enableAllAudio() {
@@ -510,6 +507,11 @@
     const configResponse = await fetch('/api/config/webrtc');
     const webrtcConfig = await configResponse.json();
     multiStreamManager = new MultiStreamManager(socket, webrtcConfig);
+    // Make the parent-side stream manager addressable for cross-file
+    // coordination (ESP32AudioHandler peeks at audioStreams to decide
+    // whether to mute the WSS-PCM playback for a baby that's already
+    // playing via WebRTC).
+    window._multiStreamManager = multiStreamManager;
 
     // Wire up UI callbacks to stream manager + ESP32
     multiBabyUI.onMuteToggle = (babyId, mute) => {
@@ -674,17 +676,15 @@
         if (!multiBabyUI.babyCards.has(baby.socketId)) {
           multiBabyUI.addBaby(baby.socketId, baby);
         }
-        if (baby.deviceType === 'esp32-s3') {
-          // S3 baby already in the room when we joined — same dispatch
-          // as participant-joined: WebRTCBabyReceiver answers the ESP's
-          // WebRTC offer. Without this the offer arrives and nothing
-          // is wired up to answer.
-          if (!webrtcBabyReceiver) {
-            webrtcBabyReceiver = new WebRTCBabyReceiver(socket, multiBabyUI);
-          }
-          webrtcBabyReceiver.attach(baby.socketId);
-        } else if (!multiStreamManager.peerConnections.has(baby.socketId)) {
-          // Classic ESP32 / PWA baby — legacy requestOffer flow.
+        // All baby types (PWA, classic ESP32, XIAO S3) take the same
+        // dispatch now: ask the baby to send us an offer. The signal
+        // handler routes the inbound offer to multiStreamManager which
+        // creates the peer + audio element. S3 babies generate their
+        // own offer from esp_peer; PWA babies create one from
+        // RTCPeerConnection.createOffer(); classic ESP32 stays on the
+        // legacy WSS-PCM path because it doesn't speak WebRTC and the
+        // requestOffer goes nowhere.
+        if (!multiStreamManager.peerConnections.has(baby.socketId)) {
           socket.emit('signal', { requestOffer: true, to: baby.socketId });
         }
       });
@@ -708,22 +708,10 @@
     } else if (role === 'parent' && pRole === 'baby') {
       multiBabyUI.addBaby(socketId, { socketId, role: pRole, userName: pName });
       if (multiBabyUI.babyCards.size > 0) alarmMgr.stop();
-
-      if (data.deviceType === 'esp32-s3') {
-        // S3 baby — audio comes via WebRTC peer connection (Branch
-        // 5 path), not via the legacy WSS PCM stream. Attach a
-        // receiver so we can answer the ESP's offer when it lands.
-        // The actual offer/answer flow is wired up once the firmware
-        // side ships (Branch 5.2+). Until then attach() is a no-op
-        // beyond setting up the signal listener.
-        if (!webrtcBabyReceiver) {
-          webrtcBabyReceiver = new WebRTCBabyReceiver(socket, multiBabyUI);
-        }
-        webrtcBabyReceiver.attach(socketId);
-      } else {
-        // Classic ESP32 or PWA baby — keep the existing flow.
-        socket.emit('signal', { requestOffer: true, to: socketId });
-      }
+      // Unified dispatch — same requestOffer kickoff for every baby
+      // type. multiStreamManager handles the inbound offer regardless
+      // of source. See the room-state handler above for the rationale.
+      socket.emit('signal', { requestOffer: true, to: socketId });
     }
   });
 
@@ -735,7 +723,6 @@
     } else if (role === 'parent' && pRole === 'baby') {
       multiBabyUI.removeBaby(socketId);
       multiStreamManager.removeParticipant(socketId);
-      if (webrtcBabyReceiver) webrtcBabyReceiver.detach(socketId);
       if (multiBabyUI.babyCards.size === 0) alarmMgr.play();
     }
   });
