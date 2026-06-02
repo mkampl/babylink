@@ -72,6 +72,7 @@ class ESP32AudioProxy {
 
     this.wss.on('connection', (ws, request) => {
       const clientIp = request.socket.remoteAddress;
+      ws._clientIp = clientIp;
       logger.info(`ESP32 WebSocket connection from ${clientIp}`);
 
       // Enable TCP keepalive for faster disconnection detection
@@ -104,15 +105,8 @@ class ESP32AudioProxy {
             try {
               const message = JSON.parse(data.toString());
               logger.debug('ESP32 JSON message received:', message);
-
-              if (message.type === 'register') {
-                esp32Info = this.registerESP32(ws, message, clientIp);
-              } else if (message.type === 'ping') {
-                // Heartbeat response
-                ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
-              } else {
-                logger.warn(`Unknown message type: ${message.type}`);
-              }
+              const handled = this.handleJsonMessage(ws, message, () => esp32Info);
+              if (handled.registered) esp32Info = handled.registered;
               return;
             } catch (parseError) {
               // Not JSON, treat as audio data
@@ -126,15 +120,8 @@ class ESP32AudioProxy {
             // String message
             const message = JSON.parse(data.toString());
             logger.debug('ESP32 text message received:', message);
-
-            if (message.type === 'register') {
-              esp32Info = this.registerESP32(ws, message, clientIp);
-            } else if (message.type === 'ping') {
-              // Heartbeat response
-              ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
-            } else {
-              logger.warn(`Unknown message type: ${message.type}`);
-            }
+            const handled = this.handleJsonMessage(ws, message, () => esp32Info);
+            if (handled.registered) esp32Info = handled.registered;
           }
         } catch (error) {
           logger.error('Error processing ESP32 message:', error);
@@ -155,6 +142,44 @@ class ESP32AudioProxy {
 
     logger.info('ESP32 WebSocket server created');
     return this.wss;
+  }
+
+  /**
+   * Route an incoming JSON message from an ESP32 WS to its handler.
+   * Returns { registered: esp32Info } if a registration just happened
+   * so the caller can capture it.
+   */
+  handleJsonMessage(ws, message, getEsp32Info) {
+    if (message.type === 'register') {
+      return { registered: this.registerESP32(ws, message, ws._clientIp || '') };
+    }
+    if (message.type === 'ping') {
+      ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
+      return {};
+    }
+    if (message.type === 'signal') {
+      const info = getEsp32Info();
+      if (!info) {
+        logger.warn('signal from ESP before register, ignored');
+        return {};
+      }
+      // Forward to the target browser via Socket.IO. Strip the type
+      // field; relay the rest verbatim (offer/answer/ice/to/etc.).
+      const { type, fromSocketId: _ignored, ...payload } = message;
+      if (!payload.to) {
+        logger.warn(`signal from ${info.id} missing 'to', dropping`);
+        return {};
+      }
+      this.io.to(payload.to).emit('signal', {
+        ...payload,
+        from: 'baby',
+        fromSocketId: info.id,
+        fromUserName: info.name,
+      });
+      return {};
+    }
+    logger.warn(`Unknown message type: ${message.type}`);
+    return {};
   }
 
   /**
@@ -518,6 +543,34 @@ class ESP32AudioProxy {
     }
     this.unregisterESP32(esp32Id);
     return true;
+  }
+
+  /**
+   * Forward a WebRTC signaling message from a browser to an ESP32
+   * peer. The server is a pure relay — does not look at SDP/ICE
+   * content. signalData is the {offer/answer/ice, to, ...} blob from
+   * the browser's 'signal' Socket.IO event; we wrap it in a
+   * {type:"signal", ...} JSON frame and ship over the device's WS.
+   * Returns true on success, false if the device isn't connected.
+   */
+  relaySignalToESP(esp32Id, signalData, fromSocketId, fromUserName) {
+    const client = this.esp32Clients.get(esp32Id);
+    if (!client || !client.ws) return false;
+    try {
+      const frame = {
+        type: 'signal',
+        fromSocketId,
+        fromUserName,
+        // Pass offer/answer/ice/to/etc. through verbatim. Server never
+        // inspects WebRTC payload contents.
+        ...signalData,
+      };
+      client.ws.send(JSON.stringify(frame));
+      return true;
+    } catch (err) {
+      logger.warn(`Failed to relay signal to ${esp32Id}: ${err.message}`);
+      return false;
+    }
   }
 
   /**

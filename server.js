@@ -515,13 +515,25 @@ io.on('connection', (socket) => {
 
       // If 'to' is specified, send to that specific socket
       if (data.to) {
-        io.to(data.to).emit('signal', {
-          ...data,
-          from: socket.role,
-          fromSocketId: socket.id,
-          fromUserName: socket.userName
-        });
-        logger.debug(`Signal routed to specific participant: ${data.to}`);
+        if (typeof data.to === 'string' && data.to.startsWith('esp32_')) {
+          // Cross-transport bridge: target is an ESP32 device on the
+          // raw WS endpoint. Server is a pure relay — no SDP inspection.
+          const ok = esp32Proxy.relaySignalToESP(
+            data.to, data, socket.id, socket.userName);
+          if (!ok) {
+            logger.warn(`Signal to ESP32 ${data.to} dropped — not connected`);
+          } else {
+            logger.debug(`Signal routed via WS to ESP32: ${data.to}`);
+          }
+        } else {
+          io.to(data.to).emit('signal', {
+            ...data,
+            from: socket.role,
+            fromSocketId: socket.id,
+            fromUserName: socket.userName
+          });
+          logger.debug(`Signal routed to specific participant: ${data.to}`);
+        }
       } else {
         // Otherwise broadcast to all participants in the room (legacy behavior)
         socket.to(socket.roomId).emit('signal', {
