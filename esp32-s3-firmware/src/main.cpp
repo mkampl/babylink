@@ -268,9 +268,15 @@ void setLED(bool on) {
   ledState = on;
 }
 
+// External hint set by checkResetButton() while the user is holding the
+// BOOT button — keeps updateLED() from overwriting the press-feedback
+// blink with the steady "registered" LED.
+bool resetButtonHeld = false;
+
 // Slow blink (1 s period): WiFi down. Fast blink (250 ms): connected
 // but not registered. Solid: registered.
 void updateLED() {
+  if (resetButtonHeld) return;   // button check owns the LED right now
   unsigned long now = millis();
   if (isRegistered) {
     if (!ledState) setLED(true);
@@ -661,19 +667,25 @@ static void checkResetButton() {
   if (level == LOW) {
     if (pressStart == 0) pressStart = millis();
     unsigned long held = millis() - pressStart;
-    // Slow blink as visual feedback during the hold.
+    // Slow blink (~2 Hz, 500 ms period) as visual feedback during the
+    // hold. We claim ownership of the LED via the resetButtonHeld flag
+    // so updateLED() doesn't overwrite us with the steady "registered"
+    // pattern next loop iteration.
     if (held > 1000) {
+      resetButtonHeld = true;
       bool on = (held / 250) & 1;
       setLED(on);
     }
     if (held >= RESET_HOLD_MS) {
       Serial.println("[reset] 5s hold — factory reset");
       pressStart = 0;
+      resetButtonHeld = false;
       performFactoryReset();
     }
   } else {
     // Any HIGH reading resets the timer — see comment above.
     pressStart = 0;
+    resetButtonHeld = false;
   }
 }
 
