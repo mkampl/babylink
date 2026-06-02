@@ -105,6 +105,11 @@ esp_websocket_client_handle_t webSocket = nullptr;
 esp_peer_handle_t webrtcPeer = nullptr;
 volatile bool webrtcPeerRunning = false;
 TaskHandle_t webrtcLoopTaskHandle = nullptr;
+// Latest parent socketId we've seen — captured from any inbound signal
+// frame, then used as the `to` field on outbound SDP/ICE messages so the
+// Branch 4 server bridge can route them. mc2: single-parent only;
+// multi-parent rooms get one peer-per-parent in a later iteration.
+String parentSocketId;
 WebServer  webServer(80);
 DNSServer  dnsServer;
 
@@ -848,7 +853,10 @@ void sendRegister() {
 }
 
 static void handleWsTextFrame(const char* data, size_t len) {
-  StaticJsonDocument<512> doc;
+  // SDP answers from the browser can run 700-1500 bytes; ArduinoJson
+  // overhead roughly doubles that. 4 KB is comfortable for our signal
+  // frames. DynamicJsonDocument allocates from heap (PSRAM-eligible).
+  DynamicJsonDocument doc(4096);
   DeserializationError err = deserializeJson(doc, data, len);
   if (err) {
     Serial.printf("[WS] JSON parse error: %s\n", err.c_str());
@@ -868,6 +876,42 @@ static void handleWsTextFrame(const char* data, size_t len) {
     ESP.restart();
   } else if (strcmp(msgType, "error") == 0) {
     Serial.printf("[WS] server error: %s\n", (const char*)(doc["message"] | ""));
+  } else if (strcmp(msgType, "signal") == 0) {
+    // SDP / ICE relay from the parent browser. Track the parent's
+    // socketId, kick off the offer when requested, hand answer / ICE
+    // off to esp_peer.
+    const char* from = doc["fromSocketId"] | "";
+    if (from[0]) parentSocketId = from;
+
+    if (!webrtcPeer) {
+      Serial.println("[peer] inbound signal but esp_peer not initialised");
+      return;
+    }
+    if (doc["requestOffer"] | false) {
+      Serial.printf("[peer] requestOffer from %s — starting connection\n", from);
+      esp_peer_new_connection(webrtcPeer);
+      return;
+    }
+    if (doc["answer"].is<const char*>()) {
+      String answer = doc["answer"].as<String>();
+      esp_peer_msg_t pmsg = {};
+      pmsg.type = ESP_PEER_MSG_TYPE_SDP;
+      pmsg.data = (uint8_t*)answer.c_str();
+      pmsg.size = answer.length();
+      esp_peer_send_msg(webrtcPeer, &pmsg);
+      Serial.printf("[peer] <- SDP/answer (%u B)\n", (unsigned)answer.length());
+      return;
+    }
+    if (doc["ice"].is<JsonObject>()) {
+      String cand = doc["ice"]["candidate"].as<String>();
+      if (cand.length() == 0) return;   // end-of-candidates marker
+      esp_peer_msg_t pmsg = {};
+      pmsg.type = ESP_PEER_MSG_TYPE_CANDIDATE;
+      pmsg.data = (uint8_t*)cand.c_str();
+      pmsg.size = cand.length();
+      esp_peer_send_msg(webrtcPeer, &pmsg);
+      Serial.printf("[peer] <- ICE (%u B)\n", (unsigned)cand.length());
+    }
   }
 }
 
@@ -943,7 +987,14 @@ void connectWebSocket() {
 }
 
 // =============================================================================
-// WEBRTC (esp_peer init — 5.2 mc1: bring the stack up, no signaling yet)
+// WEBRTC (esp_peer init + signaling — 5.2 mc1+mc2)
+//
+// mc1 brings the esp_peer stack up. mc2 wires `signal` events over the
+// existing Branch-4 WSS bridge: on_msg → server → parent browser, and
+// inbound `signal` text frames from the server → esp_peer_send_msg.
+// requestOffer kickoff from the browser triggers esp_peer_new_connection.
+// Audio still flows over the legacy WSS-PCM path; mc3 replaces it with
+// esp_peer_send_audio.
 // =============================================================================
 
 static const char* peerStateName(esp_peer_state_t s) {
@@ -971,9 +1022,48 @@ static int onPeerState(esp_peer_state_t state, void* /*ctx*/) {
 }
 
 static int onPeerMsg(esp_peer_msg_t* msg, void* /*ctx*/) {
-  // 5.2 mc1: log only. mc2 wires this to the WSS `signal` event so the
-  // server bridge (Branch 4) relays SDP/ICE to the parent browser.
-  Serial.printf("[peer] msg type=%d size=%d\n", (int)msg->type, msg->size);
+  if (parentSocketId.length() == 0 || !webSocket) {
+    Serial.printf("[peer] msg type=%d size=%d dropped (no parent yet)\n",
+                  (int)msg->type, msg->size);
+    return 0;
+  }
+  // esp_peer hands us raw SDP text or a single ICE candidate string.
+  // Wrap into the same `signal` event shape the browser-side receiver
+  // expects (`offer` = SDP string, `ice` = addIceCandidate-compatible
+  // object). Server is a pure relay — it forwards the frame verbatim
+  // to the target socketId.
+  DynamicJsonDocument doc(2048);
+  doc["type"] = "signal";
+  doc["to"]   = parentSocketId;
+  String payload((const char*)msg->data, msg->size);
+  if (msg->type == ESP_PEER_MSG_TYPE_SDP) {
+    // esp_peer v1.4.1 emits `a=setup:passive` in its offers; RFC 5763
+    // / JSEP require offerers to send `a=setup:actpass`. Chrome (and
+    // recent Firefox) silently refuse to start ICE when an offer
+    // arrives with anything else — signalingState reaches "stable"
+    // but iceConnectionState stays "new". Rewrite in place. The
+    // browser picks "active" in the answer and the ESP keeps acting
+    // as the DTLS server, which matches its cert/role.
+    int idx = payload.indexOf("a=setup:passive");
+    if (idx >= 0) payload = payload.substring(0, idx) + "a=setup:actpass" +
+                            payload.substring(idx + strlen("a=setup:passive"));
+    doc["offer"] = payload;
+  } else if (msg->type == ESP_PEER_MSG_TYPE_CANDIDATE) {
+    JsonObject ice = doc.createNestedObject("ice");
+    ice["candidate"]     = payload;
+    ice["sdpMid"]        = "audio";   // single audio m-line
+    ice["sdpMLineIndex"] = 0;
+  } else {
+    Serial.printf("[peer] unknown msg type=%d\n", (int)msg->type);
+    return 0;
+  }
+  String frame;
+  serializeJson(doc, frame);
+  esp_websocket_client_send_text(webSocket, frame.c_str(), frame.length(),
+                                 portMAX_DELAY);
+  Serial.printf("[peer] -> %s (%d B)\n",
+                msg->type == ESP_PEER_MSG_TYPE_SDP ? "SDP/offer" : "ICE",
+                (int)frame.length());
   return 0;
 }
 
@@ -992,7 +1082,9 @@ void setupWebRTC() {
   esp_peer_pre_generate_cert();
 
   esp_peer_default_cfg_t defaults = {};
-  defaults.agent_recv_timeout = 100;
+  defaults.agent_recv_timeout = 300;            // 100 ms → 300 ms: slack
+                                                // for DTLS retransmits on
+                                                // residential WiFi.
   defaults.rtp_cfg.audio_recv_jitter.cache_size = 1024;
   defaults.rtp_cfg.send_pool_size = 1024;
   defaults.rtp_cfg.send_queue_num = 10;

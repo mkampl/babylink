@@ -61,8 +61,10 @@ class WebRTCBabyReceiver {
     };
 
     this.peers.set(espId, pc);
-    // Offer initiation deferred — depends on whether ESP or browser is
-    // the offerer in the final design. Decided in Branch 5.
+    // The ESP is the offerer (esp_peer ROLE_CONTROLLING). It can't know
+    // a parent is ready until we tell it, so kick off here. The ESP
+    // wraps incoming requestOffer into esp_peer_new_connection().
+    this.socket.emit('signal', { to: espId, requestOffer: true });
   }
 
   /**

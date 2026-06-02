@@ -108,9 +108,17 @@
   async function initialize() {
     console.log(`Initializing BabyLink as ${role} (${userName}) in room ${roomId}`);
 
-    // Parent must tap "Start Monitoring" to unlock audio (browser requirement)
+    // Parent must tap "Start Monitoring" to unlock audio (browser requirement).
+    // Dev shortcut: `?autostart=1` skips the gesture — works only when the
+    // browser is launched with --autoplay-policy=no-user-gesture-required.
     if (role === 'parent') {
-      await showStartOverlay();
+      const skipOverlay = new URLSearchParams(window.location.search).get('autostart') === '1';
+      if (skipOverlay) {
+        window.__sharedAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        enableAllAudio();
+      } else {
+        await showStartOverlay();
+      }
     }
 
     if (role === 'baby') {
@@ -666,8 +674,17 @@
         if (!multiBabyUI.babyCards.has(baby.socketId)) {
           multiBabyUI.addBaby(baby.socketId, baby);
         }
-        // Request baby to send offer if no peer connection exists yet
-        if (!multiStreamManager.peerConnections.has(baby.socketId)) {
+        if (baby.deviceType === 'esp32-s3') {
+          // S3 baby already in the room when we joined — same dispatch
+          // as participant-joined: WebRTCBabyReceiver answers the ESP's
+          // WebRTC offer. Without this the offer arrives and nothing
+          // is wired up to answer.
+          if (!webrtcBabyReceiver) {
+            webrtcBabyReceiver = new WebRTCBabyReceiver(socket, multiBabyUI);
+          }
+          webrtcBabyReceiver.attach(baby.socketId);
+        } else if (!multiStreamManager.peerConnections.has(baby.socketId)) {
+          // Classic ESP32 / PWA baby — legacy requestOffer flow.
           socket.emit('signal', { requestOffer: true, to: baby.socketId });
         }
       });
