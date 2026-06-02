@@ -1,10 +1,16 @@
 ## ESP-IDF Component Manager manifest. Resolved at `idf.py build` time.
 ##
-## Arduino-ESP32 v3.3.x ships as a managed component; pulling it lets us
-## keep <Arduino.h>, <WiFi.h>, <Preferences.h>, etc. — the same headers
-## the PlatformIO Arduino path used. Later sub-branches will add:
+## arduino-esp32 ships as a managed component; pulling it lets us keep
+## <Arduino.h>, <WiFi.h>, <Preferences.h>, etc.
+##
+## esp-nimble-cpp is the IDF-native flavour of h2zero's NimBLE wrapper —
+## same NimBLEDevice / NimBLEServerCallbacks / NIMBLE_PROPERTY API as
+## the PlatformIO build's NimBLE-Arduino, just without the Arduino
+## library shim. The 2.x line matches what the PIO firmware tracks.
+##
+## Later sub-branches will add:
 ##   espressif/esp_webrtc — real WebRTC for Branch 5.1c onward
-##   h2zero/nimble-arduino-component — NimBLE bring-up
 
 dependencies:
   espressif/arduino-esp32: "^3.3.0"
+  h2zero/esp-nimble-cpp: "^2.0.0"

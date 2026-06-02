@@ -1,9 +1,9 @@
 // BabyLink — XIAO ESP32-S3 firmware (ESP-IDF + Arduino-as-component).
 //
-// Sub-Branch 5.1b mikro-commit 1: WiFi-only boot. Validates the
-// IDF/Arduino toolchain path for cfg_v3 NVS + ArduinoJson + WiFi +
-// esp_read_mac. No BLE, no audio, no SoftAP, no WSS yet — those land
-// in the next mikro-commits of this branch.
+// Sub-Branch 5.1b mikro-commit 2: + BLE GATT provisioning via
+// h2zero/esp-nimble-cpp. The PWA wizard's UUIDs are unchanged so the
+// existing flow works against this firmware. No audio, no SoftAP, no
+// WSS yet — those land in the next mikro-commits of this branch.
 //
 // The PIO version under ../../esp32-s3-firmware/src/main.cpp remains
 // authoritative for behaviour until 5.1d removes it.
@@ -13,7 +13,10 @@
 #include <Preferences.h>
 #include <esp_mac.h>
 #include <vector>
+#include <algorithm>
+#include <string>
 #include <ArduinoJson.h>
+#include <NimBLEDevice.h>
 
 #if __has_include("dev_defaults.h")
   #include "dev_defaults.h"
@@ -134,6 +137,16 @@ void saveConfig() {
                 (unsigned)serverProfiles.size());
 }
 
+void clearConfig() {
+  preferences.begin("babylink", false);
+  preferences.clear();
+  preferences.end();
+  wifiProfiles.clear();
+  serverProfiles.clear();
+  activeServer = 0;
+  Serial.println("[cfg] cleared");
+}
+
 static void seedFromDevDefaults() {
   if (strlen(DEV_DEFAULT_WIFI_SSID) > 0) {
     WifiProfile w;
@@ -200,6 +213,197 @@ String macHex() {
   snprintf(buf, sizeof(buf), "%02x%02x%02x%02x%02x%02x",
            mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
   return String(buf);
+}
+
+// =============================================================================
+// BLE PROVISIONING (NimBLE GATT server, same UUIDs as classic firmware
+//                   so the existing PWA wizard works unchanged)
+// =============================================================================
+
+#define BLE_SERVICE_UUID  "bab71111-0002-1000-8000-00805f9b34fb"
+#define BLE_CHAR_CONFIG   "bab71111-0002-1001-8000-00805f9b34fb"
+#define BLE_CHAR_SCAN     "bab71111-0002-1002-8000-00805f9b34fb"
+#define BLE_CHAR_COMMAND  "bab71111-0002-1003-8000-00805f9b34fb"
+#define BLE_CHAR_INFO     "bab71111-0002-1004-8000-00805f9b34fb"
+
+NimBLECharacteristic* bleConfigChar = nullptr;
+NimBLECharacteristic* bleScanChar   = nullptr;
+NimBLECharacteristic* bleInfoChar   = nullptr;
+String lastScanJson = "[]";
+volatile bool bleScanInProgress = false;
+bool isBLEActive = false;
+
+void publishConfigToBle() {
+  if (!bleConfigChar) return;
+  String json = serializeConfig();
+  bleConfigChar->setValue((const uint8_t*)json.c_str(), json.length());
+}
+
+void publishScanToBle() {
+  if (!bleScanChar) return;
+  bleScanChar->setValue((const uint8_t*)lastScanJson.c_str(), lastScanJson.length());
+}
+
+static String buildInfoJson() {
+  StaticJsonDocument<256> doc;
+  doc["model"]    = "xiao-esp32-s3";
+  doc["fw"]       = "5.1b-mc2-idf";
+  doc["mic"]      = "pdm";
+  doc["camera"]   = true;
+  doc["channels"] = 1;
+  doc["mac"]      = macHex();
+  String out;
+  serializeJson(doc, out);
+  return out;
+}
+
+void publishInfoToBle() {
+  if (!bleInfoChar) return;
+  String json = buildInfoJson();
+  bleInfoChar->setValue((const uint8_t*)json.c_str(), json.length());
+}
+
+static void publishScanResults(int n) {
+  DynamicJsonDocument doc(2048);
+  JsonArray arr = doc.to<JsonArray>();
+  std::vector<int> idx;
+  for (int i = 0; i < n; i++) idx.push_back(i);
+  std::sort(idx.begin(), idx.end(),
+            [](int a, int b) { return WiFi.RSSI(a) > WiFi.RSSI(b); });
+  const int CAP = 8;
+  for (int k = 0; k < (int)idx.size() && k < CAP; k++) {
+    int i = idx[k];
+    JsonObject o = arr.createNestedObject();
+    o["ssid"]   = WiFi.SSID(i);
+    o["rssi"]   = WiFi.RSSI(i);
+    o["secure"] = (WiFi.encryptionType(i) != WIFI_AUTH_OPEN);
+  }
+  lastScanJson = "";
+  serializeJson(doc, lastScanJson);
+  publishScanToBle();
+}
+
+void pollBleScanComplete() {
+  if (!bleScanInProgress) return;
+  int n = WiFi.scanComplete();
+  if (n == WIFI_SCAN_RUNNING) return;
+  bleScanInProgress = false;
+  if (n < 0) {
+    Serial.printf("[BLE] Async scan failed (%d)\n", n);
+    lastScanJson = "[]";
+    publishScanToBle();
+    return;
+  }
+  publishScanResults(n);
+  WiFi.scanDelete();
+  Serial.printf("[BLE] Scan complete: %d networks (%u bytes)\n",
+                n, (unsigned)lastScanJson.length());
+}
+
+static void doWifiScanForBle() {
+  if (bleScanInProgress) {
+    Serial.println("[BLE] Scan already in progress");
+    return;
+  }
+  Serial.println("[BLE] Starting async WiFi scan");
+  WiFi.scanNetworks(true, true);
+  bleScanInProgress = true;
+}
+
+class BabyLinkBLEServer : public NimBLEServerCallbacks {
+  void onDisconnect(NimBLEServer* server,
+                    NimBLEConnInfo& /*info*/,
+                    int /*reason*/) override {
+    Serial.println("[BLE] client disconnected, restart advertising");
+    NimBLEDevice::getAdvertising()->start();
+  }
+};
+
+class BLEProvisionCallbacks : public NimBLECharacteristicCallbacks {
+  void onWrite(NimBLECharacteristic* pCharacteristic,
+               NimBLEConnInfo& /*connInfo*/) override {
+    String uuid = String(pCharacteristic->getUUID().toString().c_str());
+    std::string raw = pCharacteristic->getValue();
+    String value;
+    value.reserve(raw.length());
+    for (size_t i = 0; i < raw.length(); i++) value += (char)raw[i];
+
+    Serial.printf("[BLE] onWrite uuid=%s len=%u\n",
+                  uuid.c_str(), (unsigned)raw.length());
+
+    if (uuid.indexOf("1001") > 0) {
+      Serial.printf("[BLE] Config write (%u bytes)\n", (unsigned)value.length());
+      if (deserializeConfig(value)) {
+        publishConfigToBle();
+        Serial.println("[BLE] Config staged — write 'apply' to command to persist");
+      }
+    } else if (uuid.indexOf("1002") > 0) {
+      if (value == "scan") {
+        doWifiScanForBle();
+        publishScanToBle();
+      }
+    } else if (uuid.indexOf("1003") > 0) {
+      if (value == "apply") {
+        Serial.println("[BLE] Apply — persisting + restart");
+        saveConfig();
+        delay(500);
+        ESP.restart();
+      } else if (value == "wifi-reset") {
+        Serial.println("[BLE] Wifi-reset — clearing config + restart");
+        clearConfig();
+        delay(500);
+        ESP.restart();
+      } else {
+        Serial.printf("[BLE] Unknown command '%s'\n", value.c_str());
+      }
+    }
+  }
+};
+
+void startBLE() {
+  if (isBLEActive) return;
+  uint8_t mac[6];
+  esp_read_mac(mac, ESP_MAC_WIFI_STA);
+  char bleName[24];
+  snprintf(bleName, sizeof(bleName), "BabyLinkS3-%02X%02X", mac[4], mac[5]);
+
+  Serial.printf("[BLE] Starting BLE as '%s'\n", bleName);
+
+  NimBLEDevice::init(bleName);
+  NimBLEDevice::setPower(9);
+  NimBLEDevice::setMTU(517);
+
+  NimBLEServer* server = NimBLEDevice::createServer();
+  static BabyLinkBLEServer serverCallbacks;
+  server->setCallbacks(&serverCallbacks);
+
+  NimBLEService* service = server->createService(BLE_SERVICE_UUID);
+  static BLEProvisionCallbacks callbacks;
+
+  auto mkChar = [&](const char* uuid, uint32_t props) {
+    NimBLECharacteristic* c = service->createCharacteristic(uuid, props);
+    c->setCallbacks(&callbacks);
+    return c;
+  };
+
+  bleConfigChar = mkChar(BLE_CHAR_CONFIG,  NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE);
+  bleScanChar   = mkChar(BLE_CHAR_SCAN,    NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE);
+                  mkChar(BLE_CHAR_COMMAND, NIMBLE_PROPERTY::WRITE);
+  bleInfoChar   = mkChar(BLE_CHAR_INFO,    NIMBLE_PROPERTY::READ);
+
+  publishConfigToBle();
+  publishScanToBle();
+  publishInfoToBle();
+
+  NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
+  adv->setName(bleName);
+  adv->addServiceUUID(BLE_SERVICE_UUID);
+  adv->enableScanResponse(true);
+  adv->start();
+
+  isBLEActive = true;
+  Serial.printf("[BLE] Advertising. Free heap: %lu\n",
+                (unsigned long)ESP.getFreeHeap());
 }
 
 // =============================================================================
@@ -274,7 +478,7 @@ void connectWiFi() {
 void setup() {
   Serial.begin(115200);
   delay(200);
-  Serial.println("\n=== BabyLink XIAO ESP32-S3 (IDF 5.1b mc1 — WiFi only) ===");
+  Serial.println("\n=== BabyLink XIAO ESP32-S3 (IDF 5.1b mc2 — WiFi + BLE) ===");
 
   pinMode(LED_PIN, OUTPUT);
   setLED(false);
@@ -284,11 +488,17 @@ void setup() {
                 deviceId.c_str(), DEVICE_TYPE, configDeviceName.c_str());
 
   loadConfig();
+  // Ensure WiFi stack is up for the BLE-driven async scan, even when no
+  // STA profile is configured. Without a mode set, scanNetworks() fails
+  // immediately and the BLE scan response is permanently empty.
+  WiFi.mode(WIFI_STA);
+  startBLE();
   connectWiFi();
 }
 
 void loop() {
   updateLED();
+  pollBleScanComplete();
 
   unsigned long now = millis();
   if (now - lastStatusReport >= 5000) {
