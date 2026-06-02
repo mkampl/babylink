@@ -350,14 +350,18 @@ class ESP32AudioProxy {
     });
 
     // Forward audio data to all parents in the room via Socket.IO
-    // Parents will need to handle this with a custom audio handler
+    // Parents will need to handle this with a custom audio handler.
+    // deviceType lets the browser pick the right visualization path
+    // (classic ESP32 stays on the original RMS meter to preserve its
+    // tuning; XIAO S3 uses the new AnalyserNode-based meter).
     this.io.to(client.roomId).emit('esp32-audio', {
       fromId: esp32Id,
       fromName: client.name,
       audio: audioData,
       timestamp: Date.now(),
       sampleRate: client.sampleRate,
-      channels: client.channels
+      channels: client.channels,
+      deviceType: client.deviceType || 'esp32-classic'
     });
 
     // Log every 100 packets to avoid spam
