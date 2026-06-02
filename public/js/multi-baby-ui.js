@@ -545,7 +545,12 @@ class MultiBabyUI {
       var pctLeft = ((segStart - startTime) / totalMs) * 100;
       var pctWidth = ((segEnd - segStart) / totalMs) * 100;
 
-      if (pctWidth < 0.2) continue; // Skip tiny segments
+      // Skip vanishingly thin segments only. 0.2% of a 12 h window was
+      // ~86 s, which dropped every segment from devices with a short
+      // event history (e.g. an ESP32 that just rebooted — its first
+      // minute of events all fell below the threshold and the bar
+      // stayed blank even though the summary correctly counted wakes).
+      if (pctWidth < 0.01) continue;
 
       var seg = document.createElement('div');
       seg.className = 'sleep-segment sleep-' + filtered[i].level.toLowerCase();

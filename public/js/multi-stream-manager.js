@@ -11,6 +11,7 @@ class MultiStreamManager {
     this.analysers = new Map();       // participantId → AudioAnalyser
     this.participants = new Map();    // participantId → participant info
     this.sensitivity = new Map();     // participantId → sensitivity multiplier (0.5-3.0, default 1.0)
+    this.offerRetries = new Map();    // participantId → retry count (esp_peer bad-SDP retry breaker)
 
     this.onStreamAdded = null;
     this.onStreamRemoved = null;
@@ -71,6 +72,7 @@ class MultiStreamManager {
 
         this.audioStreams.set(participantId, stream);
         this.createAudioElement(participantId, stream, participantInfo);
+        this.offerRetries.delete(participantId);   // success — clear breaker
 
         if (this.onStreamAdded) {
           this.onStreamAdded(participantId, stream, participantInfo);
@@ -307,6 +309,23 @@ class MultiStreamManager {
 
     } catch (error) {
       console.error('🟢 [STREAM-MGR] ❌ Error handling signal:', error, data);
+      // esp_peer (XIAO S3 firmware) occasionally emits a malformed
+      // SDP offer on reconnect — `a=group:BUNDLE 0` references a
+      // mid=0 with no matching `m=audio` block, and Chrome rejects
+      // `setRemoteDescription` with an INVALID_PARAMETER. Tear down
+      // the broken peer and ask the baby to send a fresh offer; that
+      // one usually parses cleanly. Tracked as a polish item under
+      // [[project-branch52-open-polish]].
+      const broken = data && data.fromSocketId;
+      const retries = this.offerRetries.get(broken) || 0;
+      if (broken && data.offer && this.peerConnections.has(broken) && retries < 3) {
+        console.warn(`🟢 [STREAM-MGR] Dropping broken peer ${broken} and re-requesting offer (attempt ${retries + 1}/3)`);
+        this.removeParticipant(broken);
+        this.offerRetries.set(broken, retries + 1);
+        this.socket.emit('signal', { requestOffer: true, to: broken });
+      } else if (broken && retries >= 3) {
+        console.error(`🟢 [STREAM-MGR] Giving up on ${broken} after ${retries} bad offers`);
+      }
     }
   }
 

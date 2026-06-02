@@ -178,8 +178,52 @@ class ESP32AudioProxy {
       });
       return {};
     }
+    if (message.type === 'sleep-timeline') {
+      const info = getEsp32Info();
+      if (!info) {
+        logger.warn('sleep-timeline from ESP before register, ignored');
+        return {};
+      }
+      // ESP sends events as `{msAgo, level}` relative to "now" — it has
+      // no SNTP and can only quote deltas. Stamp absolute timestamps
+      // here using the server's clock, and translate the numeric
+      // level back into the GREEN/YELLOW/RED enum the parent UI uses.
+      const now = Date.now();
+      const LEVEL_NAMES = ['GREEN', 'YELLOW', 'RED'];
+      const events = (message.events || []).map((e) => ({
+        time: now - (e.msAgo || 0),
+        level: LEVEL_NAMES[e.level | 0] || 'GREEN',
+      }));
+      this.io.to(info.roomId).emit('sleep-timeline', {
+        roomId: info.roomId,
+        babyId: info.id,
+        babyName: info.name,
+        events,
+      });
+      return {};
+    }
     logger.warn(`Unknown message type: ${message.type}`);
     return {};
+  }
+
+  /**
+   * Relay a `request-sleep-timeline` from a parent to every ESP32 in the
+   * room. Companion to the Socket.IO-only relay in server.js — that one
+   * skips ESPs because they're on raw WebSocket, not Socket.IO.
+   */
+  relayRequestSleepTimelineToRoom(roomId) {
+    let sent = 0;
+    this.esp32Clients.forEach((client) => {
+      if (client.roomId === roomId && client.ws) {
+        try {
+          client.ws.send(JSON.stringify({ type: 'request-sleep-timeline' }));
+          sent++;
+        } catch (err) {
+          logger.warn(`Failed to relay request-sleep-timeline to ${client.id}: ${err.message}`);
+        }
+      }
+    });
+    return sent;
   }
 
   /**

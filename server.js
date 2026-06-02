@@ -638,10 +638,12 @@ io.on('connection', (socket) => {
   // Relay sleep timeline requests/responses between parent and baby
   socket.on('request-sleep-timeline', (data) => {
     if (!socket.roomId) return;
-    // Forward to all babies in the room
+    // Forward to all babies in the room — PWA babies via Socket.IO,
+    // ESP32-S3 babies via the raw-WS bridge.
     socket.to(socket.roomId).emit('request-sleep-timeline', {
       fromSocketId: socket.id
     });
+    esp32Proxy.relayRequestSleepTimelineToRoom(socket.roomId);
   });
 
   socket.on('sleep-timeline', (data) => {

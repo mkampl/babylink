@@ -108,6 +108,27 @@ volatile bool webrtcConnected = false;     // set/cleared by onPeerState
 unsigned long webrtcPacketsSent = 0;
 uint32_t webrtcAudioPts = 0;
 TaskHandle_t webrtcLoopTaskHandle = nullptr;
+
+// Sleep tracking — same level taxonomy as the PWA baby uses
+// (GREEN quiet / YELLOW active / RED loud), with hysteresis so a
+// single noisy chunk doesn't toggle the state. Ring buffer of the
+// last N transitions; full buffer is broadcast every 60 s or on
+// parent request. RAM-only — events are lost on ESP reboot, which
+// is acceptable for the current use case.
+enum SleepLevel : uint8_t { SLEEP_GREEN = 0, SLEEP_YELLOW = 1, SLEEP_RED = 2 };
+static const int SLEEP_LEVEL_GREEN_YELLOW = 400;   // avgLevel thresholds
+static const int SLEEP_LEVEL_YELLOW_RED   = 1200;  // — tune in the field
+static const int SLEEP_HYSTERESIS_CHUNKS  = 8;     // ~500 ms @ 15.6 chunks/s
+static const int SLEEP_EVENT_CAPACITY     = 256;
+static const unsigned long SLEEP_BROADCAST_INTERVAL_MS = 60000;
+struct SleepEvent { unsigned long ms; uint8_t level; };
+SleepEvent sleepEvents[SLEEP_EVENT_CAPACITY];
+int sleepEventHead = 0;          // next write slot
+int sleepEventCount = 0;         // current fill (<= capacity)
+uint8_t sleepCurrentLevel = SLEEP_GREEN;
+int sleepCandidateLevel = SLEEP_GREEN;
+int sleepCandidateChunks = 0;
+unsigned long lastSleepBroadcast = 0;
 // Latest parent socketId we've seen — captured from any inbound signal
 // frame, then used as the `to` field on outbound SDP/ICE messages so the
 // Branch 4 server bridge can route them. mc2: single-parent only;
@@ -427,6 +448,28 @@ void processAudio() {
     Serial.printf("[stats] wss=%lu wrtc=%lu avgLevel=%d rssi=%ddBm heap=%lu\n",
                   audioPacketsSent, webrtcPacketsSent, avgLevel, WiFi.RSSI(),
                   (unsigned long)ESP.getFreeHeap());
+  }
+
+  // Sleep-tracking level classification. Per-chunk avgLevel maps to
+  // a candidate level; we only record a transition once it stays put
+  // for SLEEP_HYSTERESIS_CHUNKS in a row (~500 ms), matching the
+  // 500 ms cadence of the PWA baby's analyser loop.
+  int avgLevelNow = sumAbs / sampleCount;
+  int candidate = (avgLevelNow >= SLEEP_LEVEL_YELLOW_RED)   ? SLEEP_RED
+                : (avgLevelNow >= SLEEP_LEVEL_GREEN_YELLOW) ? SLEEP_YELLOW
+                : SLEEP_GREEN;
+  if (candidate != sleepCandidateLevel) {
+    sleepCandidateLevel  = candidate;
+    sleepCandidateChunks = 1;
+  } else {
+    sleepCandidateChunks++;
+  }
+  if (sleepCandidateChunks >= SLEEP_HYSTERESIS_CHUNKS &&
+      candidate != sleepCurrentLevel) {
+    sleepCurrentLevel = candidate;
+    sleepEvents[sleepEventHead] = { millis(), (uint8_t)candidate };
+    sleepEventHead = (sleepEventHead + 1) % SLEEP_EVENT_CAPACITY;
+    if (sleepEventCount < SLEEP_EVENT_CAPACITY) sleepEventCount++;
   }
 }
 
@@ -857,6 +900,42 @@ static void portalLoopTick() {
 // WEBSOCKET (server register + audio stream)
 // =============================================================================
 
+// Send the full sleep-tracking ring buffer to the server. Each event
+// is encoded as `{msAgo, level}` so the server can stamp absolute
+// timestamps using its own clock — the ESP doesn't have SNTP and can
+// only report relative deltas from now.
+void sendSleepTimeline() {
+  if (!isConnected || !isRegistered || !webSocket) return;
+  if (sleepEventCount == 0) {
+    // Always emit at least one event so the parent's bar isn't blank
+    // before the first transition lands.
+    sleepEvents[0] = { millis(), sleepCurrentLevel };
+    sleepEventCount = 1;
+    sleepEventHead  = 1 % SLEEP_EVENT_CAPACITY;
+  }
+  DynamicJsonDocument doc(4096);
+  doc["type"] = "sleep-timeline";
+  JsonArray arr = doc.createNestedArray("events");
+  // Walk the ring chronologically (oldest first).
+  int start = (sleepEventCount < SLEEP_EVENT_CAPACITY)
+              ? 0
+              : sleepEventHead;
+  unsigned long now = millis();
+  for (int i = 0; i < sleepEventCount; i++) {
+    int idx = (start + i) % SLEEP_EVENT_CAPACITY;
+    JsonObject e = arr.createNestedObject();
+    e["msAgo"] = (long)(now - sleepEvents[idx].ms);
+    e["level"] = (int)sleepEvents[idx].level;
+  }
+  String frame;
+  serializeJson(doc, frame);
+  esp_websocket_client_send_text(webSocket, frame.c_str(), frame.length(),
+                                 portMAX_DELAY);
+  lastSleepBroadcast = now;
+  Serial.printf("[sleep] sent %d events (%u B)\n",
+                sleepEventCount, (unsigned)frame.length());
+}
+
 void sendRegister() {
   if (!hasActiveServer() || !webSocket) return;
   const ServerProfile& s = serverProfiles[activeServer];
@@ -900,6 +979,11 @@ static void handleWsTextFrame(const char* data, size_t len) {
     ESP.restart();
   } else if (strcmp(msgType, "error") == 0) {
     Serial.printf("[WS] server error: %s\n", (const char*)(doc["message"] | ""));
+  } else if (strcmp(msgType, "request-sleep-timeline") == 0) {
+    // Parent asked for an immediate timeline refresh — bypass the
+    // 60 s broadcast cadence.
+    Serial.println("[sleep] timeline requested");
+    sendSleepTimeline();
   } else if (strcmp(msgType, "signal") == 0) {
     // SDP / ICE relay from the parent browser. Track the parent's
     // socketId, kick off the offer when requested, hand answer / ICE
@@ -1228,6 +1312,10 @@ void loop() {
                   (WiFi.status() == WL_CONNECTED) ? "up" : "down",
                   isRegistered ? "registered" : (isConnected ? "open" : "down"),
                   (unsigned)ESP.getFreeHeap());
+  }
+  if (isRegistered &&
+      now - lastSleepBroadcast >= SLEEP_BROADCAST_INTERVAL_MS) {
+    sendSleepTimeline();
   }
 }
 
