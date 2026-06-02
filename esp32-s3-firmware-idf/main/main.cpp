@@ -22,6 +22,10 @@
 #include <ESP_I2S.h>
 #include "esp_websocket_client.h"
 #include "esp_crt_bundle.h"
+#include "esp_peer.h"
+#include "esp_peer_default.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #if __has_include("dev_defaults.h")
   #include "dev_defaults.h"
@@ -98,6 +102,9 @@ unsigned long audioPacketsSent = 0;
 I2SClass I2S;
 int16_t audioBuffer[BUFFER_SIZE];
 esp_websocket_client_handle_t webSocket = nullptr;
+esp_peer_handle_t webrtcPeer = nullptr;
+volatile bool webrtcPeerRunning = false;
+TaskHandle_t webrtcLoopTaskHandle = nullptr;
 WebServer  webServer(80);
 DNSServer  dnsServer;
 
@@ -936,6 +943,98 @@ void connectWebSocket() {
 }
 
 // =============================================================================
+// WEBRTC (esp_peer init — 5.2 mc1: bring the stack up, no signaling yet)
+// =============================================================================
+
+static const char* peerStateName(esp_peer_state_t s) {
+  switch (s) {
+    case ESP_PEER_STATE_CLOSED:                    return "closed";
+    case ESP_PEER_STATE_DISCONNECTED:              return "disconnected";
+    case ESP_PEER_STATE_NEW_CONNECTION:            return "new_connection";
+    case ESP_PEER_STATE_CANDIDATE_GATHERING:       return "candidate_gathering";
+    case ESP_PEER_STATE_PAIRING:                   return "pairing";
+    case ESP_PEER_STATE_PAIRED:                    return "paired";
+    case ESP_PEER_STATE_CONNECTING:                return "connecting";
+    case ESP_PEER_STATE_CONNECTED:                 return "connected";
+    case ESP_PEER_STATE_CONNECT_FAILED:            return "connect_failed";
+    case ESP_PEER_STATE_DATA_CHANNEL_CONNECTED:    return "dc_connected";
+    case ESP_PEER_STATE_DATA_CHANNEL_OPENED:       return "dc_opened";
+    case ESP_PEER_STATE_DATA_CHANNEL_CLOSED:       return "dc_closed";
+    case ESP_PEER_STATE_DATA_CHANNEL_DISCONNECTED: return "dc_disconnected";
+    default:                                       return "?";
+  }
+}
+
+static int onPeerState(esp_peer_state_t state, void* /*ctx*/) {
+  Serial.printf("[peer] state=%s (%d)\n", peerStateName(state), (int)state);
+  return 0;
+}
+
+static int onPeerMsg(esp_peer_msg_t* msg, void* /*ctx*/) {
+  // 5.2 mc1: log only. mc2 wires this to the WSS `signal` event so the
+  // server bridge (Branch 4) relays SDP/ICE to the parent browser.
+  Serial.printf("[peer] msg type=%d size=%d\n", (int)msg->type, msg->size);
+  return 0;
+}
+
+static void webrtcLoopTask(void* /*arg*/) {
+  while (webrtcPeerRunning) {
+    esp_peer_main_loop(webrtcPeer);
+    vTaskDelay(pdMS_TO_TICKS(20));
+  }
+  vTaskDelete(nullptr);
+}
+
+void setupWebRTC() {
+  // One-shot DTLS cert generation: the demo recommends this happen
+  // before esp_peer_open so the first connection doesn't pay the
+  // multi-second generation cost.
+  esp_peer_pre_generate_cert();
+
+  esp_peer_default_cfg_t defaults = {};
+  defaults.agent_recv_timeout = 100;
+  defaults.rtp_cfg.audio_recv_jitter.cache_size = 1024;
+  defaults.rtp_cfg.send_pool_size = 1024;
+  defaults.rtp_cfg.send_queue_num = 10;
+
+  esp_peer_cfg_t cfg = {};
+  cfg.role             = ESP_PEER_ROLE_CONTROLLING;     // baby initiates the offer
+  cfg.ice_trans_policy = ESP_PEER_ICE_TRANS_POLICY_ALL;
+  cfg.audio_info.codec       = ESP_PEER_AUDIO_CODEC_OPUS;
+  cfg.audio_info.sample_rate = SAMPLE_RATE;             // 16 kHz, matches PDM
+  cfg.audio_info.channel     = 1;
+  cfg.audio_dir          = ESP_PEER_MEDIA_DIR_SEND_ONLY;
+  cfg.video_dir          = ESP_PEER_MEDIA_DIR_NONE;
+  cfg.enable_data_channel = false;
+  cfg.on_state           = onPeerState;
+  cfg.on_msg             = onPeerMsg;
+  cfg.extra_cfg          = &defaults;
+  cfg.extra_size         = sizeof(defaults);
+
+  int ret = esp_peer_open(&cfg, esp_peer_get_default_impl(), &webrtcPeer);
+  if (ret != ESP_PEER_ERR_NONE || !webrtcPeer) {
+    Serial.printf("[peer] esp_peer_open failed ret=%d\n", ret);
+    webrtcPeer = nullptr;
+    return;
+  }
+  Serial.printf("[peer] esp_peer opened — heap=%lu\n",
+                (unsigned long)ESP.getFreeHeap());
+
+  webrtcPeerRunning = true;
+  // 10 KB stack — the demo uses 10 K, audio handshake math eats some.
+  // Pinned to core 1 so ICE/DTLS work doesn't fight the Arduino loop
+  // (which Arduino-as-component runs on core 0 by default).
+  if (xTaskCreatePinnedToCore(webrtcLoopTask, "wrtc-loop",
+                              10 * 1024, nullptr, 5,
+                              &webrtcLoopTaskHandle, 1) != pdPASS) {
+    Serial.println("[peer] failed to create main-loop task");
+    webrtcPeerRunning = false;
+    esp_peer_close(webrtcPeer);
+    webrtcPeer = nullptr;
+  }
+}
+
+// =============================================================================
 // SETUP / LOOP
 // =============================================================================
 
@@ -965,6 +1064,9 @@ void setup() {
   startBLE();
   connectWiFi();         // falls through to startConfigPortal on failure
   connectWebSocket();    // no-op while isConfigMode
+  if (!isConfigMode) {
+    setupWebRTC();       // mc1: init only. mc2+ does signaling + audio.
+  }
 }
 
 void loop() {
