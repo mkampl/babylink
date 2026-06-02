@@ -1,9 +1,9 @@
-# Top-level project CMake for the XIAO ESP32-S3 firmware (ESP-IDF version).
+# Top-level project CMake for the XIAO ESP32-S3 firmware (ESP-IDF).
 #
-# Built via Docker against espressif/idf:v5.5.4 — see ../README.md.
-# Lives in parallel to ../esp32-s3-firmware/ (PlatformIO) during the
-# Branch 5.1 toolchain conversion; that parallel directory is removed
-# in Sub-Branch 5.1d once this one carries the full firmware.
+# Built via Docker against espressif/idf:v5.5.4 — see ./README.md and
+# ./docs/branch5-webrtc-toolchain-decision.md for the why-not-PIO
+# spike outcome. Replaces the original PlatformIO firmware as of
+# Sub-Branch 5.1d (Jun 2 2026).
 
 cmake_minimum_required(VERSION 3.16)
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)

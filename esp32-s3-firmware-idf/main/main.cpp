@@ -1,10 +1,11 @@
 // BabyLink — XIAO ESP32-S3 firmware (ESP-IDF + Arduino-as-component).
 //
-// Sub-Branch 5.1b mikro-commit 4: + SoftAP captive portal fallback,
-// BOOT-button factory reset, and OV3660 camera sleep. Feature-parity
-// to the PlatformIO firmware under ../../esp32-s3-firmware/. The PIO
-// project remains buildable side by side until 5.1d removes it; mc5
-// (5.1c) adds the esp_webrtc dep for the next branch's WebRTC work.
+// Features: BLE GATT provisioning (NimBLE), WiFi STA + SoftAP captive
+// portal fallback, PDM mic capture, WSS audio streaming over
+// esp_websocket_client, OV3660 camera software-standby at boot,
+// BOOT-button long-press factory reset. The build also links the
+// `espressif/esp_peer` WebRTC PeerConnection library for the future
+// Branch 5.2 Opus/RTP audio path (no API use yet — linked only).
 
 #include <Arduino.h>
 #include <WiFi.h>
