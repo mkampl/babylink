@@ -56,3 +56,9 @@ CONFIG_BT_NIMBLE_ROLE_BROADCASTER=y
 # We don't need central / observer roles for the GATT server.
 CONFIG_BT_NIMBLE_ROLE_CENTRAL=n
 CONFIG_BT_NIMBLE_ROLE_OBSERVER=n
+
+# WSS uses Mozilla CA bundle for TLS — keeps us compatible with the
+# server's Let's Encrypt cert without per-build cert provisioning. The
+# default-full bundle is ~250 KB embedded, still fits comfortably.
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y

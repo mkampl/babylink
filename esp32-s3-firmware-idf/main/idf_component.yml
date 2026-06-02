@@ -14,3 +14,4 @@
 dependencies:
   espressif/arduino-esp32: "^3.3.0"
   h2zero/esp-nimble-cpp: "^2.0.0"
+  espressif/esp_websocket_client: "^1.5.0"
