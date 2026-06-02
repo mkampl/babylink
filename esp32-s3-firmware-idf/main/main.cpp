@@ -1,16 +1,16 @@
 // BabyLink — XIAO ESP32-S3 firmware (ESP-IDF + Arduino-as-component).
 //
-// Sub-Branch 5.1b mikro-commit 3: + PDM audio capture and WSS streaming
-// via the IDF-native esp_websocket_client. Same wire format as the PIO
-// firmware so the server's existing audio path works unchanged. Still
-// missing: SoftAP captive portal, BOOT-button factory reset, camera
-// sleep — those land in mc4.
-//
-// The PIO version under ../../esp32-s3-firmware/src/main.cpp remains
-// authoritative for behaviour until 5.1d removes it.
+// Sub-Branch 5.1b mikro-commit 4: + SoftAP captive portal fallback,
+// BOOT-button factory reset, and OV3660 camera sleep. Feature-parity
+// to the PlatformIO firmware under ../../esp32-s3-firmware/. The PIO
+// project remains buildable side by side until 5.1d removes it; mc5
+// (5.1c) adds the esp_webrtc dep for the next branch's WebRTC work.
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <Wire.h>
+#include <WebServer.h>
+#include <DNSServer.h>
 #include <Preferences.h>
 #include <esp_mac.h>
 #include <vector>
@@ -42,6 +42,23 @@ static const char* DEVICE_TYPE = "esp32-s3";
 static const int MAX_WIFI_PROFILES   = 6;
 static const int MAX_SERVER_PROFILES = 4;
 
+// SoftAP fallback (used when no WiFi profile connects).
+static const char* AP_SSID     = "BabyLinkS3-Setup";
+static const char* AP_PASSWORD = "";
+static const byte  DNS_PORT    = 53;
+// BOOT button — 5 s hold = factory reset. Same as classic firmware.
+static const int   RESET_BUTTON_PIN = 0;
+static const unsigned long RESET_HOLD_MS = 5000;
+
+// XIAO ESP32-S3 Sense onboard OV3660 camera SCCB pins. PWDN is not a
+// GPIO on this board (PWDN_GPIO_NUM = -1 in board pins); the camera
+// goes into software standby via register write at boot to stop the
+// LDO from heating the underside when video isn't used.
+static const int CAM_XCLK_PIN  = 10;
+static const int CAM_SIOD_PIN  = 40;
+static const int CAM_SIOC_PIN  = 39;
+static const uint8_t OV3660_I2C_ADDR = 0x3C;
+
 // XIAO ESP32-S3 Sense onboard PDM mic (MSM261D3526H1CPM).
 static const int PDM_CLK_PIN  = 42;
 static const int PDM_DATA_PIN = 41;
@@ -69,6 +86,8 @@ static const bool LED_ACTIVE_LOW = true;
 bool isConnected = false;
 bool isRegistered = false;
 bool isI2SReady = false;
+bool isConfigMode = false;
+bool resetButtonHeld = false;
 String deviceId;
 unsigned long lastLedToggle = 0;
 bool ledState = false;
@@ -78,6 +97,8 @@ unsigned long audioPacketsSent = 0;
 I2SClass I2S;
 int16_t audioBuffer[BUFFER_SIZE];
 esp_websocket_client_handle_t webSocket = nullptr;
+WebServer  webServer(80);
+DNSServer  dnsServer;
 
 // =============================================================================
 // CONFIG (cfg_v3 JSON ↔ NVS)
@@ -209,6 +230,7 @@ void setLED(bool on) {
 }
 
 void updateLED() {
+  if (resetButtonHeld) return;   // checkResetButton owns the LED right now
   unsigned long now = millis();
   if (isRegistered) {
     if (!ledState) setLED(true);
@@ -233,6 +255,89 @@ String macHex() {
            mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
   return String(buf);
 }
+
+// =============================================================================
+// CAMERA SLEEP (OV3660 software standby via SCCB at boot)
+// =============================================================================
+
+static uint8_t cameraWriteReg(uint16_t reg, uint8_t value) {
+  Wire.beginTransmission(OV3660_I2C_ADDR);
+  Wire.write((uint8_t)(reg >> 8));
+  Wire.write((uint8_t)(reg & 0xFF));
+  Wire.write(value);
+  return Wire.endTransmission();
+}
+
+void cameraSleep() {
+  if (!ledcAttach(CAM_XCLK_PIN, 8000000, 1)) {
+    Serial.println("[cam] ledcAttach failed — skipping camera sleep");
+    return;
+  }
+  ledcWrite(CAM_XCLK_PIN, 1);
+  delay(20);
+
+  Wire.begin(CAM_SIOD_PIN, CAM_SIOC_PIN, 100000);
+  delay(5);
+
+  uint8_t status = cameraWriteReg(0x3008, 0x42);
+  if (status == 0) {
+    Serial.println("[cam] OV3660 → software standby");
+  } else {
+    Serial.printf("[cam] OV3660 no ACK (err %u) — Sense maybe detached?\n", status);
+  }
+
+  Wire.end();
+  ledcDetach(CAM_XCLK_PIN);
+}
+
+// =============================================================================
+// FACTORY RESET (BOOT-button long-press)
+// =============================================================================
+
+void performFactoryReset() {
+  Serial.println("[reset] Performing factory reset — clearing NVS and restarting");
+  for (int i = 0; i < 10; i++) {
+    setLED(true);  delay(50);
+    setLED(false); delay(50);
+  }
+  clearConfig();
+  delay(500);
+  ESP.restart();
+}
+
+// Strict debounce: any HIGH reading resets the press timer. BLE + WiFi
+// RF noise can briefly pull GPIO0 to ~250 ms of intermittent HIGH while
+// streaming; a permissive debounce would integrate that into a false
+// 5-second "press." Skipped during the captive portal (no factory-reset
+// of a device that's already being provisioned).
+static void checkResetButton() {
+  if (isConfigMode) return;
+  if (millis() < 3000) return;   // ignore strapping-pin boot transients
+
+  static unsigned long pressStart = 0;
+  int level = digitalRead(RESET_BUTTON_PIN);
+  if (level == LOW) {
+    if (pressStart == 0) pressStart = millis();
+    unsigned long held = millis() - pressStart;
+    if (held > 1000) {
+      resetButtonHeld = true;
+      bool on = (held / 250) & 1;
+      setLED(on);
+    }
+    if (held >= RESET_HOLD_MS) {
+      Serial.println("[reset] 5s hold — factory reset");
+      pressStart = 0;
+      resetButtonHeld = false;
+      performFactoryReset();
+    }
+  } else {
+    pressStart = 0;
+    resetButtonHeld = false;
+  }
+}
+
+// Forward declaration — used by connectWiFi when no STA profile works.
+void startConfigPortal();
 
 // =============================================================================
 // PDM MIC + AUDIO PROCESSING
@@ -515,14 +620,18 @@ static int pickBestWifiProfile() {
 }
 
 void connectWiFi() {
-  if (wifiProfiles.empty()) {
-    Serial.println("[WiFi] No profiles — staying idle (BLE/SoftAP land in later commits).");
+  if (wifiProfiles.empty() || serverProfiles.empty()) {
+    Serial.println("[WiFi] No profiles configured — entering provisioning portal.");
+    startConfigPortal();
     return;
   }
 
   WiFi.mode(WIFI_STA);
   int idx = pickBestWifiProfile();
-  if (idx < 0) return;
+  if (idx < 0) {
+    startConfigPortal();
+    return;
+  }
 
   const WifiProfile& w = wifiProfiles[idx];
   Serial.printf("[WiFi] Connecting to %s ...\n", w.ssid.c_str());
@@ -540,8 +649,171 @@ void connectWiFi() {
     Serial.printf("[WiFi] Connected. IP=%s RSSI=%d\n",
                   WiFi.localIP().toString().c_str(), WiFi.RSSI());
   } else {
-    Serial.println("[WiFi] Failed to connect.");
+    Serial.println("[WiFi] Failed to connect — entering provisioning portal.");
+    startConfigPortal();
   }
+}
+
+// =============================================================================
+// SOFTAP CAPTIVE PORTAL (fallback when no WiFi profile connects, or for
+//                       browsers without Web Bluetooth — Safari, FF)
+// =============================================================================
+
+// Same HTML as the classic firmware's portal. cfg_v3 schema matches
+// cfg_v2 exactly, so the form / JS / payload work without changes.
+static const char CONFIG_HTML[] PROGMEM = R"rawliteral(
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>BabyLink S3 Setup</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);min-height:100vh;padding:20px;color:#222}
+.container{background:#fff;border-radius:20px;box-shadow:0 20px 60px rgba(0,0,0,.3);max-width:560px;margin:0 auto;padding:32px}
+h1{color:#667eea;text-align:center;font-size:26px;margin-bottom:4px}
+h2{font-size:15px;color:#444;margin:24px 0 10px;padding-bottom:6px;border-bottom:1px solid #eee}
+.subtitle{text-align:center;color:#666;font-size:13px;margin-bottom:16px}
+.info{background:#f0f4ff;padding:12px;border-radius:8px;margin-bottom:14px;font-size:12.5px;color:#555}
+label{display:block;font-weight:500;color:#333;font-size:13px;margin-bottom:5px}
+input,select{width:100%;padding:10px;border:2px solid #e0e0e0;border-radius:7px;font-size:14px;font-family:inherit}
+input:focus,select:focus{outline:none;border-color:#667eea}
+.row{display:flex;gap:6px;align-items:flex-start;background:#fafafe;padding:10px;border-radius:8px;margin-bottom:8px;border:1px solid #ececf6}
+.row .col{flex:1;min-width:0}
+.row input{padding:8px;font-size:13px;margin-bottom:6px}
+.row input:last-child{margin-bottom:0}
+.row .rm{background:#fee;color:#c33;border:none;border-radius:6px;padding:6px 10px;cursor:pointer;font-weight:600;flex-shrink:0;font-size:13px}
+.row .rm:hover{background:#c33;color:#fff}
+.row label{font-size:11.5px;color:#777;margin-bottom:3px}
+.row .active-pick{font-size:12px;color:#666;margin-top:6px;display:flex;align-items:center;gap:6px}
+.btn{width:100%;padding:13px;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#fff;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;margin-top:14px}
+.btn.secondary{background:#eef;color:#557;font-weight:500;padding:9px;font-size:13px;margin-top:6px}
+.btn.scan{background:#28a745;padding:9px;font-size:13px;margin:0 0 8px 0}
+.btn:hover{filter:brightness(1.05)}
+.btn[disabled]{opacity:.5;cursor:not-allowed}
+.msg{padding:10px;border-radius:7px;font-size:13px;margin-top:10px}
+.msg.ok{background:#e6ffea;color:#0a6}
+.msg.err{background:#fee;color:#c33}
+.empty{color:#888;font-size:12.5px;font-style:italic;padding:8px}
+</style></head>
+<body><div class="container">
+<h1>BabyLink S3</h1>
+<div class="subtitle">XIAO ESP32-S3 setup</div>
+<div class="info">Save the WiFi networks this device will roam between. On boot it picks whichever known network has the strongest signal. The active server &amp; room is the BabyLink instance this device will register with.</div>
+<h2>WiFi networks</h2>
+<button id="scanBtn" class="btn scan" type="button">Scan nearby networks</button>
+<div id="scanList"></div>
+<div id="wifiRows"></div>
+<button id="addWifi" class="btn secondary" type="button">+ Add WiFi manually</button>
+<h2>Server profiles</h2>
+<div id="serverRows"></div>
+<button id="addServer" class="btn secondary" type="button">+ Add server</button>
+<h2>Device</h2>
+<input id="devName" placeholder="Device name (e.g. Nursery)">
+<button id="saveBtn" class="btn" type="button">Save &amp; Connect</button>
+<div id="msg"></div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+let cfg={wifi:[],servers:[],activeServer:0,deviceName:""};
+const MAX_WIFI=6,MAX_SRV=4;
+function render(){
+  const w=$('wifiRows');w.innerHTML='';
+  if(!cfg.wifi.length)w.innerHTML='<div class="empty">No WiFi networks saved yet - scan or add one manually.</div>';
+  cfg.wifi.forEach((p,i)=>{const r=document.createElement('div');r.className='row';
+    r.innerHTML=`<div class="col"><label>SSID</label><input data-i="${i}" data-k="ssid" value="${p.ssid||''}"><label>Password</label><input data-i="${i}" data-k="password" type="password" value="${p.password||''}"></div><button class="rm" data-rm-w="${i}" type="button">x</button>`;
+    w.appendChild(r);});
+  const s=$('serverRows');s.innerHTML='';
+  if(!cfg.servers.length)s.innerHTML='<div class="empty">No servers saved yet.</div>';
+  cfg.servers.forEach((p,i)=>{const r=document.createElement('div');r.className='row';
+    r.innerHTML=`<div class="col"><label>Label</label><input data-i="${i}" data-k="label" value="${p.label||''}" placeholder="e.g. Home"><label>Host</label><input data-i="${i}" data-k="host" value="${p.host||''}" placeholder="192.168.1.10 or babylink.example"><label>Port</label><input data-i="${i}" data-k="port" type="number" value="${p.port||3001}"><label>Room ID</label><input data-i="${i}" data-k="roomId" value="${p.roomId||''}"><div class="active-pick"><input type="radio" name="active" ${i==cfg.activeServer?'checked':''} data-a="${i}"> Active for this device</div></div><button class="rm" data-rm-s="${i}" type="button">x</button>`;
+    s.appendChild(r);});
+  $('devName').value=cfg.deviceName||'';
+}
+document.addEventListener('input',e=>{const t=e.target;if(t.dataset.k){const i=+t.dataset.i,k=t.dataset.k;const list=t.closest('#wifiRows')?cfg.wifi:cfg.servers;list[i][k]=k=='port'?+t.value:t.value;}else if(t.id=='devName'){cfg.deviceName=t.value;}});
+document.addEventListener('change',e=>{if(e.target.dataset.a!==undefined){cfg.activeServer=+e.target.dataset.a;}});
+document.addEventListener('click',e=>{const t=e.target;if(t.dataset.rmW!==undefined){cfg.wifi.splice(+t.dataset.rmW,1);render();}else if(t.dataset.rmS!==undefined){cfg.servers.splice(+t.dataset.rmS,1);if(cfg.activeServer>=cfg.servers.length)cfg.activeServer=Math.max(0,cfg.servers.length-1);render();}else if(t.dataset.pick){cfg.wifi.push({ssid:t.dataset.pick,password:""});render();$('scanList').innerHTML='';}});
+$('addWifi').onclick=()=>{if(cfg.wifi.length<MAX_WIFI){cfg.wifi.push({ssid:"",password:""});render();}};
+$('addServer').onclick=()=>{if(cfg.servers.length<MAX_SRV){cfg.servers.push({label:"",host:"",port:3001,roomId:""});render();}};
+$('scanBtn').onclick=async()=>{$('scanBtn').disabled=true;$('scanBtn').textContent='Scanning...';
+  try{const r=await fetch('/scan');const list=await r.json();const sl=$('scanList');
+    sl.innerHTML=list.length?'<div style="font-size:12px;color:#555;margin:4px 0">Tap a network to add it:</div>':'<div class="msg err">No networks found.</div>';
+    list.sort((a,b)=>b.rssi-a.rssi).forEach(n=>{const b=document.createElement('button');b.type='button';b.className='btn secondary';b.style.textAlign='left';b.dataset.pick=n.ssid;b.textContent=`${n.ssid} (${n.rssi} dBm${n.secure?'':' - open'})`;sl.appendChild(b);});
+  }catch(e){$('scanList').innerHTML='<div class="msg err">Scan failed: '+e.message+'</div>';}
+  $('scanBtn').disabled=false;$('scanBtn').textContent='Scan nearby networks';};
+$('saveBtn').onclick=async()=>{if(!cfg.wifi.length||!cfg.wifi[0].ssid){$('msg').innerHTML='<div class="msg err">Add at least one WiFi network.</div>';return;}
+  if(!cfg.servers.length||!cfg.servers[0].host||!cfg.servers[0].roomId){$('msg').innerHTML='<div class="msg err">Add at least one server with host + room.</div>';return;}
+  $('saveBtn').disabled=true;
+  try{const r=await fetch('/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)});const j=await r.json();
+    if(r.ok){$('msg').innerHTML='<div class="msg ok">Saved! Device is rebooting...</div>';}
+    else{$('msg').innerHTML='<div class="msg err">'+(j.error||'Save failed')+'</div>';$('saveBtn').disabled=false;}
+  }catch(e){$('msg').innerHTML='<div class="msg err">'+e.message+'</div>';$('saveBtn').disabled=false;}};
+(async()=>{try{const r=await fetch('/config');cfg=await r.json();if(!cfg.wifi)cfg.wifi=[];if(!cfg.servers)cfg.servers=[];}catch(e){}render();})();
+</script></body></html>
+)rawliteral";
+
+static void handleRoot()      { webServer.send_P(200, "text/html", CONFIG_HTML); }
+static void handleGetConfig() { webServer.send(200, "application/json", serializeConfig()); }
+
+static void handleApScan() {
+  int n = WiFi.scanNetworks(false, true);
+  DynamicJsonDocument doc(2048);
+  JsonArray arr = doc.to<JsonArray>();
+  for (int i = 0; i < n && i < 24; i++) {
+    JsonObject o = arr.createNestedObject();
+    o["ssid"]   = WiFi.SSID(i);
+    o["rssi"]   = WiFi.RSSI(i);
+    o["secure"] = (WiFi.encryptionType(i) != WIFI_AUTH_OPEN);
+  }
+  String out;
+  serializeJson(doc, out);
+  webServer.send(200, "application/json", out);
+}
+
+static void handleSave() {
+  if (!webServer.hasArg("plain")) {
+    webServer.send(400, "application/json", "{\"error\":\"missing JSON body\"}");
+    return;
+  }
+  String body = webServer.arg("plain");
+  if (!deserializeConfig(body)) {
+    webServer.send(400, "application/json", "{\"error\":\"invalid config JSON\"}");
+    return;
+  }
+  if (wifiProfiles.empty() || serverProfiles.empty()) {
+    webServer.send(400, "application/json",
+                   "{\"error\":\"need at least one WiFi profile and one server profile\"}");
+    return;
+  }
+  saveConfig();
+  webServer.send(200, "application/json", "{\"ok\":true}");
+  delay(800);
+  ESP.restart();
+}
+
+void startConfigPortal() {
+  if (isConfigMode) return;
+  Serial.println("[portal] Starting WiFi-AP + DNS + WebServer captive portal");
+
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.softAP(AP_SSID, AP_PASSWORD);
+  IPAddress ip = WiFi.softAPIP();
+  Serial.printf("[portal] AP '%s'  IP=%s  -> http://192.168.4.1\n",
+                AP_SSID, ip.toString().c_str());
+
+  dnsServer.start(DNS_PORT, "*", ip);
+  webServer.on("/",       handleRoot);
+  webServer.on("/config", HTTP_GET,  handleGetConfig);
+  webServer.on("/scan",   HTTP_GET,  handleApScan);
+  webServer.on("/save",   HTTP_POST, handleSave);
+  webServer.onNotFound(handleRoot);
+  webServer.begin();
+  isConfigMode = true;
+}
+
+static void portalLoopTick() {
+  if (!isConfigMode) return;
+  dnsServer.processNextRequest();
+  webServer.handleClient();
 }
 
 // =============================================================================
@@ -622,6 +894,10 @@ static void onWsEvent(void* /*arg*/, esp_event_base_t /*base*/,
 }
 
 void connectWebSocket() {
+  if (isConfigMode) {
+    Serial.println("[WS] In config portal — skipping WS connect.");
+    return;
+  }
   if (!hasActiveServer()) {
     Serial.println("[WS] No server configured. Skipping.");
     return;
@@ -665,10 +941,16 @@ void connectWebSocket() {
 void setup() {
   Serial.begin(115200);
   delay(200);
-  Serial.println("\n=== BabyLink XIAO ESP32-S3 (IDF 5.1b mc3 — +audio +WSS) ===");
+  Serial.println("\n=== BabyLink XIAO ESP32-S3 (IDF 5.1b mc4 — feature parity) ===");
+  Serial.printf("[id] MAC=%s\n", macHex().c_str());
+
+  // Camera into software standby first — keeps the underside cool while
+  // the rest of boot runs. Safe before WiFi / I2S; dedicated pins.
+  cameraSleep();
 
   pinMode(LED_PIN, OUTPUT);
   setLED(false);
+  pinMode(RESET_BUTTON_PIN, INPUT_PULLUP);
 
   deviceId = String("esp32_") + macHex();
   Serial.printf("[id] device_id=%s type=%s name='%s'\n",
@@ -678,11 +960,19 @@ void setup() {
   WiFi.mode(WIFI_STA);
   setupPDM();
   startBLE();
-  connectWiFi();
-  connectWebSocket();
+  connectWiFi();         // falls through to startConfigPortal on failure
+  connectWebSocket();    // no-op while isConfigMode
 }
 
 void loop() {
+  checkResetButton();
+  if (isConfigMode) {
+    portalLoopTick();
+    updateLED();
+    pollBleScanComplete();
+    delay(1);
+    return;
+  }
   updateLED();
   pollBleScanComplete();
   processAudio();
