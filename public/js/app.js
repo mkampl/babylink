@@ -28,6 +28,9 @@
   const wakeLockMgr = new WakeLockManager();
   const alarmMgr = new AlarmManager();
   const esp32Handler = new ESP32AudioHandler(esp32AudioContexts);
+  // Lazy — instantiated on first S3 participant so we don't create
+  // an unused signal listener for browser-only rooms.
+  let webrtcBabyReceiver = null;
 
   // Enable all audio (WebRTC + ESP32) — resumes suspended AudioContexts
   function enableAllAudio() {
@@ -688,8 +691,22 @@
     } else if (role === 'parent' && pRole === 'baby') {
       multiBabyUI.addBaby(socketId, { socketId, role: pRole, userName: pName });
       if (multiBabyUI.babyCards.size > 0) alarmMgr.stop();
-      // Request the new baby to send us an offer
-      socket.emit('signal', { requestOffer: true, to: socketId });
+
+      if (data.deviceType === 'esp32-s3') {
+        // S3 baby — audio comes via WebRTC peer connection (Branch
+        // 5 path), not via the legacy WSS PCM stream. Attach a
+        // receiver so we can answer the ESP's offer when it lands.
+        // The actual offer/answer flow is wired up once the firmware
+        // side ships (Branch 5.2+). Until then attach() is a no-op
+        // beyond setting up the signal listener.
+        if (!webrtcBabyReceiver) {
+          webrtcBabyReceiver = new WebRTCBabyReceiver(socket, multiBabyUI);
+        }
+        webrtcBabyReceiver.attach(socketId);
+      } else {
+        // Classic ESP32 or PWA baby — keep the existing flow.
+        socket.emit('signal', { requestOffer: true, to: socketId });
+      }
     }
   });
 
@@ -701,6 +718,7 @@
     } else if (role === 'parent' && pRole === 'baby') {
       multiBabyUI.removeBaby(socketId);
       multiStreamManager.removeParticipant(socketId);
+      if (webrtcBabyReceiver) webrtcBabyReceiver.detach(socketId);
       if (multiBabyUI.babyCards.size === 0) alarmMgr.play();
     }
   });

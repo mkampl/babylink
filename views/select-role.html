@@ -164,7 +164,7 @@
           <p id="manualSetupHeading" style="font-size:0.88rem;font-weight:600;margin:0 0 var(--space-sm);">Manual Setup (all platforms):</p>
           <ol style="margin:0;padding-left:1.5em;font-size:0.88rem;line-height:1.8;color:var(--color-text-secondary);">
             <li>Power on your ESP32 device</li>
-            <li>Connect to WiFi network <strong>BabyLink-Setup</strong></li>
+            <li>Connect to its setup WiFi network (<strong>BabyLink-Setup</strong> for classic ESP32, <strong>BabyLinkS3-Setup</strong> for XIAO S3)</li>
             <li>Open <strong>http://192.168.4.1</strong> in your browser</li>
             <li>Enter your WiFi credentials and the values below:</li>
           </ol>
@@ -745,6 +745,9 @@
     var BLE_CHAR_CONFIG  = 'bab71111-0002-1001-8000-00805f9b34fb';
     var BLE_CHAR_SCAN    = 'bab71111-0002-1002-8000-00805f9b34fb';
     var BLE_CHAR_COMMAND = 'bab71111-0002-1003-8000-00805f9b34fb';
+    // Optional — only the S3 firmware exposes this. Classic firmware
+    // doesn't have char 1004; we treat read failures as "unknown".
+    var BLE_CHAR_INFO    = 'bab71111-0002-1004-8000-00805f9b34fb';
 
     var bleDevice = null;
     var bleServer = null;
@@ -874,6 +877,23 @@
         bleServer = await bleDevice.gatt.connect();
         bleService = await bleServer.getPrimaryService(BLE_SERVICE_UUID);
 
+        // Try to read device_info (new char on S3 firmware) — gives us
+        // the hardware model + firmware tag to show in the status line.
+        // Classic firmware doesn't expose this; the catch handles that
+        // gracefully (we just keep the BLE-advertised name).
+        var deviceLabel = bleDevice.name;
+        try {
+          var infoChar = await bleService.getCharacteristic(BLE_CHAR_INFO);
+          var infoRaw = await infoChar.readValue();
+          var info = JSON.parse(new TextDecoder().decode(infoRaw));
+          if (info.model) {
+            deviceLabel = bleDevice.name + ' (' + info.model +
+                          (info.fw ? ' · ' + info.fw : '') + ')';
+          }
+        } catch (e) {
+          /* classic firmware path, no device_info char — ignore */
+        }
+
         // Pull current config from device so the editor shows what's saved
         status.textContent = 'Reading current config…';
         try {
@@ -917,7 +937,7 @@
           bleConfig.activeServer = 0;
         }
 
-        status.textContent = 'Connected to ' + bleDevice.name;
+        status.textContent = 'Connected to ' + deviceLabel;
         $('bleEditor').style.display = 'block';
         renderBleEditor();
       } catch (err) {
