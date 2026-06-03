@@ -156,12 +156,22 @@ class ESP32AudioHandler {
       audioBuffer.getChannelData(0).set(amplifiedData);
       const source = ctx.audioContext.createBufferSource();
       source.buffer = audioBuffer;
-      // Audible branch (subject to mute / volume). Skipped entirely
-      // when MultiStreamManager already has a WebRTC stream for this
-      // baby — otherwise the WSS PCM and the WebRTC Opus paths overlap
-      // with a small phase offset and the parent hears an echo.
-      const webrtcActive = window._multiStreamManager
-        && window._multiStreamManager.audioStreams.has(fromId);
+      // Audible branch (subject to mute / volume). Skipped only when
+      // MultiStreamManager has a WebRTC stream for this baby AND the
+      // remote audio track is actively producing samples — otherwise
+      // both paths overlap with a phase offset and the parent hears an
+      // echo. We also fall back to the WSS-PCM playback when the
+      // WebRTC track is muted (SRTP unprotect failures, peer in a
+      // weird state, ICE renegotiating, …) so the parent doesn't end
+      // up listening to silence when the WSS path could carry audio.
+      const webrtcActive = (function() {
+        if (!window._multiStreamManager) return false;
+        const stream = window._multiStreamManager.audioStreams.get(fromId);
+        if (!stream) return false;
+        const tracks = stream.getAudioTracks();
+        return tracks.length > 0 && !tracks[0].muted &&
+               tracks[0].readyState === 'live';
+      })();
       if (!webrtcActive) source.connect(ctx.gainNode);
       // Metering branch (always processed, independent of audible mute
       // or WebRTC takeover — keeps the baby-card level meter alive).

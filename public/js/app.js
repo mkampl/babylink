@@ -486,28 +486,26 @@
     multiStreamManager.onStreamAdded = (participantId, stream, participantInfo) => {
       multiBabyUI.addBaby(participantId, participantInfo);
       enableAllAudio();
-      // Spin up a per-baby sleep tracker. Sensitivity is restored from
-      // localStorage if we've seen this baby before, otherwise the
-      // current slider value is the starting point.
-      if (!sleepTrackers.has(participantId)) {
-        const sens = multiBabyUI.sensitivity.get(participantId) || 1.0;
-        sleepTrackers.set(participantId, new SleepTracker(participantId, roomId, { sensitivity: sens }));
-      }
     };
 
     multiStreamManager.onStreamRemoved = (participantId) => {
       multiBabyUI.removeBaby(participantId);
-      const tracker = sleepTrackers.get(participantId);
-      if (tracker) { tracker.destroy(); sleepTrackers.delete(participantId); }
     };
 
     // Cross-source volume tap: every level update funnels through
     // multi-baby-ui (both WSS-PCM via esp32-audio-handler and WebRTC
-    // via multi-stream-manager land here). That's the unified
-    // observation hook for the parent-side sleep tracker.
+    // via multi-stream-manager land here). Lazy-create the per-baby
+    // SleepTracker on first observation so babies whose WebRTC
+    // handshake fails (esp_peer SDP retry exhausted, etc.) still get
+    // tracked from the WSS-PCM analyser feed.
     multiBabyUI.onLevelObserved = (babyId, level, volume) => {
-      const tracker = sleepTrackers.get(babyId);
-      if (tracker) tracker.observe(volume);
+      let tracker = sleepTrackers.get(babyId);
+      if (!tracker) {
+        const sens = multiBabyUI.sensitivity.get(babyId) || 1.0;
+        tracker = new SleepTracker(babyId, roomId, { sensitivity: sens });
+        sleepTrackers.set(babyId, tracker);
+      }
+      tracker.observe(volume);
     };
 
     // Re-render every baby's sleep timeline on a 5 s tick. The
@@ -685,6 +683,8 @@
     } else if (role === 'parent' && pRole === 'baby') {
       multiBabyUI.removeBaby(socketId);
       multiStreamManager.removeParticipant(socketId);
+      const tracker = sleepTrackers.get(socketId);
+      if (tracker) { tracker.destroy(); sleepTrackers.delete(socketId); }
       if (multiBabyUI.babyCards.size === 0) alarmMgr.play();
     }
   });

@@ -320,7 +320,12 @@ class MultiStreamManager {
       const retries = this.offerRetries.get(broken) || 0;
       if (broken && data.offer && this.peerConnections.has(broken) && retries < 3) {
         console.warn(`🟢 [STREAM-MGR] Dropping broken peer ${broken} and re-requesting offer (attempt ${retries + 1}/3)`);
-        this.removeParticipant(broken);
+        // Peer-only teardown — do NOT touch audio elements, analyser,
+        // or fire onStreamRemoved. The baby card has to survive the
+        // retry; the previous version called removeParticipant() and
+        // ended up wiping the visible baby card after 3 failed offers.
+        const peer = this.peerConnections.get(broken);
+        if (peer) { try { peer.close(); } catch (e) {} this.peerConnections.delete(broken); }
         this.offerRetries.set(broken, retries + 1);
         this.socket.emit('signal', { requestOffer: true, to: broken });
       } else if (broken && retries >= 3) {
