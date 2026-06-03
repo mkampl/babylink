@@ -248,3 +248,79 @@ body.monitor-page {
     padding: var(--space-xl) var(--space-lg);
   }
 }
+
+/* ====== Night Mode ======
+   Activated by /js/night-mode.js on the monitor page. Wraps the
+   whole UI in a near-black surface with dim amber accents so the
+   screen stops being a flashlight in a dark bedroom. Audio keeps
+   flowing — only the visual chrome dims. Tap anywhere to exit. */
+.night-mode-fab {
+  position: fixed;
+  bottom: var(--space-lg);
+  right: var(--space-lg);
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--color-surface);
+  color: var(--color-primary);
+  border: 2px solid var(--color-border);
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: var(--shadow-md);
+  transition: all var(--transition-base);
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48px;
+}
+
+.night-mode-fab:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-lg);
+}
+
+body.night-mode {
+  background: #000;
+  color: #5a3018;
+}
+
+/* Strip every panel and indicator that isn't critical to a
+   parent who just needs to know the monitor is still listening. */
+body.night-mode .theme-toggle,
+body.night-mode .wake-lock-container,
+body.night-mode .notification-settings,
+body.night-mode .master-controls,
+body.night-mode h1 {
+  display: none !important;
+}
+
+body.night-mode #status,
+body.night-mode #alert {
+  color: #5a3018;
+  background: transparent;
+  border-color: #2a1808;
+  font-size: 0.85rem;
+}
+
+body.night-mode .baby-card {
+  background: #050505;
+  border-color: #1a0e04;
+  box-shadow: none;
+  color: #5a3018;
+}
+
+body.night-mode .baby-card::before {
+  background: #1a0e04;
+}
+
+/* The FAB inverts in night mode — same shape, dim amber so the user
+   can find it without a flashlight effect. */
+body.night-mode .night-mode-fab {
+  background: #1a0e04;
+  color: #8a4a24;
+  border-color: #2a1808;
+  box-shadow: none;
+}
