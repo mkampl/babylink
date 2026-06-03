@@ -959,10 +959,22 @@
       try {
         var scanChar = await bleService.getCharacteristic(BLE_CHAR_SCAN);
         await scanChar.writeValue(new TextEncoder().encode('scan'));
-        // Give the device a moment to populate the readable side
-        await new Promise(function(r) { setTimeout(r, 4000); });
-        var raw = await scanChar.readValue();
-        var list = JSON.parse(new TextDecoder().decode(raw) || '[]');
+        // Poll for results. WiFi scan with BT coexist takes ~3–7 s on
+        // the S3; the fixed-4s wait we had before raced with finished
+        // scans, leaving the wizard reading the previous "[]" payload.
+        // Re-read every 500 ms until we see a non-empty array or the
+        // 12 s ceiling, whichever comes first.
+        var list = [];
+        var deadline = Date.now() + 12000;
+        // First grace period before the first read — the scan hasn't
+        // even started populating yet.
+        await new Promise(function(r) { setTimeout(r, 1500); });
+        while (Date.now() < deadline) {
+          var raw = await scanChar.readValue();
+          try { list = JSON.parse(new TextDecoder().decode(raw) || '[]'); } catch (_) { list = []; }
+          if (list.length) break;
+          await new Promise(function(r) { setTimeout(r, 500); });
+        }
         if (!list.length) {
           sl.innerHTML = '<div class="ble-help-text">No networks found.</div>';
         } else {
