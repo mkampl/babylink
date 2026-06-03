@@ -28,7 +28,6 @@ const JS_FILES = [
   '/js/alarm-manager.js',
   '/js/esp32-audio-handler.js',
   '/js/sleep-tracker.js',
-  '/js/night-mode.js',
   '/js/app.js',
 ];
 
