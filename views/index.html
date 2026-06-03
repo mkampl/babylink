@@ -162,11 +162,8 @@
 
     function isOnboardingComplete() {
       if (localStorage.getItem('babylink-onboarding-complete') === 'true') return true;
-      // If the user already has saved rooms, they've clearly been
-      // through setup once — don't trap them behind the wizard just
-      // because the completion flag is missing (private tab, second
-      // browser, SW cache wipe). Persist the flag so we don't redo
-      // this check on every load.
+      // Returning users (rooms already saved) skip onboarding even if
+      // the completion flag itself got wiped.
       try {
         var rooms = JSON.parse(localStorage.getItem('babylink-rooms') || '[]');
         if (rooms.length > 0) {

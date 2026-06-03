@@ -178,17 +178,10 @@ class MultiStreamManager {
 
       // Get sensitivity for this participant (default 1.0 if not set)
       const sensitivity = this.sensitivity.get(participantId) || 1.0;
-
-      // Adjust volume based on sensitivity
-      // Higher sensitivity (e.g., 2.0) = volume amplified (more sensitive)
-      // Lower sensitivity (e.g., 0.5) = volume attenuated (less sensitive)
       const adjustedVolume = peak * sensitivity;
-
-      // Use adjusted volume for display (clamped to 0-255)
       const volume = Math.min(255, adjustedVolume);
 
-      // Adjust thresholds for very low sensitivity to ensure RED is still reachable
-      // When sensitivity < 0.71, the max adjustedVolume (255 * 0.71 = 181) can't reach 180
+      // Scale thresholds at low sensitivity so RED stays reachable.
       let yellowThreshold = 100;
       let redThreshold = 180;
 
@@ -309,21 +302,15 @@ class MultiStreamManager {
 
     } catch (error) {
       console.error('🟢 [STREAM-MGR] ❌ Error handling signal:', error, data);
-      // esp_peer (XIAO S3 firmware) occasionally emits a malformed
-      // SDP offer on reconnect — `a=group:BUNDLE 0` references a
-      // mid=0 with no matching `m=audio` block, and Chrome rejects
-      // `setRemoteDescription` with an INVALID_PARAMETER. Tear down
-      // the broken peer and ask the baby to send a fresh offer; that
-      // one usually parses cleanly. Tracked as a polish item under
-      // [[project-branch52-open-polish]].
+      // esp_peer occasionally emits a malformed SDP offer on reconnect
+      // (`a=group:BUNDLE 0` references a mid with no matching `m=audio`).
+      // Drop the peer and ask for a fresh offer — usually parses cleanly.
       const broken = data && data.fromSocketId;
       const retries = this.offerRetries.get(broken) || 0;
       if (broken && data.offer && this.peerConnections.has(broken) && retries < 3) {
         console.warn(`🟢 [STREAM-MGR] Dropping broken peer ${broken} and re-requesting offer (attempt ${retries + 1}/3)`);
-        // Peer-only teardown — do NOT touch audio elements, analyser,
-        // or fire onStreamRemoved. The baby card has to survive the
-        // retry; the previous version called removeParticipant() and
-        // ended up wiping the visible baby card after 3 failed offers.
+        // Peer-only teardown — keep audio elements + analyser so the
+        // baby card survives the retry.
         const peer = this.peerConnections.get(broken);
         if (peer) { try { peer.close(); } catch (e) {} this.peerConnections.delete(broken); }
         this.offerRetries.set(broken, retries + 1);

@@ -187,9 +187,7 @@ class ESP32AudioProxy {
    */
   registerESP32(ws, registrationData, clientIp) {
     const { roomId, name, mac, sampleRate = 16000, channels = 1 } = registrationData;
-    // Hardware generation tag. Classic ESP32 + INMP441 firmware omits this
-    // field — default to 'esp32-classic' so old clients still get a sensible
-    // label without a firmware update. New XIAO-S3 firmware sends 'esp32-s3'.
+    // Older firmware without device_type registers as esp32-classic.
     const deviceType = (typeof registrationData.device_type === 'string' && registrationData.device_type)
       ? registrationData.device_type
       : 'esp32-classic';
@@ -201,11 +199,9 @@ class ESP32AudioProxy {
       return null;
     }
 
-    // Stable ID derived from MAC when the firmware provides one. Stable IDs
-    // mean a device reboot reuses the same slot — UI buttons stamped with
-    // the ID stay valid across reconnects, and user renames persist until
-    // the device is factory-reset or the server restarts.
-    // Legacy firmware (no MAC) falls back to a timestamped random ID.
+    // MAC-derived ID so the device reuses the same slot across reboots
+    // (UI bindings stay valid, renames persist). Falls back to a random
+    // ID when the firmware doesn't ship a MAC.
     const macClean = typeof mac === 'string' ? mac.toLowerCase().replace(/[^0-9a-f]/g, '') : '';
     const esp32Id = macClean.length === 12
       ? `esp32_${macClean}`
@@ -375,10 +371,7 @@ class ESP32AudioProxy {
     });
 
     // Forward audio data to all parents in the room via Socket.IO
-    // Parents will need to handle this with a custom audio handler.
-    // deviceType lets the browser pick the right visualization path
-    // (classic ESP32 stays on the original RMS meter to preserve its
-    // tuning; XIAO S3 uses the new AnalyserNode-based meter).
+    // deviceType picks the browser meter path (RMS vs AnalyserNode).
     this.io.to(client.roomId).emit('esp32-audio', {
       fromId: esp32Id,
       fromName: client.name,

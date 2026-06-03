@@ -1,16 +1,14 @@
 #!/usr/bin/env node
 /*
- * XIAO ESP32-S3 Simulator (Branch 1 skeleton parity)
+ * XIAO ESP32-S3 simulator — register + ping only, no audio.
  *
- * Mirrors the firmware skeleton: connects to /esp32-baby, sends a
- * register frame tagged with device_type="esp32-s3", and pings every
- * 5 seconds. No audio path — that lands with Branch 2.
+ * Connects to /esp32-baby, sends a register frame with
+ * device_type="esp32-s3", pings every 5 s.
  *
  * Usage:
  *   node tools/esp32-s3-simulator.js
- *   node tools/esp32-s3-simulator.js --room my-room --name "Sim S3"
- *   SERVER_HOST=babylink.itvoodoo.at SERVER_PORT=443 \
- *     node tools/esp32-s3-simulator.js --room <id>
+ *   node tools/esp32-s3-simulator.js --room <room-id> --name "Sim S3"
+ *   SERVER_HOST=your.server SERVER_PORT=443 node tools/esp32-s3-simulator.js --room <id>
  */
 
 const WebSocket = require('ws');

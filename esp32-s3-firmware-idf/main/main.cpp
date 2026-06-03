@@ -1,11 +1,8 @@
 // BabyLink — XIAO ESP32-S3 firmware (ESP-IDF + Arduino-as-component).
 //
-// Features: BLE GATT provisioning (NimBLE), WiFi STA + SoftAP captive
-// portal fallback, PDM mic capture, WSS audio streaming over
-// esp_websocket_client, OV3660 camera software-standby at boot,
-// BOOT-button long-press factory reset. The build also links the
-// `espressif/esp_peer` WebRTC PeerConnection library for the future
-// Branch 5.2 Opus/RTP audio path (no API use yet — linked only).
+// BLE GATT provisioning, WiFi STA + SoftAP captive-portal fallback,
+// PDM mic capture, audio over WSS-PCM and WebRTC (esp_peer / Opus),
+// OV3660 camera software-standby, BOOT-button long-press factory reset.
 
 #include <Arduino.h>
 #include <WiFi.h>
@@ -51,14 +48,13 @@ static const int MAX_SERVER_PROFILES = 4;
 static const char* AP_SSID     = "BabyLinkS3-Setup";
 static const char* AP_PASSWORD = "";
 static const byte  DNS_PORT    = 53;
-// BOOT button — 5 s hold = factory reset. Same as classic firmware.
+// BOOT button — 5 s hold = factory reset.
 static const int   RESET_BUTTON_PIN = 0;
 static const unsigned long RESET_HOLD_MS = 5000;
 
-// XIAO ESP32-S3 Sense onboard OV3660 camera SCCB pins. PWDN is not a
-// GPIO on this board (PWDN_GPIO_NUM = -1 in board pins); the camera
-// goes into software standby via register write at boot to stop the
-// LDO from heating the underside when video isn't used.
+// OV3660 camera SCCB pins. PWDN isn't wired on this board — the camera
+// is put into software standby via I2C at boot so the LDO doesn't heat
+// the underside while video is unused.
 static const int CAM_XCLK_PIN  = 10;
 static const int CAM_SIOD_PIN  = 40;
 static const int CAM_SIOC_PIN  = 39;
@@ -109,10 +105,9 @@ unsigned long webrtcPacketsSent = 0;
 uint32_t webrtcAudioPts = 0;
 TaskHandle_t webrtcLoopTaskHandle = nullptr;
 
-// Latest parent socketId we've seen — captured from any inbound signal
-// frame, then used as the `to` field on outbound SDP/ICE messages so the
-// Branch 4 server bridge can route them. mc2: single-parent only;
-// multi-parent rooms get one peer-per-parent in a later iteration.
+// Last parent socketId we've seen, used as `to` on outbound SDP/ICE so
+// the server routes them. Single-parent — multi-parent rooms need one
+// peer per parent and aren't supported yet.
 String parentSocketId;
 WebServer  webServer(80);
 DNSServer  dnsServer;
@@ -413,10 +408,8 @@ void processAudio() {
     webrtcAudioPts += sampleCount;
   }
 
-  // Legacy WSS path: keep streaming PCM so the server-side crying
-  // detection (preserved at the baseline RMS thresholds — see
-  // project_audio_metric_baseline) still works, and so parents on
-  // older browsers / before-WebRTC-state continue to hear audio.
+  // Also stream raw PCM over WSS — the server runs crying detection on
+  // this stream, and parents fall back to it when WebRTC hasn't come up.
   if (isConnected && isRegistered && webSocket) {
     esp_websocket_client_send_bin(webSocket, (const char*)audioBuffer,
                                   chunkBytes, portMAX_DELAY);
@@ -432,8 +425,8 @@ void processAudio() {
 }
 
 // =============================================================================
-// BLE PROVISIONING (NimBLE GATT server, same UUIDs as classic firmware
-//                   so the existing PWA wizard works unchanged)
+// BLE PROVISIONING (NimBLE GATT server — UUIDs are the contract the PWA
+//                   wizard reads/writes)
 // =============================================================================
 
 #define BLE_SERVICE_UUID  "bab71111-0002-1000-8000-00805f9b34fb"
@@ -463,7 +456,7 @@ void publishScanToBle() {
 static String buildInfoJson() {
   StaticJsonDocument<256> doc;
   doc["model"]    = "xiao-esp32-s3";
-  doc["fw"]       = "5.1b-mc2-idf";
+  doc["fw"]       = "babylink-s3";
   doc["mic"]      = "pdm";
   doc["camera"]   = true;
   doc["channels"] = 1;
@@ -697,8 +690,6 @@ void connectWiFi() {
 //                       browsers without Web Bluetooth — Safari, FF)
 // =============================================================================
 
-// Same HTML as the classic firmware's portal. cfg_v3 schema matches
-// cfg_v2 exactly, so the form / JS / payload work without changes.
 static const char CONFIG_HTML[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html><head><meta charset="UTF-8">
@@ -1067,9 +1058,6 @@ void connectWebSocket() {
     return;
   }
   const ServerProfile& s = serverProfiles[activeServer];
-  // Compose the uri here — the esp_websocket_client config takes the
-  // wss://host:port/path form rather than the (host, port, path) triple
-  // that the PIO links2004 client used.
   char uri[160];
   snprintf(uri, sizeof(uri), "%s://%s:%u%s",
            s.port == 443 ? "wss" : "ws",
@@ -1099,14 +1087,11 @@ void connectWebSocket() {
 }
 
 // =============================================================================
-// WEBRTC (esp_peer init + signaling — 5.2 mc1+mc2)
+// WEBRTC (esp_peer init + signaling)
 //
-// mc1 brings the esp_peer stack up. mc2 wires `signal` events over the
-// existing Branch-4 WSS bridge: on_msg → server → parent browser, and
-// inbound `signal` text frames from the server → esp_peer_send_msg.
-// requestOffer kickoff from the browser triggers esp_peer_new_connection.
-// Audio still flows over the legacy WSS-PCM path; mc3 replaces it with
-// esp_peer_send_audio.
+// SDP / ICE flow through the existing WSS connection: on_msg → server →
+// parent browser, inbound `signal` frames → esp_peer_send_msg. A browser-
+// side `requestOffer` triggers esp_peer_new_connection.
 // =============================================================================
 
 static const char* peerStateName(esp_peer_state_t s) {
@@ -1157,19 +1142,15 @@ static int onPeerMsg(esp_peer_msg_t* msg, void* /*ctx*/) {
   doc["to"]   = parentSocketId;
   String payload((const char*)msg->data, msg->size);
   if (msg->type == ESP_PEER_MSG_TYPE_SDP) {
-    // esp_peer v1.4.1 emits `a=setup:passive` in its offers; RFC 5763
-    // / JSEP require offerers to send `a=setup:actpass`. Chrome (and
-    // recent Firefox) silently refuse to start ICE when an offer
-    // arrives with anything else — signalingState reaches "stable"
-    // but iceConnectionState stays "new". Rewrite in place. The
-    // browser picks "active" in the answer and the ESP keeps acting
-    // as the DTLS server, which matches its cert/role.
+    // esp_peer emits `a=setup:passive` in offers; RFC 5763 / JSEP say
+    // offers must use `a=setup:actpass` or browsers silently never
+    // start ICE. Rewrite — the browser still picks "active" in the
+    // answer, ESP stays DTLS server.
     int idx = payload.indexOf("a=setup:passive");
     if (idx >= 0) payload = payload.substring(0, idx) + "a=setup:actpass" +
                             payload.substring(idx + strlen("a=setup:passive"));
-    // Wrap SDP in {type, sdp} so the browser-side MultiStreamManager
-    // can hand it straight to `new RTCSessionDescription(offer)` —
-    // matches the shape PWA-baby offers use.
+    // Wrap as {type, sdp} so the browser can pass it straight to
+    // RTCSessionDescription.
     JsonObject offer = doc.createNestedObject("offer");
     offer["type"] = "offer";
     offer["sdp"]  = payload;
@@ -1201,9 +1182,8 @@ static void webrtcLoopTask(void* /*arg*/) {
 }
 
 void setupWebRTC() {
-  // One-shot DTLS cert generation: the demo recommends this happen
-  // before esp_peer_open so the first connection doesn't pay the
-  // multi-second generation cost.
+  // Generate the DTLS cert up front so the first connection doesn't
+  // stall on it.
   esp_peer_pre_generate_cert();
 
   esp_peer_default_cfg_t defaults = {};
@@ -1238,9 +1218,8 @@ void setupWebRTC() {
                 (unsigned long)ESP.getFreeHeap());
 
   webrtcPeerRunning = true;
-  // 10 KB stack — the demo uses 10 K, audio handshake math eats some.
-  // Pinned to core 1 so ICE/DTLS work doesn't fight the Arduino loop
-  // (which Arduino-as-component runs on core 0 by default).
+  // Pinned to core 1 so ICE / DTLS work doesn't fight the Arduino loop
+  // on core 0.
   if (xTaskCreatePinnedToCore(webrtcLoopTask, "wrtc-loop",
                               10 * 1024, nullptr, 5,
                               &webrtcLoopTaskHandle, 1) != pdPASS) {
@@ -1258,11 +1237,11 @@ void setupWebRTC() {
 void setup() {
   Serial.begin(115200);
   delay(200);
-  Serial.println("\n=== BabyLink XIAO ESP32-S3 (IDF 5.1b mc4 — feature parity) ===");
+  Serial.println("\n=== BabyLink XIAO ESP32-S3 ===");
   Serial.printf("[id] MAC=%s\n", macHex().c_str());
 
-  // Camera into software standby first — keeps the underside cool while
-  // the rest of boot runs. Safe before WiFi / I2S; dedicated pins.
+  // Camera to standby first — stops the LDO heating up while the rest
+  // of boot runs.
   cameraSleep();
 
   pinMode(LED_PIN, OUTPUT);
@@ -1275,14 +1254,13 @@ void setup() {
 
   loadConfig();
   setupPDM();
-  // BLE first, then WiFi — matches PIO; lets connectWiFi /
-  // startConfigPortal own the WiFi.mode() decision based on whether
-  // there are profiles to connect with.
+  // BLE before WiFi so connectWiFi / startConfigPortal own the
+  // WiFi.mode() decision.
   startBLE();
   connectWiFi();         // falls through to startConfigPortal on failure
   connectWebSocket();    // no-op while isConfigMode
   if (!isConfigMode) {
-    setupWebRTC();       // mc1: init only. mc2+ does signaling + audio.
+    setupWebRTC();
   }
 }
 

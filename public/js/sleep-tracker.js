@@ -48,9 +48,7 @@ class SleepTracker {
   }
 
   _recomputeThresholds() {
-    // Default thresholds match the legacy esp32-audio-handler /
-    // multi-stream-manager peak values (volume is 0-255 from
-    // AnalyserNode.getByteFrequencyData peak).
+    // volume is the 0..255 peak from AnalyserNode.getByteFrequencyData.
     const baseYellow = 60;
     const baseRed    = 130;
     this.thresholds = {

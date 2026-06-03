@@ -249,10 +249,8 @@
     // Dark mode toggle
     ThemeManager.createToggleButton(document.body);
 
-    // QR code rendered locally with qrcode-generator (MIT) — keeps the
-    // "data never leaves your home" promise. cellSize 6 / margin 4
-    // matches the 200x200 hint the previous URL was asking the remote
-    // service for.
+    // QR code rendered locally with qrcode-generator (MIT) so the
+    // room URL never leaves the device.
     function generateQR(text) {
       const qrImg = document.getElementById('qrcode');
       try {
@@ -1000,7 +998,7 @@
                           (info.fw ? ' · ' + info.fw : '') + ')';
           }
         } catch (e) {
-          /* classic firmware path, no device_info char — ignore */
+          /* older firmware without device_info — fall back to name */
         }
 
         // Pull current config from device so the editor shows what's saved
@@ -1023,11 +1021,8 @@
           bleConfig = { wifi: [], servers: [], activeServer: 0, deviceName: '' };
         }
 
-        // Make sure the BabyLink instance the user is provisioning *from*
-        // is in the server list and selected as active. Otherwise the device
-        // would inherit whatever the firmware happened to seed (its dev
-        // defaults) and register against the wrong server — which is the
-        // exact opposite of what the user clicked "Add ESP32" to do.
+        // Pre-seed the current server as active so the device registers
+        // here, not against whatever the firmware happened to ship with.
         // Use the LAN hint instead of raw location.hostname so the
         // pre-seeded server entry points the ESP at the host's actual
         // network address, not "localhost".

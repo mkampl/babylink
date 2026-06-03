@@ -60,13 +60,8 @@ app.use(cors({
   credentials: config.security.corsCredentials
 }));
 
-// Rate limiting middleware
-//
-// Static assets bypass the limiter: they're trivially cacheable, the
-// service worker handles repeat fetches client-side, and counting
-// them against the budget meant a normal browser reload (10-15 asset
-// requests) could exhaust 100/15min in under ten reloads — which is
-// exactly what bit us while iterating on the UI.
+// Rate limit dynamic routes only — static assets bypass so a normal
+// page reload doesn't burn the budget.
 const limiter = rateLimit({
   windowMs: config.security.rateLimitWindow,
   max: config.security.rateLimitMaxRequests,
@@ -139,18 +134,10 @@ app.get('/api/config/webrtc', (req, res) => {
   res.json(config.webrtcWithTurn);
 });
 
-// Best LAN address the server can advertise to ESP32 devices for the
-// BLE provisioning wizard. When the PWA is opened on http://localhost
-// (developer's own laptop) the wizard would otherwise pre-fill "host:
-// localhost" into the ESP's server profile — which on the ESP side
-// resolves to its own loopback and fails to connect.
-//
-// Resolution order:
-//   1. PUBLIC_HOST env var — set this in docker-compose when running
-//      containerized (the container only sees its bridge IP, not the
-//      host's LAN address).
-//   2. os.networkInterfaces() — works when running on bare metal.
-//   3. req.hostname — last resort.
+// Host the BLE wizard hands to the ESP32. Falls back through
+// PUBLIC_HOST env, then a non-loopback LAN interface, then req.hostname.
+// PUBLIC_HOST is mandatory in Docker — the container only sees its
+// own bridge IP.
 app.get('/api/config/server-hint', (req, res) => {
   let host = process.env.PUBLIC_HOST;
   if (!host) {

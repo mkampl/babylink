@@ -1,22 +1,7 @@
-/**
- * ESP32 Audio Handler — processes audio from ESP32 baby devices.
- *
- * Routes incoming binary PCM chunks into the parent's AudioContext for
- * playback, and computes a per-device level for the UI meter.
- *
- * Two visualization paths, selected per chunk by `deviceType`:
- *
- *   - 'esp32-classic' (default) — preserves the long-tuned original
- *     RMS-per-chunk meter with the existing thresholds 100/180.
- *     DO NOT change without explicit user approval; the classic
- *     ESP32 + INMP441 pipeline was calibrated against this.
- *
- *   - 'esp32-s3' — AnalyserNode with a dB range shifted for raw PDM
- *     mic data (-40…-5 dBFS), polled via requestAnimationFrame at
- *     ~60 Hz. Matches the WebRTC PWA-baby meter feel. Thresholds
- *     60/130 because PDM signal sits in a narrower band than the
- *     classic ESP32 with software gain.
- */
+// Plays binary PCM chunks from ESP32 babies and produces a per-device
+// level for the UI meter. Two meter paths picked by `deviceType`:
+// 'esp32-classic' uses RMS-per-chunk with tuned 100/180 thresholds;
+// 'esp32-s3' uses an AnalyserNode in dBFS with 60/130 thresholds.
 class ESP32AudioHandler {
   constructor(esp32AudioContexts) {
     this.contexts = esp32AudioContexts;
@@ -80,12 +65,8 @@ class ESP32AudioHandler {
         gainNode.connect(audioContext.destination);
 
         if (isS3) {
-          // AnalyserNode is wired in PARALLEL to gainNode (from the
-          // source — see source-connect below). That decouples it
-          // from mute / volume changes: mute the audible output but
-          // the meter keeps moving so we can still see if the baby is
-          // making noise. AnalyserNode is a passive node — it does not
-          // require a destination connection to keep processing.
+          // Analyser branches from the source in parallel to gainNode
+          // so muting the audible output doesn't kill the meter.
           const analyser = audioContext.createAnalyser();
           analyser.fftSize = 256;
           analyser.smoothingTimeConstant = 0.6; // more responsive to taps
@@ -140,30 +121,18 @@ class ESP32AudioHandler {
         amplifiedData[i] = Math.max(-1.0, Math.min(1.0, floatData[i] * sensitivityGain));
       }
 
-      // Create and play audio buffer. Each PCM frame from the ESP32 is
-      // scheduled to start exactly where the previous one ended so there
-      // are no gaps/clicks at chunk boundaries — calling start() with
-      // no argument starts "as soon as possible," which inserts micro-
-      // gaps under network jitter and produces a regular tick pattern
-      // proportional to the chunk rate.
-      //
-      // The per-context nextStartTime clock keeps ~50ms of lead so we
-      // can absorb small jitter. If chunks arrive much faster than they
-      // play (sustained > MAX_LEAD ahead of currentTime), or much slower
-      // (already in the past), we re-anchor with fresh lead — drift
-      // would otherwise grow unbounded over a long session.
+      // Schedule each chunk to start where the previous one ended,
+      // with ~50 ms of lead. start() with no argument inserts micro-
+      // gaps under jitter and produces a regular tick. Re-anchor with
+      // fresh lead if we drift too far ahead or fall into the past.
       const audioBuffer = ctx.audioContext.createBuffer(ctx.channels, amplifiedData.length, ctx.sampleRate);
       audioBuffer.getChannelData(0).set(amplifiedData);
       const source = ctx.audioContext.createBufferSource();
       source.buffer = audioBuffer;
-      // Audible branch (subject to mute / volume). Skipped only when
-      // MultiStreamManager has a WebRTC stream for this baby AND the
-      // remote audio track is actively producing samples — otherwise
-      // both paths overlap with a phase offset and the parent hears an
-      // echo. We also fall back to the WSS-PCM playback when the
-      // WebRTC track is muted (SRTP unprotect failures, peer in a
-      // weird state, ICE renegotiating, …) so the parent doesn't end
-      // up listening to silence when the WSS path could carry audio.
+      // Skip WSS playback when WebRTC is actively delivering this
+      // baby's audio — both paths overlap into an echo otherwise.
+      // Fall back to WSS if the WebRTC track is muted (SRTP failures,
+      // ICE renegotiating) so we don't sit on silence.
       const webrtcActive = (function() {
         if (!window._multiStreamManager) return false;
         const stream = window._multiStreamManager.audioStreams.get(fromId);
@@ -189,9 +158,9 @@ class ESP32AudioHandler {
       source.start(ctx.nextStartTime);
       ctx.nextStartTime += audioBuffer.duration;
 
-      // Classic ESP32 visualization — exact pre-Branch-2 behavior.
-      // Per-chunk RMS over the (sensitivity-applied) Float32, scaled
-      // ×500, color thresholds 40/120. Untouched on purpose.
+      // Classic ESP32 meter: per-chunk RMS ×500, color thresholds 40/120.
+      // The classic + INMP441 pipeline is calibrated against these
+      // exact constants — leave them alone.
       if (!isS3 && multiBabyUI && multiBabyUI.babyCards.has(fromId)) {
         let sumSquares = 0;
         for (let i = 0; i < amplifiedData.length; i++) {

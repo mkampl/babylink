@@ -28,11 +28,9 @@
   const wakeLockMgr = new WakeLockManager();
   const alarmMgr = new AlarmManager();
   const esp32Handler = new ESP32AudioHandler(esp32AudioContexts);
-  // Sleep tracking is owned by the parent (this tab). One tracker per
-  // baby, fed by multiBabyUI.onLevelObserved. Persistence is in
-  // localStorage and survives reloads; per-parent observation is the
-  // intentional design — different parents may have different rooms /
-  // sensitivity and want their own picture.
+  // One sleep tracker per baby, fed by multiBabyUI.onLevelObserved and
+  // persisted in localStorage. Per-parent on purpose — different parents
+  // have different sensitivities and want their own view.
   const sleepTrackers = new Map();  // babyId → SleepTracker
   let sleepRenderInterval = null;
 
@@ -493,12 +491,9 @@
       multiBabyUI.removeBaby(participantId);
     };
 
-    // Cross-source volume tap: every level update funnels through
-    // multi-baby-ui (both WSS-PCM via esp32-audio-handler and WebRTC
-    // via multi-stream-manager land here). Lazy-create the per-baby
-    // SleepTracker on first observation so babies whose WebRTC
-    // handshake fails (esp_peer SDP retry exhausted, etc.) still get
-    // tracked from the WSS-PCM analyser feed.
+    // Both WSS-PCM and WebRTC level updates land here. Lazy-create the
+    // tracker on first observation so a baby whose WebRTC handshake
+    // never succeeds still gets tracked off the WSS feed.
     multiBabyUI.onLevelObserved = (babyId, level, volume) => {
       let tracker = sleepTrackers.get(babyId);
       if (!tracker) {
