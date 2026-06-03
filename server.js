@@ -143,29 +143,38 @@ app.get('/api/config/webrtc', (req, res) => {
 // BLE provisioning wizard. When the PWA is opened on http://localhost
 // (developer's own laptop) the wizard would otherwise pre-fill "host:
 // localhost" into the ESP's server profile — which on the ESP side
-// resolves to its own loopback and fails to connect. The wizard
-// queries this endpoint and uses the returned address when its own
-// window.location.hostname is a loopback name.
+// resolves to its own loopback and fails to connect.
+//
+// Resolution order:
+//   1. PUBLIC_HOST env var — set this in docker-compose when running
+//      containerized (the container only sees its bridge IP, not the
+//      host's LAN address).
+//   2. os.networkInterfaces() — works when running on bare metal.
+//   3. req.hostname — last resort.
 app.get('/api/config/server-hint', (req, res) => {
-  const os = require('os');
-  const interfaces = os.networkInterfaces();
-  let lanIp = null;
-  for (const name of Object.keys(interfaces)) {
-    for (const addr of interfaces[name]) {
-      if (addr.family === 'IPv4' && !addr.internal) {
-        // Prefer 192.168.x.x and 10.x.x.x over 172.16/12 (often Docker).
-        if (addr.address.startsWith('192.168.') || addr.address.startsWith('10.')) {
-          lanIp = addr.address;
-          break;
+  let host = process.env.PUBLIC_HOST;
+  if (!host) {
+    const os = require('os');
+    const interfaces = os.networkInterfaces();
+    let lanIp = null;
+    for (const name of Object.keys(interfaces)) {
+      for (const addr of interfaces[name]) {
+        if (addr.family === 'IPv4' && !addr.internal) {
+          // Prefer 192.168.x.x and 10.x.x.x over 172.16/12 (often Docker).
+          if (addr.address.startsWith('192.168.') || addr.address.startsWith('10.')) {
+            lanIp = addr.address;
+            break;
+          }
+          if (!lanIp) lanIp = addr.address;
         }
-        if (!lanIp) lanIp = addr.address;
       }
+      if (lanIp && (lanIp.startsWith('192.168.') || lanIp.startsWith('10.'))) break;
     }
-    if (lanIp && (lanIp.startsWith('192.168.') || lanIp.startsWith('10.'))) break;
+    host = lanIp || req.hostname;
   }
   res.json({
-    host: lanIp || req.hostname,
-    port: parseInt(process.env.PORT, 10) || 3001
+    host,
+    port: parseInt(process.env.PUBLIC_PORT || process.env.PORT, 10) || 3001
   });
 });
 

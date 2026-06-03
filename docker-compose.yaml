@@ -12,6 +12,13 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3001
+      # LAN address the BLE wizard advertises to ESP32 devices. Inside
+      # the container os.networkInterfaces() only sees the docker bridge
+      # IP — useless for an ESP that needs to reach the host. Set this
+      # in your shell before `docker compose up`, or via .env file.
+      # Example: LAN_IP=192.168.178.39 docker compose up -d
+      - PUBLIC_HOST=${LAN_IP:-}
+      - PUBLIC_PORT=${LAN_PORT:-3001}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) })"]
