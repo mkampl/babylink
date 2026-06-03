@@ -773,7 +773,16 @@ document.addEventListener('click',e=>{const t=e.target;if(t.dataset.rmW!==undefi
 $('addWifi').onclick=()=>{if(cfg.wifi.length<MAX_WIFI){cfg.wifi.push({ssid:"",password:""});render();}};
 $('addServer').onclick=()=>{if(cfg.servers.length<MAX_SRV){cfg.servers.push({label:"",host:"",port:3001,roomId:""});render();}};
 $('scanBtn').onclick=async()=>{$('scanBtn').disabled=true;$('scanBtn').textContent='Scanning...';
-  try{const r=await fetch('/scan');const list=await r.json();const sl=$('scanList');
+  try{
+    await fetch('/scan',{method:'POST'});
+    const deadline=Date.now()+12000;let list=[];
+    await new Promise(r=>setTimeout(r,1500));
+    while(Date.now()<deadline){
+      const r=await fetch('/scan');list=await r.json();
+      if(Array.isArray(list)&&list.length)break;
+      await new Promise(r=>setTimeout(r,500));
+    }
+    const sl=$('scanList');
     sl.innerHTML=list.length?'<div style="font-size:12px;color:#555;margin:4px 0">Tap a network to add it:</div>':'<div class="msg err">No networks found.</div>';
     list.sort((a,b)=>b.rssi-a.rssi).forEach(n=>{const b=document.createElement('button');b.type='button';b.className='btn secondary';b.style.textAlign='left';b.dataset.pick=n.ssid;b.textContent=`${n.ssid} (${n.rssi} dBm${n.secure?'':' - open'})`;sl.appendChild(b);});
   }catch(e){$('scanList').innerHTML='<div class="msg err">Scan failed: '+e.message+'</div>';}
@@ -792,19 +801,64 @@ $('saveBtn').onclick=async()=>{if(!cfg.wifi.length||!cfg.wifi[0].ssid){$('msg').
 static void handleRoot()      { webServer.send_P(200, "text/html", CONFIG_HTML); }
 static void handleGetConfig() { webServer.send(200, "application/json", serializeConfig()); }
 
-static void handleApScan() {
-  int n = WiFi.scanNetworks(false, true);
+// Captive-portal scan plumbing.
+//
+// The old handleApScan called WiFi.scanNetworks(false, ...) — synchronous,
+// blocked the HTTP loop, and disrupted the SoftAP long enough that
+// Android dropped the client and roamed back to a remembered home WiFi.
+// Same pattern as the BLE scan path: trigger async, poll completion
+// from the main loop, return cached results from the GET.
+//
+//   POST /scan  → kick off an async scan, returns immediately
+//   GET  /scan  → returns the latest cached array (empty while running)
+static String  webScanJson         = "[]";
+static bool    webScanInProgress   = false;
+
+static void handleApScanTrigger() {
+  if (!webScanInProgress) {
+    Serial.println("[portal] Starting async WiFi scan");
+    webScanJson = "[]";
+    webScanInProgress = true;
+    WiFi.scanNetworks(true, true);
+  }
+  webServer.send(202, "application/json", "{\"status\":\"scanning\"}");
+}
+
+static void handleApScanPoll() {
+  webServer.send(200, "application/json", webScanJson);
+}
+
+void pollWebScanComplete() {
+  if (!webScanInProgress) return;
+  int n = WiFi.scanComplete();
+  if (n == WIFI_SCAN_RUNNING) return;
+  webScanInProgress = false;
+  if (n < 0) {
+    Serial.printf("[portal] Async scan failed (%d)\n", n);
+    webScanJson = "[]";
+    return;
+  }
   DynamicJsonDocument doc(2048);
   JsonArray arr = doc.to<JsonArray>();
-  for (int i = 0; i < n && i < 24; i++) {
+  std::vector<int> idx;
+  for (int i = 0; i < n; i++) idx.push_back(i);
+  std::sort(idx.begin(), idx.end(),
+            [](int a, int b) { return WiFi.RSSI(a) > WiFi.RSSI(b); });
+  // 12 entries is plenty for a "tap to add" picker — we're not
+  // constrained by the BLE 512-byte attribute cap here.
+  const int CAP = 12;
+  for (int k = 0; k < (int)idx.size() && k < CAP; k++) {
+    int i = idx[k];
     JsonObject o = arr.createNestedObject();
     o["ssid"]   = WiFi.SSID(i);
     o["rssi"]   = WiFi.RSSI(i);
     o["secure"] = (WiFi.encryptionType(i) != WIFI_AUTH_OPEN);
   }
-  String out;
-  serializeJson(doc, out);
-  webServer.send(200, "application/json", out);
+  webScanJson = "";
+  serializeJson(doc, webScanJson);
+  WiFi.scanDelete();
+  Serial.printf("[portal] Scan complete: %d networks (%u bytes)\n",
+                n, webScanJson.length());
 }
 
 static void handleSave() {
@@ -841,7 +895,8 @@ void startConfigPortal() {
   dnsServer.start(DNS_PORT, "*", ip);
   webServer.on("/",       handleRoot);
   webServer.on("/config", HTTP_GET,  handleGetConfig);
-  webServer.on("/scan",   HTTP_GET,  handleApScan);
+  webServer.on("/scan",   HTTP_GET,  handleApScanPoll);
+  webServer.on("/scan",   HTTP_POST, handleApScanTrigger);
   webServer.on("/save",   HTTP_POST, handleSave);
   webServer.onNotFound(handleRoot);
   webServer.begin();
@@ -852,6 +907,7 @@ static void portalLoopTick() {
   if (!isConfigMode) return;
   dnsServer.processNextRequest();
   webServer.handleClient();
+  pollWebScanComplete();
 }
 
 // =============================================================================
