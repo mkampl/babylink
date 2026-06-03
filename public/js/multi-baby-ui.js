@@ -20,6 +20,11 @@ class MultiBabyUI {
     this.onSoloToggle = null;
     this.onVolumeChange = null;
     this.onSensitivityChange = null;
+    // Fires every time the audio level for a baby updates (either WebRTC
+    // analyser or WSS-PCM analyser). app.js wires this to the per-baby
+    // SleepTracker so the tracker sees a continuous volume stream
+    // regardless of where it came from.
+    this.onLevelObserved = null;
 
     this.init();
   }
@@ -117,7 +122,16 @@ class MultiBabyUI {
 
       <div class="baby-sleep-timeline" id="sleep-${babyId}">
         <strong>Sleep Timeline:</strong>
-        <div class="sleep-timeline-bar" id="sleep-bar-${babyId}"></div>
+        <div class="sleep-detail-label">Last 15 min (15 s slots)</div>
+        <div class="sleep-timeline-bar sleep-detail-bar" id="sleep-detail-${babyId}"></div>
+        <svg class="sleep-connector" viewBox="0 0 100 12" preserveAspectRatio="none">
+          <!-- Trapezoid connecting the full detail bar to the rightmost
+               2.08% (15 min / 720 min) of the history bar below. -->
+          <polygon class="sleep-connector-shape"
+                   points="0,0 100,0 100,12 97.92,12" />
+        </svg>
+        <div class="sleep-history-label">Last 12 h (1 min slots)</div>
+        <div class="sleep-timeline-bar sleep-history-bar" id="sleep-history-${babyId}"></div>
         <div class="sleep-summary" id="sleep-summary-${babyId}"></div>
       </div>
 
@@ -259,6 +273,9 @@ class MultiBabyUI {
    * Update audio level for a specific baby
    */
   updateAudioLevel(babyId, level, volume) {
+    if (this.onLevelObserved) {
+      try { this.onLevelObserved(babyId, level, volume); } catch (e) {}
+    }
     const previousLevel = this.audioLevels.get(babyId);
     this.audioLevels.set(babyId, level);
 
@@ -518,66 +535,50 @@ class MultiBabyUI {
     return escapeHtml(text);
   }
 
-  /**
-   * Update sleep timeline display for a baby
-   */
-  updateSleepTimeline(babyId, events) {
-    var bar = document.getElementById('sleep-bar-' + babyId);
-    var summary = document.getElementById('sleep-summary-' + babyId);
-    if (!bar || !events || events.length === 0) return;
+  // Re-render both bars + summary for the baby from the SleepTracker's
+  // current aggregates. Caller drives this on a 5 s interval so the
+  // detail bar slides smoothly without rebuilding on every observe().
+  renderSleepTimeline(babyId, tracker) {
+    var detailBar  = document.getElementById('sleep-detail-' + babyId);
+    var historyBar = document.getElementById('sleep-history-' + babyId);
+    var summaryEl  = document.getElementById('sleep-summary-' + babyId);
+    if (!detailBar || !historyBar || !summaryEl || !tracker) return;
 
-    // Show last 12 hours
-    var now = Date.now();
-    var windowMs = 12 * 60 * 60 * 1000;
-    var startTime = now - windowMs;
+    var detailWindowMs  = 15 * 60 * 1000;       // last 15 min
+    var detailSlotMs    = 15 * 1000;            // 15 s slots → 60 stripes
+    var historyWindowMs = 12 * 60 * 60 * 1000;  // last 12 h
+    var historySlotMs   = 60 * 1000;            // 1 min slots → 720 stripes
 
-    // Filter to window
-    var filtered = events.filter(function(e) { return e.time >= startTime || events.indexOf(e) === events.length - 1; });
-    if (filtered.length === 0) return;
+    this._renderTimelineBar(detailBar, tracker.getSlots(detailWindowMs, detailSlotMs));
+    this._renderTimelineBar(historyBar, tracker.getSlots(historyWindowMs, historySlotMs));
 
-    // Build segments
-    bar.innerHTML = '';
-    var totalMs = now - startTime;
-
-    for (var i = 0; i < filtered.length; i++) {
-      var segStart = Math.max(filtered[i].time, startTime);
-      var segEnd = (i + 1 < filtered.length) ? filtered[i + 1].time : now;
-      var pctLeft = ((segStart - startTime) / totalMs) * 100;
-      var pctWidth = ((segEnd - segStart) / totalMs) * 100;
-
-      // Skip vanishingly thin segments only. 0.2% of a 12 h window was
-      // ~86 s, which dropped every segment from devices with a short
-      // event history (e.g. an ESP32 that just rebooted — its first
-      // minute of events all fell below the threshold and the bar
-      // stayed blank even though the summary correctly counted wakes).
-      if (pctWidth < 0.01) continue;
-
-      var seg = document.createElement('div');
-      seg.className = 'sleep-segment sleep-' + filtered[i].level.toLowerCase();
-      seg.style.left = pctLeft + '%';
-      seg.style.width = pctWidth + '%';
-      bar.appendChild(seg);
-    }
-
-    // Calculate summary
-    var sleepMs = 0;
-    var wakeCount = 0;
-    for (var j = 0; j < filtered.length; j++) {
-      var sStart = Math.max(filtered[j].time, startTime);
-      var sEnd = (j + 1 < filtered.length) ? filtered[j + 1].time : now;
-      if (filtered[j].level === 'GREEN') {
-        sleepMs += (sEnd - sStart);
-      }
-      if (filtered[j].level === 'RED' && j > 0 && filtered[j - 1].level === 'GREEN') {
-        wakeCount++;
-      }
-    }
-
-    var sleepHours = Math.floor(sleepMs / 3600000);
-    var sleepMins = Math.floor((sleepMs % 3600000) / 60000);
+    var sum = tracker.getSummary(historyWindowMs);
+    var wakes = tracker.getWakeCount(historyWindowMs);
+    var sleepHours = Math.floor(sum.greenSecs / 3600);
+    var sleepMins  = Math.floor((sum.greenSecs % 3600) / 60);
     var text = sleepHours + 'h ' + sleepMins + 'min quiet';
-    if (wakeCount > 0) text += ', woke ' + wakeCount + ' time' + (wakeCount > 1 ? 's' : '');
-    summary.textContent = text;
+    if (wakes > 0) text += ', woke ' + wakes + ' time' + (wakes > 1 ? 's' : '');
+    summaryEl.textContent = text;
+  }
+
+  _renderTimelineBar(barEl, slots) {
+    if (!slots.length) { barEl.innerHTML = ''; return; }
+    var totalMs = slots[slots.length - 1].endMs - slots[0].startMs;
+    var startMs = slots[0].startMs;
+    var html = '';
+    for (var i = 0; i < slots.length; i++) {
+      var s = slots[i];
+      var pctLeft  = ((s.startMs - startMs) / totalMs) * 100;
+      var pctWidth = ((s.endMs - s.startMs) / totalMs) * 100;
+      var cls;
+      if (!s.hasData)              cls = 'sleep-empty';
+      else if (s.dominant === 'r') cls = 'sleep-red';
+      else if (s.dominant === 'y') cls = 'sleep-yellow';
+      else                          cls = 'sleep-green';
+      html += '<div class="sleep-segment ' + cls + '" style="left:' +
+              pctLeft.toFixed(3) + '%;width:' + pctWidth.toFixed(3) + '%;"></div>';
+    }
+    barEl.innerHTML = html;
   }
 
   /**

@@ -273,10 +273,52 @@
   opacity: 0.8;
 }
 
+.sleep-empty {
+  /* No observation in this slot — parent was offline / tab was
+     backgrounded for a while. Renders grey so it's clearly
+     distinguishable from "quiet" (which is green). */
+  background: var(--color-border-light);
+  opacity: 0.45;
+}
+
+/* Two-bar minimap pattern: detail = last 15 min at 15 s slot
+   resolution, history = last 12 h at 1 min slot resolution. SVG
+   trapezoid connector shows visually which slice of the history
+   bar is being magnified above. */
+.sleep-detail-label,
+.sleep-history-label {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  margin: 0.25rem 0 0.2rem;
+}
+
+.sleep-detail-bar {
+  height: 18px;
+}
+
+.sleep-history-bar {
+  height: 16px;
+}
+
+.sleep-connector {
+  display: block;
+  width: 100%;
+  height: 12px;
+  margin: 0;
+}
+
+.sleep-connector-shape {
+  fill: var(--color-border-light);
+  opacity: 0.55;
+  stroke: var(--color-border);
+  stroke-width: 0.3;
+}
+
 .sleep-summary {
   font-size: 0.82rem;
   color: var(--color-text-secondary);
   font-weight: 500;
+  margin-top: 0.35rem;
 }
 
 /* ====== Activity Log ====== */

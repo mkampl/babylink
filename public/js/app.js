@@ -28,6 +28,13 @@
   const wakeLockMgr = new WakeLockManager();
   const alarmMgr = new AlarmManager();
   const esp32Handler = new ESP32AudioHandler(esp32AudioContexts);
+  // Sleep tracking is owned by the parent (this tab). One tracker per
+  // baby, fed by multiBabyUI.onLevelObserved. Persistence is in
+  // localStorage and survives reloads; per-parent observation is the
+  // intentional design — different parents may have different rooms /
+  // sensitivity and want their own picture.
+  const sleepTrackers = new Map();  // babyId → SleepTracker
+  let sleepRenderInterval = null;
 
   // Enable all audio (WebRTC + ESP32) — resumes suspended AudioContexts
   function enableAllAudio() {
@@ -313,21 +320,6 @@
     var RED_THRESHOLD = 180;
     var YELLOW_THRESHOLD = 100;
 
-    // --- Sleep tracking state ---
-    var currentLevel = 'GREEN';
-    var sleepTrackingEnabled = true;
-
-    // Load sleep tracking config
-    try {
-      var cfg = JSON.parse(localStorage.getItem('babylink-sleep-config-' + roomId) || '{}');
-      if (cfg.enabled === false) sleepTrackingEnabled = false;
-    } catch (e) {}
-
-    // Record initial state
-    if (sleepTrackingEnabled) {
-      recordSleepEvent('GREEN');
-    }
-
     function getLevel(volume) {
       if (volume > RED_THRESHOLD) return 'RED';
       if (volume > YELLOW_THRESHOLD) return 'YELLOW';
@@ -357,70 +349,9 @@
       } else {
         isCrying = false;
       }
-
-      // --- Sleep tracking (record every transition) ---
-      if (sleepTrackingEnabled && level !== currentLevel) {
-        currentLevel = level;
-        recordSleepEvent(level);
-      }
     }
 
     setInterval(check, 500);
-  }
-
-  // ========================
-  // Sleep event storage (localStorage)
-  // ========================
-
-  function getSleepStorageKey() {
-    return 'babylink-sleep-' + roomId;
-  }
-
-  function getSleepEvents() {
-    try {
-      return JSON.parse(localStorage.getItem(getSleepStorageKey()) || '[]');
-    } catch (e) { return []; }
-  }
-
-  function recordSleepEvent(level) {
-    var events = getSleepEvents();
-    var now = Date.now();
-
-    // Don't record duplicate consecutive states
-    if (events.length > 0 && events[events.length - 1].level === level) return;
-
-    events.push({ time: now, level: level });
-
-    // Prune old events based on retention
-    var retentionDays = 7;
-    try {
-      var cfg = JSON.parse(localStorage.getItem('babylink-sleep-config-' + roomId) || '{}');
-      if (cfg.retentionDays) retentionDays = cfg.retentionDays;
-    } catch (e) {}
-    var cutoff = now - (retentionDays * 24 * 60 * 60 * 1000);
-    events = events.filter(function(e) { return e.time >= cutoff; });
-
-    localStorage.setItem(getSleepStorageKey(), JSON.stringify(events));
-
-    // Broadcast updated timeline to parents
-    broadcastSleepTimeline();
-  }
-
-  function broadcastSleepTimeline() {
-    if (role !== 'baby' || !hasJoinedRoom) return;
-    var events = getSleepEvents();
-    socket.emit('sleep-timeline', { roomId: roomId, babyId: socket.id, babyName: userName, events: events });
-  }
-
-  // Serve sleep timeline to parents via socket
-  socket.on('request-sleep-timeline', function(data) {
-    if (role !== 'baby') return;
-    broadcastSleepTimeline();
-  });
-
-  // Periodically broadcast timeline so parent's counters stay fresh
-  if (role === 'baby') {
-    setInterval(function() { broadcastSleepTimeline(); }, 60000);
   }
 
   // ========================
@@ -538,6 +469,12 @@
         ctx.sensitivity = sensitivity;
         ctx.sensitivityGain = sensitivity;
       }
+      // Live-tune the sleep tracker's volume thresholds. Past slots
+      // stay as recorded (re-classification would need the raw
+      // volume samples we don't keep); new observations use the
+      // updated thresholds immediately.
+      const tracker = sleepTrackers.get(babyId);
+      if (tracker) tracker.setSensitivity(sensitivity);
     };
 
     multiBabyUI.onSoloToggle = (babyId) => {
@@ -549,13 +486,38 @@
     multiStreamManager.onStreamAdded = (participantId, stream, participantInfo) => {
       multiBabyUI.addBaby(participantId, participantInfo);
       enableAllAudio();
-      // Request sleep timeline from baby
-      socket.emit('request-sleep-timeline', { roomId: roomId });
+      // Spin up a per-baby sleep tracker. Sensitivity is restored from
+      // localStorage if we've seen this baby before, otherwise the
+      // current slider value is the starting point.
+      if (!sleepTrackers.has(participantId)) {
+        const sens = multiBabyUI.sensitivity.get(participantId) || 1.0;
+        sleepTrackers.set(participantId, new SleepTracker(participantId, roomId, { sensitivity: sens }));
+      }
     };
 
     multiStreamManager.onStreamRemoved = (participantId) => {
       multiBabyUI.removeBaby(participantId);
+      const tracker = sleepTrackers.get(participantId);
+      if (tracker) { tracker.destroy(); sleepTrackers.delete(participantId); }
     };
+
+    // Cross-source volume tap: every level update funnels through
+    // multi-baby-ui (both WSS-PCM via esp32-audio-handler and WebRTC
+    // via multi-stream-manager land here). That's the unified
+    // observation hook for the parent-side sleep tracker.
+    multiBabyUI.onLevelObserved = (babyId, level, volume) => {
+      const tracker = sleepTrackers.get(babyId);
+      if (tracker) tracker.observe(volume);
+    };
+
+    // Re-render every baby's sleep timeline on a 5 s tick. The
+    // tracker's internal state moves at 1 Hz so 5 s is the right
+    // balance between detail-bar movement and DOM churn.
+    sleepRenderInterval = setInterval(() => {
+      for (const [babyId, tracker] of sleepTrackers) {
+        multiBabyUI.renderSleepTimeline(babyId, tracker);
+      }
+    }, 5000);
 
     // Track crying state per baby to avoid spamming socket events
     const cryingState = new Map(); // babyId → { isCrying, lastEmit }
@@ -751,14 +713,6 @@
   socket.on('esp32-audio', (data) => {
     if (role !== 'parent') return;
     esp32Handler.handleAudioData(data, multiBabyUI);
-  });
-
-  // Handle sleep timeline from baby (parent side)
-  socket.on('sleep-timeline', (data) => {
-    if (role !== 'parent') return;
-    if (multiBabyUI && data.babyId) {
-      multiBabyUI.updateSleepTimeline(data.babyId, data.events || []);
-    }
   });
 
   // ========================
