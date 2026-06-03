@@ -1047,6 +1047,223 @@ body.role-page main {
   padding: var(--space-lg);
 }
 
+/* ====== BLE Provisioning Wizard ======
+   Scoped utility classes for the device-onboarding panel in
+   select-role.html. Each class replaces a repeated inline style
+   block in the markup; pure dynamic-toggle display:none rules stay
+   inline (the JS flips .style.display directly). */
+.ble-section-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin: var(--space-md) 0 var(--space-xs);
+}
+
+.ble-mini-btn {
+  padding: 0.5em 0.8em;
+  font-size: 0.82rem;
+}
+
+.ble-mini-btn--spaced {
+  margin-top: var(--space-xs);
+}
+
+.ble-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.ble-row--spaced {
+  margin-bottom: var(--space-xs);
+}
+
+.ble-row--clickable {
+  cursor: pointer;
+}
+
+.ble-row-input {
+  width: 100%;
+  font-size: 0.85rem;
+  padding: 6px;
+}
+
+.ble-row-input--spaced {
+  margin-bottom: 4px;
+}
+
+.ble-checkbox {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--color-primary);
+}
+
+.ble-remove-btn {
+  background: var(--color-danger-bg);
+  color: var(--color-danger-text);
+  border: none;
+  border-radius: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.ble-empty-state {
+  color: var(--color-text-muted);
+  font-size: 0.82rem;
+  font-style: italic;
+  padding: 6px 0;
+}
+
+.ble-error-text {
+  color: var(--color-danger);
+  font-size: 0.85rem;
+}
+
+.ble-help-text {
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+}
+
+.ble-status {
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin-bottom: var(--space-md);
+  color: var(--color-primary);
+}
+
+.ble-info-text {
+  font-size: 0.85rem;
+  color: var(--color-text-secondary);
+  margin: 0 0 var(--space-sm);
+}
+
+.ble-flex-grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.ble-config-row {
+  background: var(--color-surface-alt);
+  padding: 8px;
+  border-radius: 6px;
+  margin-bottom: 6px;
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.ble-active-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+  margin-top: 4px;
+}
+
+.ble-scan-hint {
+  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+  margin: 4px 0;
+}
+
+.ble-scan-chip {
+  padding: 6px 10px;
+  font-size: 0.82rem;
+  margin: 2px 4px 2px 0;
+  text-align: left;
+}
+
+.ble-add-btn { margin-top: var(--space-md); }
+.ble-instructions { margin-top: var(--space-lg); }
+.ble-instructions-title { margin: 0 0 var(--space-sm); font-size: 0.95rem; }
+.ble-provision-row { margin-bottom: var(--space-md); }
+.ble-help-text--spaced { margin-top: var(--space-xs); }
+.ble-wizard { margin-bottom: var(--space-lg); }
+.ble-scan-list { margin-top: var(--space-xs); }
+.ble-wifi-rows { margin-top: var(--space-sm); }
+.ble-input-full { width: 100%; }
+.ble-save-btn { margin-top: var(--space-md); width: 100%; }
+.ble-manual-heading { font-size: 0.88rem; font-weight: 600; margin: 0 0 var(--space-sm); }
+.ble-manual-steps {
+  margin: 0;
+  padding-left: 1.5em;
+  font-size: 0.88rem;
+  line-height: 1.8;
+  color: var(--color-text-secondary);
+}
+
+.device-prefill {
+  margin-top: var(--space-md);
+  background: var(--color-surface-alt);
+  padding: var(--space-md);
+  border-radius: var(--radius-md);
+  font-size: 0.85rem;
+}
+
+/* ====== Settings forms (ntfy, sleep, devices) ======
+   Shared row/group primitives so the JS-touched markup in
+   select-role.html stops repeating the same inline style block. */
+.form-input-row {
+  display: flex;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+}
+
+.form-section {
+  margin-bottom: var(--space-md);
+}
+
+.form-group-label {
+  font-weight: 600;
+  margin-bottom: var(--space-sm);
+  font-size: 0.9rem;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  cursor: pointer;
+}
+
+.checkbox-row + .checkbox-row {
+  margin-top: var(--space-xs);
+}
+
+/* Bigger hit area for the form-control checkboxes. */
+.checkbox-lg {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--color-primary);
+}
+
+.btn-compact {
+  width: auto;
+  white-space: nowrap;
+}
+
+.link-primary {
+  color: var(--color-primary);
+}
+
+/* Native <select> sized to match the page's text inputs — same
+   border, height, font, surface. */
+.styled-select {
+  display: block;
+  width: 100%;
+  padding: 0.8em 1em;
+  font-size: 1rem;
+  font-family: var(--font-family);
+  border-radius: var(--radius-md);
+  border: 2px solid var(--color-border);
+  min-height: 48px;
+  background: var(--color-surface-alt);
+  color: var(--color-text);
+  margin-bottom: var(--space-lg);
+}
+
 /* ====== Responsive ====== */
 @media (max-width: 768px) {
   .babies-grid { grid-template-columns: 1fr; }
