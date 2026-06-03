@@ -252,6 +252,28 @@ body.home-page main label {
   display: block;
 }
 
+/* Quiet "I've done this before" escape hatch under the primary CTA
+   on the welcome step. Stays understated so first-time users don't
+   read it as the main action. */
+.onboarding-skip {
+  display: block;
+  width: 100%;
+  margin-top: var(--space-md);
+  padding: var(--space-xs);
+  background: transparent;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  font-family: var(--font-family);
+  cursor: pointer;
+  text-decoration: underline;
+  min-height: auto;
+}
+
+.onboarding-skip:hover {
+  color: var(--color-text-secondary);
+}
+
 .onboarding-btn.primary {
   background: var(--color-primary);
   color: white;

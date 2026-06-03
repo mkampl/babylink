@@ -50,6 +50,7 @@
           <li>Works on any device with a browser</li>
         </ul>
         <button class="onboarding-btn primary" onclick="onboardingNext()">Get Started</button>
+        <button type="button" class="onboarding-skip" onclick="onboardingSkip()">I already have a room — skip setup</button>
       </div>
 
       <!-- Step 1: Create Room -->
@@ -160,7 +161,20 @@
     let onboardingRoomName = null;
 
     function isOnboardingComplete() {
-      return localStorage.getItem('babylink-onboarding-complete') === 'true';
+      if (localStorage.getItem('babylink-onboarding-complete') === 'true') return true;
+      // If the user already has saved rooms, they've clearly been
+      // through setup once — don't trap them behind the wizard just
+      // because the completion flag is missing (private tab, second
+      // browser, SW cache wipe). Persist the flag so we don't redo
+      // this check on every load.
+      try {
+        var rooms = JSON.parse(localStorage.getItem('babylink-rooms') || '[]');
+        if (rooms.length > 0) {
+          localStorage.setItem('babylink-onboarding-complete', 'true');
+          return true;
+        }
+      } catch (e) {}
+      return false;
     }
 
     function showOnboarding() {
@@ -219,6 +233,12 @@
         hideOnboarding();
         displayPreviousRooms();
       }
+    }
+
+    function onboardingSkip() {
+      localStorage.setItem('babylink-onboarding-complete', 'true');
+      hideOnboarding();
+      displayPreviousRooms();
     }
 
     function replayOnboarding() {
