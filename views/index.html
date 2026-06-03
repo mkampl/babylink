@@ -322,6 +322,9 @@
 
     function deleteRoom(id) {
       const rooms = JSON.parse(localStorage.getItem('babylink-rooms') || '[]');
+      const target = rooms.find(r => r.id === id);
+      const label = target ? '"' + target.name + '"' : 'this room';
+      if (!confirm('Remove ' + label + ' from this device?\n\nThe room itself keeps running for anyone with the link.')) return;
       const filteredRooms = rooms.filter(room => room.id !== id);
       localStorage.setItem('babylink-rooms', JSON.stringify(filteredRooms));
       displayPreviousRooms();
