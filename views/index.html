@@ -22,7 +22,7 @@
   <!-- ======================== -->
   <!-- Onboarding Wizard        -->
   <!-- ======================== -->
-  <div id="onboarding" class="onboarding" style="display:none;">
+  <dialog id="onboarding" class="onboarding" aria-labelledby="onboardingHeading">
     <div class="onboarding-card">
       <!-- Progress dots -->
       <div class="onboarding-progress">
@@ -41,7 +41,7 @@
             <circle cx="42" cy="40" r="3" fill="var(--color-baby)" opacity="0.5"/>
           </svg>
         </div>
-        <h2>Welcome to BabyLink</h2>
+        <h2 id="onboardingHeading">Welcome to BabyLink</h2>
         <p>A self-hosted baby monitor that keeps your family's data private. No cloud, no subscriptions.</p>
         <ul class="onboarding-features">
           <li>Real-time audio monitoring</li>
@@ -99,7 +99,7 @@
         <button class="onboarding-btn primary" onclick="onboardingFinish()">Start Monitoring</button>
       </div>
     </div>
-  </div>
+  </dialog>
 
   <!-- ======================== -->
   <!-- Main Home Page            -->
@@ -164,17 +164,32 @@
     }
 
     function showOnboarding() {
-      document.getElementById('onboarding').style.display = 'flex';
-      document.getElementById('homeMain').style.display = 'none';
-      document.getElementById('helpBtn').style.display = 'none';
+      var dlg = document.getElementById('onboarding');
       goToStep(0);
+      if (typeof dlg.showModal === 'function') {
+        dlg.showModal();
+      } else {
+        // Ancient browser fallback — show as a plain block (no focus
+        // trap, but at least the wizard is reachable).
+        dlg.setAttribute('open', '');
+      }
     }
 
     function hideOnboarding() {
-      document.getElementById('onboarding').style.display = 'none';
-      document.getElementById('homeMain').style.display = '';
-      document.getElementById('helpBtn').style.display = '';
+      var dlg = document.getElementById('onboarding');
+      if (typeof dlg.close === 'function' && dlg.open) {
+        dlg.close();
+      } else {
+        dlg.removeAttribute('open');
+      }
     }
+
+    // Block Escape-to-dismiss — the wizard collects state that would
+    // be lost on early cancel. Users with a finished setup never see
+    // the dialog; users mid-flow can still use the Back button.
+    document.getElementById('onboarding').addEventListener('cancel', function(e) {
+      e.preventDefault();
+    });
 
     function goToStep(step) {
       onboardingStep = step;

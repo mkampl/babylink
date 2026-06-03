@@ -116,15 +116,27 @@ body.home-page main label {
    Onboarding Wizard
    ============================================ */
 
+/* Native <dialog> — the browser handles top-layer placement, focus
+   trap, and Escape (we block dismiss in JS). We just strip the UA
+   chrome and let .onboarding-card do the visual work. */
 .onboarding {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--color-bg);
+  background: transparent;
+  border: none;
   padding: var(--space-md);
+  max-width: 420px;
+  width: 100%;
+  margin: auto;
+  color: inherit;
+}
+
+.onboarding::backdrop {
+  background: var(--color-bg);
+}
+
+/* Closed dialogs already render display:none in supporting browsers;
+   this keeps very old fallbacks (no `open` attribute) hidden. */
+.onboarding:not([open]) {
+  display: none;
 }
 
 .onboarding-card {
