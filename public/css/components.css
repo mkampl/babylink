@@ -507,6 +507,11 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-md);
+  /* On narrow viewports the indicator + subtitle can squeeze the
+     enable/disable button into the next column; wrapping keeps the
+     button readable instead of letting it overflow. */
+  flex-wrap: wrap;
+  row-gap: var(--space-sm);
 }
 
 .wake-lock-indicator { font-size: 0.9rem; font-weight: 600; }
