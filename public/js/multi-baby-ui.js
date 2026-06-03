@@ -89,10 +89,7 @@ class MultiBabyUI {
     card.innerHTML = `
       <div class="baby-header">
         <h3 class="baby-name">👶 ${this.escapeHtml(babyName)}</h3>
-        <span class="baby-status" id="status-${babyId}">🟢 Connected</span>
-      </div>
-
-      <div class="audio-visualization">
+        <span class="baby-status-dot status-ok" id="status-${babyId}" title="Connected"></span>
         <div class="volume-meter-container">
           <div class="volume-meter" id="meter-${babyId}" style="width: 0%"></div>
         </div>
@@ -102,43 +99,55 @@ class MultiBabyUI {
       </div>
 
       <div class="baby-controls">
-        <button class="btn btn-mute" id="mute-${babyId}" data-muted="true">
-          🔇 Muted
+        <button class="btn btn-mute" id="mute-${babyId}" data-muted="true" aria-pressed="true">
+          🔇 <span class="btn-label">Muted</span>
         </button>
-        <button class="btn btn-solo" id="solo-${babyId}" title="Listen to only this baby">
-          🎧 Solo
+        <button class="btn btn-solo" id="solo-${babyId}" title="Listen to only this baby" aria-pressed="false">
+          🎧 <span class="btn-label">Solo</span>
         </button>
-        <div class="volume-control">
-          <label>Volume:</label>
-          <input type="range" id="volume-${babyId}" min="0" max="100" value="100" />
-          <span id="volume-value-${babyId}">100%</span>
-        </div>
-        <div class="sensitivity-control">
-          <label title="Adjust sensitivity for different microphones and room noise levels">Sensitivity:</label>
-          <input type="range" id="sensitivity-${babyId}" min="50" max="300" value="100" step="10" />
-          <span id="sensitivity-value-${babyId}">1.0x</span>
-        </div>
+        <details class="baby-controls-advanced">
+          <summary class="btn btn-settings" title="Volume &amp; sensitivity" aria-label="Volume and sensitivity">⚙</summary>
+          <div class="advanced-panel">
+            <div class="volume-control">
+              <label>Volume:</label>
+              <input type="range" id="volume-${babyId}" min="0" max="100" value="100" />
+              <span id="volume-value-${babyId}">100%</span>
+            </div>
+            <div class="sensitivity-control">
+              <label title="Adjust sensitivity for different microphones and room noise levels">Sensitivity:</label>
+              <input type="range" id="sensitivity-${babyId}" min="50" max="300" value="100" step="10" />
+              <span id="sensitivity-value-${babyId}">1.0x</span>
+            </div>
+          </div>
+        </details>
       </div>
 
-      <div class="baby-sleep-timeline" id="sleep-${babyId}">
-        <strong>Sleep Timeline:</strong>
-        <div class="sleep-detail-label">Last 15 min (15 s slots)</div>
-        <div class="sleep-timeline-bar sleep-detail-bar" id="sleep-detail-${babyId}"></div>
-        <svg class="sleep-connector" viewBox="0 0 100 12" preserveAspectRatio="none">
-          <!-- Trapezoid connecting the full detail bar to the rightmost
-               2.08% (15 min / 720 min) of the history bar below. -->
-          <polygon class="sleep-connector-shape"
-                   points="0,0 100,0 100,12 97.92,12" />
-        </svg>
-        <div class="sleep-history-label">Last 12 h (1 min slots)</div>
-        <div class="sleep-timeline-bar sleep-history-bar" id="sleep-history-${babyId}"></div>
-        <div class="sleep-summary" id="sleep-summary-${babyId}"></div>
-      </div>
+      <details class="baby-sleep-timeline" id="sleep-${babyId}" open>
+        <summary class="sleep-summary-line">
+          <span class="sleep-label">Sleep</span>
+          <span class="sleep-summary" id="sleep-summary-${babyId}"></span>
+        </summary>
+        <div class="sleep-bars">
+          <div class="sleep-detail-label">Last 15 min (15 s slots)</div>
+          <div class="sleep-timeline-bar sleep-detail-bar" id="sleep-detail-${babyId}"></div>
+          <svg class="sleep-connector" viewBox="0 0 100 12" preserveAspectRatio="none">
+            <!-- Trapezoid connecting the full detail bar to the rightmost
+                 2.08% (15 min / 720 min) of the history bar below. -->
+            <polygon class="sleep-connector-shape"
+                     points="0,0 100,0 100,12 97.92,12" />
+          </svg>
+          <div class="sleep-history-label">Last 12 h (1 min slots)</div>
+          <div class="sleep-timeline-bar sleep-history-bar" id="sleep-history-${babyId}"></div>
+        </div>
+      </details>
 
-      <div class="baby-activity-log" id="log-${babyId}">
-        <strong>Activity Log:</strong>
+      <details class="baby-activity-log" id="log-${babyId}">
+        <summary class="log-summary-line">
+          <span class="log-label">Activity</span>
+          <span class="log-latest" id="log-latest-${babyId}">—</span>
+        </summary>
         <div class="log-entries" id="log-entries-${babyId}"></div>
-      </div>
+      </details>
     `;
 
     this.babiesGrid.appendChild(card);
@@ -316,14 +325,16 @@ class MultiBabyUI {
       levelIndicator.innerHTML = `<span class="level-badge ${levelClass}">${levelText}</span>`;
     }
 
-    // Update status with pulsing effect for crying
+    // Status indicator is a small coloured dot now (compact header
+     // layout); pulse it red on crying, otherwise leave it green. The
+     // dot's title attribute carries the screen-reader-friendly state.
     const status = document.getElementById(`status-${babyId}`);
     if (status && level === 'RED') {
-      status.className = 'baby-status status-alert pulsing';
-      status.textContent = '🔴 Crying';
+      status.className = 'baby-status-dot status-alert pulsing';
+      status.title = 'Crying';
     } else if (status) {
-      status.className = 'baby-status';
-      status.textContent = '🟢 Connected';
+      status.className = 'baby-status-dot status-ok';
+      status.title = 'Connected';
     }
 
     // Auto-mute/unmute logic
@@ -428,11 +439,13 @@ class MultiBabyUI {
       this.onMuteToggle(babyId, true);
     }
 
-    // Update button state
+    // Update button state — preserve the inner .btn-label span so
+     // the compact icon-forward layout stays intact.
     const muteBtn = document.getElementById(`mute-${babyId}`);
     if (muteBtn) {
       muteBtn.dataset.muted = 'true';
-      muteBtn.textContent = '🔇 Muted';
+      muteBtn.setAttribute('aria-pressed', 'true');
+      muteBtn.innerHTML = '🔇 <span class="btn-label">Muted</span>';
       muteBtn.className = 'btn btn-mute muted';
     }
   }
@@ -446,11 +459,11 @@ class MultiBabyUI {
       this.onMuteToggle(babyId, false);
     }
 
-    // Update button state
     const muteBtn = document.getElementById(`mute-${babyId}`);
     if (muteBtn) {
       muteBtn.dataset.muted = 'false';
-      muteBtn.textContent = '🔊 Unmuted';
+      muteBtn.setAttribute('aria-pressed', 'false');
+      muteBtn.innerHTML = '🔊 <span class="btn-label">Unmuted</span>';
       muteBtn.className = 'btn btn-mute';
     }
   }
@@ -460,15 +473,14 @@ class MultiBabyUI {
    */
   updateBabyStatus(babyId, connected, reason = '') {
     const status = document.getElementById(`status-${babyId}`);
-    if (status) {
-      if (connected) {
-        status.textContent = '🟢 Connected';
-        status.className = 'baby-status';
-      } else {
-        status.textContent = '🔴 Disconnected';
-        status.className = 'baby-status status-error';
-        this.logActivity(babyId, `Disconnected: ${reason}`, 'error');
-      }
+    if (!status) return;
+    if (connected) {
+      status.className = 'baby-status-dot status-ok';
+      status.title = 'Connected';
+    } else {
+      status.className = 'baby-status-dot status-error';
+      status.title = reason ? `Disconnected: ${reason}` : 'Disconnected';
+      this.logActivity(babyId, `Disconnected: ${reason}`, 'error');
     }
   }
 
@@ -492,6 +504,14 @@ class MultiBabyUI {
       logEntries.removeChild(logEntries.firstChild);
     }
 
+    // Mirror the latest entry into the collapsed activity-log summary so
+    // important alerts stay visible without expanding the panel.
+    const latest = document.getElementById(`log-latest-${babyId}`);
+    if (latest) {
+      latest.textContent = `${timestamp} — ${message}`;
+      latest.className = `log-latest log-${type}`;
+    }
+
     // Store in memory
     const logs = this.activityLogs.get(babyId) || [];
     logs.push({ timestamp, message, type });
@@ -507,7 +527,10 @@ class MultiBabyUI {
       const muteBtn = document.getElementById(`mute-${babyId}`);
       if (muteBtn) {
         muteBtn.dataset.muted = mute;
-        muteBtn.textContent = mute ? '🔇 Muted' : '🔊 Unmuted';
+        muteBtn.setAttribute('aria-pressed', String(mute));
+        muteBtn.innerHTML = mute
+          ? '🔇 <span class="btn-label">Muted</span>'
+          : '🔊 <span class="btn-label">Unmuted</span>';
         muteBtn.className = mute ? 'btn btn-mute muted' : 'btn btn-mute';
 
         if (this.onMuteToggle) {
