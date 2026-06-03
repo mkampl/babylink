@@ -2,14 +2,28 @@
    BabyLink Components
    ============================================ */
 
-/* ====== Baby Cards Grid ====== */
-.master-controls {
+/* ====== Card surface utility ======
+   Shared surface for every panel-like container in the UI. Each
+   specific component below adds only its own padding/margin (and any
+   accent border like .baby-card::before) on top of these base rules.
+   The bare `.card` class is also available for ad-hoc panels. */
+.card,
+.master-controls,
+.baby-card,
+.wake-lock-container,
+.notification-settings,
+.section,
+.pin-section {
   background: var(--color-surface);
-  padding: var(--space-lg);
-  margin-bottom: var(--space-lg);
   border-radius: var(--radius-card);
   box-shadow: var(--shadow-sm);
   border: 1px solid var(--color-border-light);
+}
+
+/* ====== Baby Cards Grid ====== */
+.master-controls {
+  padding: var(--space-lg);
+  margin-bottom: var(--space-lg);
 }
 
 .master-controls h2 {
@@ -44,11 +58,7 @@
 
 /* ====== Baby Card ====== */
 .baby-card {
-  background: var(--color-surface);
-  border-radius: var(--radius-card);
   padding: var(--space-md);
-  box-shadow: var(--shadow-sm);
-  border: 1px solid var(--color-border-light);
   transition: all var(--transition-base);
   position: relative;
   overflow: hidden;
@@ -488,12 +498,8 @@
 
 /* ====== Wake Lock ====== */
 .wake-lock-container {
-  background: var(--color-surface);
   padding: var(--space-md) var(--space-lg);
   margin: var(--space-md) 0;
-  border-radius: var(--radius-card);
-  box-shadow: var(--shadow-sm);
-  border: 1px solid var(--color-border-light);
 }
 
 .wake-lock-status {
@@ -516,12 +522,8 @@
 
 /* ====== Notification Settings ====== */
 .notification-settings {
-  background: var(--color-surface);
   padding: var(--space-md) var(--space-lg);
   margin: var(--space-md) 0;
-  border-radius: var(--radius-card);
-  box-shadow: var(--shadow-sm);
-  border: 1px solid var(--color-border-light);
 }
 
 .notification-header {
@@ -573,12 +575,8 @@
 
 /* ====== Sections (Home, Role Select) ====== */
 .section {
-  background: var(--color-surface);
   padding: var(--space-lg);
   margin: var(--space-md) 0;
-  border-radius: var(--radius-card);
-  border: 1px solid var(--color-border-light);
-  box-shadow: var(--shadow-sm);
 }
 
 .section h2 {
@@ -768,12 +766,8 @@ body.role-page main {
 
 /* ====== Room PIN ====== */
 .pin-section {
-  background: var(--color-surface);
   padding: var(--space-xl);
   margin: var(--space-lg) 0;
-  border-radius: var(--radius-card);
-  border: 1px solid var(--color-border-light);
-  box-shadow: var(--shadow-sm);
   text-align: center;
 }
 
