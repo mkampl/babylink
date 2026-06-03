@@ -61,12 +61,28 @@ app.use(cors({
 }));
 
 // Rate limiting middleware
+//
+// Static assets bypass the limiter: they're trivially cacheable, the
+// service worker handles repeat fetches client-side, and counting
+// them against the budget meant a normal browser reload (10-15 asset
+// requests) could exhaust 100/15min in under ten reloads — which is
+// exactly what bit us while iterating on the UI.
 const limiter = rateLimit({
   windowMs: config.security.rateLimitWindow,
   max: config.security.rateLimitMaxRequests,
   message: 'Too many requests from this IP, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => {
+    if (req.method !== 'GET') return false;
+    const p = req.path;
+    return p.startsWith('/css/') ||
+           p.startsWith('/js/') ||
+           p.startsWith('/icons/') ||
+           p === '/manifest.json' ||
+           p === '/service-worker.js' ||
+           p === '/health';
+  },
   handler: (req, res) => {
     logger.warn('Rate limit exceeded', { ip: req.ip, url: req.url });
     res.status(429).json({
