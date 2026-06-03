@@ -791,10 +791,26 @@ $('saveBtn').onclick=async()=>{if(!cfg.wifi.length||!cfg.wifi[0].ssid){$('msg').
   if(!cfg.servers.length||!cfg.servers[0].host||!cfg.servers[0].roomId){$('msg').innerHTML='<div class="msg err">Add at least one server with host + room.</div>';return;}
   $('saveBtn').disabled=true;
   try{const r=await fetch('/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)});const j=await r.json();
-    if(r.ok){$('msg').innerHTML='<div class="msg ok">Saved! Device is rebooting...</div>';}
+    if(r.ok){clearDraft();$('msg').innerHTML='<div class="msg ok">Saved! Device is rebooting...</div>';}
     else{$('msg').innerHTML='<div class="msg err">'+(j.error||'Save failed')+'</div>';$('saveBtn').disabled=false;}
   }catch(e){$('msg').innerHTML='<div class="msg err">'+e.message+'</div>';$('saveBtn').disabled=false;}};
-(async()=>{try{const r=await fetch('/config');cfg=await r.json();if(!cfg.wifi)cfg.wifi=[];if(!cfg.servers)cfg.servers=[];}catch(e){}render();})();
+// Persist in-progress edits to localStorage so an Android-induced
+// AP drop + auto-reconnect + page reload doesn't wipe what was typed.
+// On save the entry is dropped — we only want it across crash cycles
+// during the same provisioning session.
+const LS_KEY='bl_portal_cfg';
+function saveDraft(){try{localStorage.setItem(LS_KEY,JSON.stringify(cfg));}catch(_){}}
+function loadDraft(){try{const s=localStorage.getItem(LS_KEY);return s?JSON.parse(s):null;}catch(_){return null;}}
+function clearDraft(){try{localStorage.removeItem(LS_KEY);}catch(_){}}
+document.addEventListener('input',saveDraft);
+document.addEventListener('change',saveDraft);
+document.addEventListener('click',e=>{if(e.target.closest('.btn'))setTimeout(saveDraft,0);});
+(async()=>{
+  const draft=loadDraft();
+  if(draft){cfg=draft;if(!cfg.wifi)cfg.wifi=[];if(!cfg.servers)cfg.servers=[];}
+  else{try{const r=await fetch('/config');cfg=await r.json();if(!cfg.wifi)cfg.wifi=[];if(!cfg.servers)cfg.servers=[];}catch(e){}}
+  render();
+})();
 </script></body></html>
 )rawliteral";
 
@@ -816,10 +832,16 @@ static bool    webScanInProgress   = false;
 
 static void handleApScanTrigger() {
   if (!webScanInProgress) {
-    Serial.println("[portal] Starting async WiFi scan");
+    Serial.println("[portal] Starting async WiFi scan (passive)");
     webScanJson = "[]";
     webScanInProgress = true;
-    WiFi.scanNetworks(true, true);
+    // Passive scan + short per-channel dwell: the radio still has to
+    // leave the SoftAP's channel to hear other beacons, but each visit
+    // is brief enough that the client doesn't notice missed beacons.
+    // Active scans actively transmit probes and dwell ~300 ms — long
+    // enough for Android to deauth and roam.
+    //   args: async=true, show_hidden=true, passive=true, ms_per_chan=120
+    WiFi.scanNetworks(true, true, true, 120);
   }
   webServer.send(202, "application/json", "{\"status\":\"scanning\"}");
 }
