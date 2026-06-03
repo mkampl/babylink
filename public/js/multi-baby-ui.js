@@ -50,13 +50,13 @@ class MultiBabyUI {
     const masterControls = document.createElement('div');
     masterControls.className = 'master-controls';
     masterControls.innerHTML = `
-      <h2>👶 Baby Monitors</h2>
-      <div class="master-buttons">
-        <button id="muteAllBtn" class="btn btn-danger">🔇 Mute All</button>
-        <button id="unmuteAllBtn" class="btn btn-success">🔊 Unmute All</button>
+      <div class="master-title">
+        <h2>👶 Baby Monitors</h2>
+        <span id="babyCount" class="master-status">0 connected</span>
       </div>
-      <div id="masterStatus" class="master-status">
-        <span id="babyCount">0 babies connected</span>
+      <div class="master-buttons">
+        <button id="muteAllBtn" class="btn btn-danger" title="Mute all">🔇</button>
+        <button id="unmuteAllBtn" class="btn btn-success" title="Unmute all">🔊</button>
       </div>
     `;
 
@@ -547,7 +547,7 @@ class MultiBabyUI {
     const countElement = document.getElementById('babyCount');
     if (countElement) {
       const count = this.babyCards.size;
-      countElement.textContent = `${count} ${count === 1 ? 'baby' : 'babies'} connected`;
+      countElement.textContent = `· ${count} connected`;
     }
   }
 
