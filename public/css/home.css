@@ -35,7 +35,7 @@ body.home-page main::before {
 }
 
 body.home-page h1 {
-  font-size: 1.5rem;
+  font-size: var(--text-h1);
   margin-bottom: var(--space-xs);
 }
 
@@ -195,7 +195,7 @@ body.home-page main label {
 }
 
 .onboarding-step h2 {
-  font-size: 1.3rem;
+  font-size: var(--text-h2);
   margin: 0 0 var(--space-sm);
   color: var(--color-text-heading);
 }
@@ -239,7 +239,7 @@ body.home-page main label {
   display: block;
   width: 100%;
   padding: 1em;
-  font-size: 1.05rem;
+  font-size: var(--text-lg);
   font-weight: 700;
   border: none;
   border-radius: var(--radius-md);
@@ -385,7 +385,7 @@ body.home-page main label {
   background: var(--color-surface);
   color: var(--color-primary);
   border: 2px solid var(--color-border);
-  font-size: 1.1rem;
+  font-size: var(--text-h3);
   font-weight: 700;
   cursor: pointer;
   box-shadow: var(--shadow-md);

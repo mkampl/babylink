@@ -24,9 +24,17 @@ h1, h2, h3 {
 
 h1 {
   text-align: center;
-  font-size: 1.5rem;
+  font-size: var(--text-h1);
   margin-bottom: var(--space-lg);
   letter-spacing: -0.02em;
+}
+
+h2 {
+  font-size: var(--text-h2);
+}
+
+h3 {
+  font-size: var(--text-h3);
 }
 
 /* ====== Buttons ====== */
@@ -197,6 +205,6 @@ body, .baby-card, .master-controls, .wake-lock-container,
 }
 
 @media (max-width: 768px) {
-  h1 { font-size: 1.3rem; }
-  button { font-size: 0.9rem; }
+  h1 { font-size: var(--text-h2); }
+  button { font-size: var(--text-sm); }
 }

@@ -14,7 +14,7 @@
 
 .master-controls h2 {
   margin: 0 0 var(--space-md) 0;
-  font-size: 1.1rem;
+  font-size: var(--text-h3);
   font-weight: 600;
 }
 
@@ -583,7 +583,7 @@
 
 .section h2 {
   margin: 0 0 var(--space-md) 0;
-  font-size: 1.05rem;
+  font-size: var(--text-lg);
   font-weight: 600;
 }
 
@@ -627,7 +627,7 @@
 
 .room-sharing h3 {
   margin: 0 0 var(--space-md) 0;
-  font-size: 1.05rem;
+  font-size: var(--text-lg);
   font-weight: 600;
 }
 
@@ -696,7 +696,7 @@
   transform: translateY(-2px);
 }
 
-.role-card h3 { margin: 0 0 var(--space-sm) 0; font-size: 1.3rem; font-weight: 700; }
+.role-card h3 { margin: 0 0 var(--space-sm) 0; font-size: var(--text-h2); font-weight: 700; }
 .role-card p { color: var(--color-text-secondary); margin: 0 0 var(--space-lg) 0; font-size: 0.92rem; line-height: 1.5; }
 .role-card form { display: flex; flex-direction: column; gap: var(--space-md); }
 .role-card label { font-weight: 500; color: var(--color-text-heading); text-align: left; font-size: 0.9rem; }
@@ -708,7 +708,7 @@
 .role-btn {
   width: 100%;
   padding: 1em;
-  font-size: 1.05rem;
+  font-size: var(--text-lg);
   margin: 0;
   border: none;
   border-radius: var(--radius-md);
@@ -779,7 +779,7 @@ body.role-page main {
 
 .pin-section h3 {
   margin: 0 0 var(--space-sm);
-  font-size: 1.1rem;
+  font-size: var(--text-h3);
   font-weight: 600;
 }
 
