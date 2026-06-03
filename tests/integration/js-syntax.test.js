@@ -21,6 +21,7 @@ afterAll(async () => {
 // All JS files that are loaded by HTML pages
 const JS_FILES = [
   '/js/utils.js',
+  '/js/qrcode-generator.js',
   '/js/multi-baby-ui.js',
   '/js/multi-stream-manager.js',
   '/js/wake-lock-manager.js',

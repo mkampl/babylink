@@ -1,5 +1,5 @@
 // service-worker.js
-const CACHE_NAME = 'babylink-v2.1.0';
+const CACHE_NAME = 'babylink-v2.2.0';
 const urlsToCache = [
   '/',
   '/css/variables.css',
@@ -8,6 +8,7 @@ const urlsToCache = [
   '/css/monitor.css',
   '/css/home.css',
   '/js/utils.js',
+  '/js/qrcode-generator.js',
   '/js/multi-baby-ui.js',
   '/js/multi-stream-manager.js',
   '/js/wake-lock-manager.js',

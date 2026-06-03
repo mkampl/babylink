@@ -223,29 +223,26 @@
     // Dark mode toggle
     ThemeManager.createToggleButton(document.body);
 
-    // QR Code generation using QR Server API
+    // QR code rendered locally with qrcode-generator (MIT) — keeps the
+    // "data never leaves your home" promise. cellSize 6 / margin 4
+    // matches the 200x200 hint the previous URL was asking the remote
+    // service for.
     function generateQR(text) {
       const qrImg = document.getElementById('qrcode');
-
-      // Use QR Server API (free service) to generate QR code
-      const qrText = encodeURIComponent(text);
-      qrImg.src = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${qrText}&bgcolor=ffffff&color=000000&qzone=1&format=png`;
-      qrImg.alt = 'QR Code for room link';
-      qrImg.title = 'Scan to join BabyLink room';
-
-      // Add error handling
-      qrImg.onerror = function() {
-        console.log('QR Server API failed, trying alternative method');
-        // Use Google Charts API as fallback
-        qrImg.src = `https://chart.googleapis.com/chart?chs=200x200&cht=qr&chl=${qrText}&choe=UTF-8`;
-        qrImg.onerror = function() {
-          qrImg.style.display = 'none';
-          const fallback = document.createElement('div');
-          fallback.style.cssText = 'padding: 1em; background: #f8f9fa; border-radius: 0.5em;';
-          fallback.textContent = '📱 QR Code unavailable - please share the link above';
-          qrImg.parentNode.appendChild(fallback);
-        };
-      };
+      try {
+        const qr = qrcode(0, 'M');
+        qr.addData(text);
+        qr.make();
+        qrImg.src = qr.createDataURL(6, 4);
+        qrImg.alt = 'QR Code for room link';
+        qrImg.title = 'Scan to join BabyLink room';
+      } catch (e) {
+        qrImg.style.display = 'none';
+        const fallback = document.createElement('div');
+        fallback.className = 'qr-fallback';
+        fallback.textContent = '📱 QR Code unavailable - please share the link above';
+        qrImg.parentNode.appendChild(fallback);
+      }
     }
 
     // Initialize page

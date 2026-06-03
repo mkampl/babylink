@@ -146,6 +146,7 @@
   <button id="helpBtn" class="help-btn" title="Show setup wizard" aria-label="Show setup wizard" onclick="replayOnboarding()">?</button>
 
   <script src="/js/utils.js"></script>
+  <script src="/js/qrcode-generator.js"></script>
   <script>
     // Dark mode toggle
     ThemeManager.createToggleButton(document.body);
@@ -222,16 +223,20 @@
       var roomUrl = window.location.origin + '/' + onboardingRoomId;
       document.getElementById('onboardingRoomLink').value = roomUrl;
 
-      var qrImg = document.getElementById('onboardingQR');
-      var qrText = encodeURIComponent(roomUrl);
-      qrImg.src = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' + qrText + '&bgcolor=ffffff&color=000000&qzone=1&format=png';
-      qrImg.alt = 'QR Code for room link';
-      qrImg.onerror = function() {
-        qrImg.src = 'https://chart.googleapis.com/chart?chs=200x200&cht=qr&chl=' + qrText + '&choe=UTF-8';
-        qrImg.onerror = function() {
-          qrImg.style.display = 'none';
-        };
-      };
+      // QR code rendered locally — no third-party fetch. The
+      // qrcode-generator lib turns the room URL into an SVG we drop
+      // into the existing <img> as a data URL, keeping the layout the
+      // CSS expects.
+      try {
+        var qr = qrcode(0, 'M');
+        qr.addData(roomUrl);
+        qr.make();
+        var qrImg = document.getElementById('onboardingQR');
+        qrImg.src = qr.createDataURL(6, 4);
+        qrImg.alt = 'QR Code for room link';
+      } catch (e) {
+        document.getElementById('onboardingQR').style.display = 'none';
+      }
 
       goToStep(2);
     });
