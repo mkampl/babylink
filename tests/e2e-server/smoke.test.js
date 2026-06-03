@@ -141,7 +141,7 @@ describe('Smoke tests — critical path', () => {
   });
 
   it('16. static assets served', async () => {
-    const res = await request(server.app).get('/style.css');
+    const res = await request(server.app).get('/css/base.css');
     expect(res.status).toBe(200);
   });
 

@@ -35,7 +35,7 @@ body.home-page main::before {
 }
 
 body.home-page h1 {
-  font-size: 1.5rem;
+  font-size: var(--text-h1);
   margin-bottom: var(--space-xs);
 }
 
@@ -116,15 +116,27 @@ body.home-page main label {
    Onboarding Wizard
    ============================================ */
 
+/* Native <dialog> — the browser handles top-layer placement, focus
+   trap, and Escape (we block dismiss in JS). We just strip the UA
+   chrome and let .onboarding-card do the visual work. */
 .onboarding {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--color-bg);
+  background: transparent;
+  border: none;
   padding: var(--space-md);
+  max-width: 420px;
+  width: 100%;
+  margin: auto;
+  color: inherit;
+}
+
+.onboarding::backdrop {
+  background: var(--color-bg);
+}
+
+/* Closed dialogs already render display:none in supporting browsers;
+   this keeps very old fallbacks (no `open` attribute) hidden. */
+.onboarding:not([open]) {
+  display: none;
 }
 
 .onboarding-card {
@@ -195,7 +207,7 @@ body.home-page main label {
 }
 
 .onboarding-step h2 {
-  font-size: 1.3rem;
+  font-size: var(--text-h2);
   margin: 0 0 var(--space-sm);
   color: var(--color-text-heading);
 }
@@ -234,19 +246,10 @@ body.home-page main label {
   background: var(--color-success);
 }
 
-/* Buttons */
+/* Buttons — surface from .btn-hero in components.css; only the
+   wizard-specific block layout lives here. */
 .onboarding-btn {
   display: block;
-  width: 100%;
-  padding: 1em;
-  font-size: 1.05rem;
-  font-weight: 700;
-  border: none;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: all var(--transition-base);
-  min-height: 52px;
-  font-family: var(--font-family);
 }
 
 .onboarding-btn.primary {
@@ -385,7 +388,7 @@ body.home-page main label {
   background: var(--color-surface);
   color: var(--color-primary);
   border: 2px solid var(--color-border);
-  font-size: 1.1rem;
+  font-size: var(--text-h3);
   font-weight: 700;
   cursor: pointer;
   box-shadow: var(--shadow-md);

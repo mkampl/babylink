@@ -9,7 +9,7 @@
   <link rel="stylesheet" href="/css/components.css">
   <link rel="stylesheet" href="/css/home.css">
   <link rel="manifest" href="/manifest.json">
-  <meta name="theme-color" content="#3b82f6">
+  <meta name="theme-color" content="#6B8EAE">
   <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-32x32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/icons/icon-16x16.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -22,7 +22,7 @@
   <!-- ======================== -->
   <!-- Onboarding Wizard        -->
   <!-- ======================== -->
-  <div id="onboarding" class="onboarding" style="display:none;">
+  <dialog id="onboarding" class="onboarding" aria-labelledby="onboardingHeading">
     <div class="onboarding-card">
       <!-- Progress dots -->
       <div class="onboarding-progress">
@@ -41,7 +41,7 @@
             <circle cx="42" cy="40" r="3" fill="var(--color-baby)" opacity="0.5"/>
           </svg>
         </div>
-        <h2>Welcome to BabyLink</h2>
+        <h2 id="onboardingHeading">Welcome to BabyLink</h2>
         <p>A self-hosted baby monitor that keeps your family's data private. No cloud, no subscriptions.</p>
         <ul class="onboarding-features">
           <li>Real-time audio monitoring</li>
@@ -99,7 +99,7 @@
         <button class="onboarding-btn primary" onclick="onboardingFinish()">Start Monitoring</button>
       </div>
     </div>
-  </div>
+  </dialog>
 
   <!-- ======================== -->
   <!-- Main Home Page            -->
@@ -146,6 +146,7 @@
   <button id="helpBtn" class="help-btn" title="Show setup wizard" aria-label="Show setup wizard" onclick="replayOnboarding()">?</button>
 
   <script src="/js/utils.js"></script>
+  <script src="/js/qrcode-generator.js"></script>
   <script>
     // Dark mode toggle
     ThemeManager.createToggleButton(document.body);
@@ -163,17 +164,32 @@
     }
 
     function showOnboarding() {
-      document.getElementById('onboarding').style.display = 'flex';
-      document.getElementById('homeMain').style.display = 'none';
-      document.getElementById('helpBtn').style.display = 'none';
+      var dlg = document.getElementById('onboarding');
       goToStep(0);
+      if (typeof dlg.showModal === 'function') {
+        dlg.showModal();
+      } else {
+        // Ancient browser fallback — show as a plain block (no focus
+        // trap, but at least the wizard is reachable).
+        dlg.setAttribute('open', '');
+      }
     }
 
     function hideOnboarding() {
-      document.getElementById('onboarding').style.display = 'none';
-      document.getElementById('homeMain').style.display = '';
-      document.getElementById('helpBtn').style.display = '';
+      var dlg = document.getElementById('onboarding');
+      if (typeof dlg.close === 'function' && dlg.open) {
+        dlg.close();
+      } else {
+        dlg.removeAttribute('open');
+      }
     }
+
+    // Block Escape-to-dismiss — the wizard collects state that would
+    // be lost on early cancel. Users with a finished setup never see
+    // the dialog; users mid-flow can still use the Back button.
+    document.getElementById('onboarding').addEventListener('cancel', function(e) {
+      e.preventDefault();
+    });
 
     function goToStep(step) {
       onboardingStep = step;
@@ -222,16 +238,20 @@
       var roomUrl = window.location.origin + '/' + onboardingRoomId;
       document.getElementById('onboardingRoomLink').value = roomUrl;
 
-      var qrImg = document.getElementById('onboardingQR');
-      var qrText = encodeURIComponent(roomUrl);
-      qrImg.src = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' + qrText + '&bgcolor=ffffff&color=000000&qzone=1&format=png';
-      qrImg.alt = 'QR Code for room link';
-      qrImg.onerror = function() {
-        qrImg.src = 'https://chart.googleapis.com/chart?chs=200x200&cht=qr&chl=' + qrText + '&choe=UTF-8';
-        qrImg.onerror = function() {
-          qrImg.style.display = 'none';
-        };
-      };
+      // QR code rendered locally — no third-party fetch. The
+      // qrcode-generator lib turns the room URL into an SVG we drop
+      // into the existing <img> as a data URL, keeping the layout the
+      // CSS expects.
+      try {
+        var qr = qrcode(0, 'M');
+        qr.addData(roomUrl);
+        qr.make();
+        var qrImg = document.getElementById('onboardingQR');
+        qrImg.src = qr.createDataURL(6, 4);
+        qrImg.alt = 'QR Code for room link';
+      } catch (e) {
+        document.getElementById('onboardingQR').style.display = 'none';
+      }
 
       goToStep(2);
     });

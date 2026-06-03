@@ -218,8 +218,8 @@ describe('404 handler', () => {
 });
 
 describe('Static files', () => {
-  it('serves style.css', async () => {
-    const res = await request(server.app).get('/style.css');
+  it('serves css/base.css', async () => {
+    const res = await request(server.app).get('/css/base.css');
     expect(res.status).toBe(200);
   });
 

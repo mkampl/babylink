@@ -81,6 +81,17 @@
   --font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-mono: 'DM Mono', 'SF Mono', monospace;
 
+  /* Type scale — every font-size in components should pick from here. */
+  --text-display: 2.5rem;   /* hero number / onboarding splash       */
+  --text-h1: 1.5rem;        /* page title (desktop)                   */
+  --text-h2: 1.3rem;        /* section title / page title (mobile)    */
+  --text-h3: 1.1rem;        /* card title                             */
+  --text-lg: 1.05rem;       /* prominent body                         */
+  --text-base: 1rem;        /* body                                   */
+  --text-sm: 0.9rem;        /* secondary body / button label          */
+  --text-xs: 0.85rem;       /* caption / meta                         */
+  --text-2xs: 0.78rem;      /* tag / badge / dense label              */
+
   /* Spacing */
   --space-xs: 0.25rem;
   --space-sm: 0.5rem;

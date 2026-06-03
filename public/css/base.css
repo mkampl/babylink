@@ -24,9 +24,17 @@ h1, h2, h3 {
 
 h1 {
   text-align: center;
-  font-size: 1.5rem;
+  font-size: var(--text-h1);
   margin-bottom: var(--space-lg);
   letter-spacing: -0.02em;
+}
+
+h2 {
+  font-size: var(--text-h2);
+}
+
+h3 {
+  font-size: var(--text-h3);
 }
 
 /* ====== Buttons ====== */
@@ -95,6 +103,22 @@ input[type="text"]:focus, input[type="url"]:focus {
 
 input[type="text"]::placeholder, input[type="url"]::placeholder {
   color: var(--color-text-light);
+}
+
+/* ====== Keyboard focus indicator ======
+   Every interactive element gets a visible focus outline when reached
+   via keyboard (or programmatic focus from assistive tech). Pointer
+   focus stays unstyled so mouse users don't see a ring on click.
+   Anywhere the existing design already paints a `box-shadow` focus
+   ring (inputs, the pin field) keeps it — outline-offset prevents the
+   ring from doubling up. */
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+:focus:not(:focus-visible) {
+  outline: none;
 }
 
 /* ====== Theme Toggle ====== */
@@ -181,6 +205,6 @@ body, .baby-card, .master-controls, .wake-lock-container,
 }
 
 @media (max-width: 768px) {
-  h1 { font-size: 1.3rem; }
-  button { font-size: 0.9rem; }
+  h1 { font-size: var(--text-h2); }
+  button { font-size: var(--text-sm); }
 }
