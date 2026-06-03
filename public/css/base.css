@@ -97,6 +97,22 @@ input[type="text"]::placeholder, input[type="url"]::placeholder {
   color: var(--color-text-light);
 }
 
+/* ====== Keyboard focus indicator ======
+   Every interactive element gets a visible focus outline when reached
+   via keyboard (or programmatic focus from assistive tech). Pointer
+   focus stays unstyled so mouse users don't see a ring on click.
+   Anywhere the existing design already paints a `box-shadow` focus
+   ring (inputs, the pin field) keeps it — outline-offset prevents the
+   ring from doubling up. */
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
 /* ====== Theme Toggle ====== */
 .theme-toggle {
   position: fixed;
