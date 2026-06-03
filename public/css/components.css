@@ -2,37 +2,70 @@
    BabyLink Components
    ============================================ */
 
-/* ====== Baby Cards Grid ====== */
-.master-controls {
+/* ====== Card surface utility ======
+   Shared surface for every panel-like container in the UI. Each
+   specific component below adds only its own padding/margin (and any
+   accent border like .baby-card::before) on top of these base rules.
+   The bare `.card` class is also available for ad-hoc panels. */
+.card,
+.master-controls,
+.baby-card,
+.wake-lock-container,
+.notification-settings,
+.section,
+.pin-section {
   background: var(--color-surface);
-  padding: var(--space-lg);
-  margin-bottom: var(--space-lg);
   border-radius: var(--radius-card);
   box-shadow: var(--shadow-sm);
   border: 1px solid var(--color-border-light);
 }
 
+/* ====== Baby Cards Grid ======
+   Master controls are a thin status bar — title + count on the
+   left, mute/unmute as icon-only buttons on the right. Wraps on
+   narrow viewports. Don't let it crowd the actual baby cards
+   below; they're the point of the page. */
+.master-controls {
+  padding: var(--space-sm) var(--space-md);
+  margin-bottom: var(--space-md);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+  row-gap: var(--space-xs);
+}
+
+.master-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-xs);
+  min-width: 0;
+}
+
 .master-controls h2 {
-  margin: 0 0 var(--space-md) 0;
-  font-size: 1.1rem;
+  margin: 0;
+  font-size: var(--text-base);
   font-weight: 600;
 }
 
 .master-buttons {
   display: flex;
-  gap: var(--space-sm);
+  gap: var(--space-xs);
   flex-wrap: wrap;
 }
 
 .master-buttons button {
-  flex: 1;
-  min-width: 120px;
+  flex: 0 0 auto;
+  min-width: 44px;
+  padding: 0.4em 0.7em;
+  font-size: var(--text-sm);
+  min-height: 36px;
 }
 
 .master-status {
-  font-size: 0.9rem;
+  font-size: var(--text-xs);
   color: var(--color-text-muted);
-  margin-top: var(--space-sm);
 }
 
 .babies-grid {
@@ -44,14 +77,11 @@
 
 /* ====== Baby Card ====== */
 .baby-card {
-  background: var(--color-surface);
-  border-radius: var(--radius-card);
-  padding: var(--space-lg);
-  box-shadow: var(--shadow-sm);
-  border: 1px solid var(--color-border-light);
+  padding: var(--space-md);
   transition: all var(--transition-base);
   position: relative;
   overflow: hidden;
+  container-type: inline-size;
 }
 
 .baby-card::before {
@@ -60,7 +90,7 @@
   left: 0;
   top: 0;
   bottom: 0;
-  width: 4px;
+  width: 3px;
   background: var(--color-success);
   transition: background var(--transition-base);
 }
@@ -70,61 +100,53 @@
   border-color: var(--color-border);
 }
 
+/* Compact status strip: name • dot • inline meter • level badge.
+   On a narrow card (container < 380px) it wraps to two rows so the
+   meter doesn't collapse below ~60px. */
 .baby-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: var(--space-md);
-  padding-bottom: var(--space-sm);
-  border-bottom: 1px solid var(--color-border-light);
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
 }
 
 .baby-name {
   margin: 0;
-  font-size: 1.15rem;
+  font-size: 1rem;
   font-weight: 600;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
-.baby-status {
-  padding: 0.3em 0.75em;
-  border-radius: var(--radius-pill);
-  font-size: 0.8rem;
-  font-weight: 600;
-  background: var(--color-success-bg);
-  color: var(--color-success-text);
-  letter-spacing: 0.02em;
+.baby-status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--color-success);
+  flex-shrink: 0;
+  transition: background var(--transition-base);
 }
 
-.baby-status.status-error {
-  background: var(--color-danger-bg);
-  color: var(--color-danger-text);
-}
-
-.baby-status.status-alert {
-  background: var(--color-warning-bg);
-  color: var(--color-warning-text);
-}
-
-.baby-status.pulsing {
+.baby-status-dot.status-ok { background: var(--color-success); }
+.baby-status-dot.status-error { background: var(--color-danger); }
+.baby-status-dot.status-alert { background: var(--color-warning); }
+.baby-status-dot.pulsing {
   animation: pulse-alert 1.2s ease-in-out infinite;
 }
 
 @keyframes pulse-alert {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  50% { opacity: 0.35; }
 }
 
-/* ====== Audio Visualization ====== */
-.audio-visualization {
-  margin: var(--space-md) 0;
-}
-
+/* ====== Audio Visualization (inline in baby-header) ====== */
 .volume-meter-container {
-  height: 8px;
+  flex: 1;
+  min-width: 60px;
+  height: 6px;
   background: var(--color-border-light);
   border-radius: var(--radius-pill);
   overflow: hidden;
-  margin-bottom: var(--space-sm);
 }
 
 .volume-meter {
@@ -135,16 +157,15 @@
 }
 
 .audio-level-indicator {
-  text-align: center;
-  padding: var(--space-xs) 0;
+  flex-shrink: 0;
 }
 
 .level-badge {
   display: inline-block;
-  padding: 0.35em 0.85em;
+  padding: 0.2em 0.6em;
   border-radius: var(--radius-pill);
   font-weight: 600;
-  font-size: 0.85rem;
+  font-size: 0.72rem;
   letter-spacing: 0.03em;
   text-transform: uppercase;
 }
@@ -162,34 +183,85 @@
   50% { transform: scale(1.04); }
 }
 
-/* ====== Baby Controls ====== */
+/* ====== Baby Controls ======
+   Single row, no wrap — the gear ⚙ stays on the right of Mute/Solo
+   even when its panel is open. The advanced-panel is a sibling of
+   this row (outside the <details>), revealed via :has() below. */
 .baby-controls {
   display: flex;
-  flex-direction: column;
-  gap: var(--space-sm);
-  margin: var(--space-md) 0;
+  flex-direction: row;
+  align-items: stretch;
+  gap: var(--space-xs);
+  margin: var(--space-sm) 0;
 }
 
-.baby-controls button {
-  padding: 0.7em;
-  font-size: 0.9rem;
+.baby-controls > .btn,
+.baby-controls-advanced > summary {
+  padding: 0.4em 0.85em;
+  font-size: 0.85rem;
   font-weight: 600;
   border: none;
   border-radius: var(--radius-md);
   cursor: pointer;
   transition: all var(--transition-base);
-  min-height: 44px;
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35em;
+  list-style: none;
 }
 
-.btn-mute { background: var(--color-success); color: white; }
+/* Strip the default `<summary>` triangle since we're styling it as a
+   button. ::-webkit-details-marker covers Safari/iOS. */
+.baby-controls-advanced > summary::-webkit-details-marker { display: none; }
+.baby-controls-advanced > summary::marker { content: ''; }
+
+.btn-mute { background: var(--color-success); color: white; flex: 1 1 auto; }
 .btn-mute.muted { background: var(--color-danger); }
-.btn-solo { background: var(--color-primary); color: white; }
+.btn-solo { background: var(--color-primary); color: white; flex: 1 1 auto; }
+.btn-settings {
+  background: var(--color-border-light);
+  color: var(--color-text-secondary);
+  flex: 0 0 auto;
+  min-width: 36px;
+  font-size: 1rem;
+}
+.btn-settings:hover { background: var(--color-border); color: var(--color-text); }
+
+.baby-controls-advanced {
+  flex: 0 0 auto;
+}
+
+.baby-controls-advanced[open] > summary {
+  background: var(--color-border);
+  color: var(--color-text);
+}
+
+/* The advanced-panel lives outside the <details> as a sibling of
+   .baby-controls. Hidden by default; revealed when the gear's
+   <details> goes into the [open] state via :has(). This keeps the
+   ⚙ summary button in its row no matter what — the panel flowing
+   below it doesn't bump the row layout around. */
+.advanced-panel {
+  display: none;
+}
+
+.baby-card:has(.baby-controls-advanced[open]) .advanced-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: var(--space-sm);
+  margin-top: var(--space-xs);
+  background: var(--color-border-light);
+  border-radius: var(--radius-md);
+}
 
 .volume-control, .sensitivity-control {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   color: var(--color-text-secondary);
 }
 
@@ -228,18 +300,45 @@
 
 /* ====== Sleep Timeline ====== */
 .baby-sleep-timeline {
-  margin: var(--space-md) 0;
-  padding: var(--space-md) 0;
+  margin: var(--space-sm) 0;
+  padding: var(--space-sm) 0 0;
   border-top: 1px solid var(--color-border-light);
 }
 
-.baby-sleep-timeline strong {
-  display: block;
-  margin-bottom: var(--space-sm);
+.sleep-summary-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  cursor: pointer;
+  list-style: none;
+  padding: 0.15em 0;
+}
+.sleep-summary-line::-webkit-details-marker { display: none; }
+.sleep-summary-line::marker { content: ''; }
+.sleep-summary-line::before {
+  content: '▸';
   color: var(--color-text-muted);
-  font-size: 0.8rem;
+  font-size: 0.7rem;
+  margin-right: 0.25em;
+  transition: transform var(--transition-base);
+  display: inline-block;
+}
+.baby-sleep-timeline[open] > .sleep-summary-line::before {
+  transform: rotate(90deg);
+}
+
+.sleep-label {
+  flex: 0 0 auto;
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+
+.sleep-bars {
+  margin-top: var(--space-xs);
 }
 
 .sleep-timeline-bar {
@@ -273,32 +372,107 @@
   opacity: 0.8;
 }
 
+.sleep-empty {
+  /* No observation in this slot — parent was offline / tab was
+     backgrounded for a while. Renders grey so it's clearly
+     distinguishable from "quiet" (which is green). */
+  background: var(--color-border-light);
+  opacity: 0.45;
+}
+
+/* Two-bar minimap pattern: detail = last 15 min at 15 s slot
+   resolution, history = last 12 h at 1 min slot resolution. SVG
+   trapezoid connector shows visually which slice of the history
+   bar is being magnified above. */
+.sleep-detail-label,
+.sleep-history-label {
+  font-size: 0.72rem;
+  color: var(--color-text-muted);
+  margin: 0.25rem 0 0.2rem;
+}
+
+.sleep-detail-bar {
+  height: 18px;
+}
+
+.sleep-history-bar {
+  height: 16px;
+}
+
+.sleep-connector {
+  display: block;
+  width: 100%;
+  height: 12px;
+  margin: 0;
+}
+
+.sleep-connector-shape {
+  fill: var(--color-border-light);
+  opacity: 0.55;
+  stroke: var(--color-border);
+  stroke-width: 0.3;
+}
+
 .sleep-summary {
   font-size: 0.82rem;
   color: var(--color-text-secondary);
   font-weight: 500;
+  margin-top: 0.35rem;
 }
 
 /* ====== Activity Log ====== */
 .baby-activity-log {
-  margin-top: var(--space-md);
-  padding-top: var(--space-md);
+  margin-top: var(--space-sm);
+  padding-top: var(--space-sm);
   border-top: 1px solid var(--color-border-light);
 }
 
-.baby-activity-log strong {
-  display: block;
-  margin-bottom: var(--space-xs);
+.log-summary-line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-sm);
+  cursor: pointer;
+  list-style: none;
+  padding: 0.15em 0;
+}
+.log-summary-line::-webkit-details-marker { display: none; }
+.log-summary-line::marker { content: ''; }
+.log-summary-line::before {
+  content: '▸';
   color: var(--color-text-muted);
-  font-size: 0.8rem;
+  font-size: 0.7rem;
+  margin-right: 0.25em;
+  transition: transform var(--transition-base);
+  display: inline-block;
+}
+.baby-activity-log[open] > .log-summary-line::before {
+  transform: rotate(90deg);
+}
+
+.log-label {
+  flex: 0 0 auto;
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+}
+
+.log-latest {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.78rem;
+  color: var(--color-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .log-entries {
   max-height: 120px;
   overflow-y: auto;
-  font-size: 0.82rem;
+  font-size: 0.78rem;
+  margin-top: var(--space-xs);
 }
 
 .log-entry {
@@ -312,14 +486,53 @@
 .log-alert { color: var(--color-warning-text); }
 .log-info { color: var(--color-text-secondary); }
 
-/* ====== Wake Lock ====== */
+/* ====== Baby Card narrow-container fallback ======
+   Triggers when the card's own width drops below ~380 px — typically
+   when the grid wraps to single column on narrow viewports OR the
+   user split a desktop window. Keeps touch targets ≥ 44 px, makes
+   the meter span its own row so the header stays readable, and
+   forces sliders visible (the cog `<details>` is intentionally a
+   desktop convenience). */
+@container (max-width: 379px) {
+  .baby-header {
+    flex-wrap: wrap;
+  }
+  .baby-header .volume-meter-container {
+    order: 4;
+    flex-basis: 100%;
+    margin-top: var(--space-xs);
+  }
+  .baby-controls {
+    flex-wrap: wrap;
+  }
+  .baby-controls > .btn,
+  .baby-controls-advanced > summary {
+    min-height: 44px;
+    font-size: 0.9rem;
+    padding: 0.55em 0.9em;
+  }
+  /* On narrow cards the gear toggle goes away — the sliders show
+     unconditionally beneath the controls row. The .advanced-panel
+     selector here matches the new sibling-of-.baby-controls layout. */
+  .baby-controls-advanced { display: none; }
+  .baby-card .advanced-panel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    padding: var(--space-sm);
+    margin-top: var(--space-xs);
+    background: var(--color-border-light);
+    border-radius: var(--radius-md);
+  }
+}
+
+/* ====== Wake Lock ======
+   Thin status row that matches the master-controls height. Indicator
+   + compact button, no descriptive subtitle (tooltip carries the
+   explanation). */
 .wake-lock-container {
-  background: var(--color-surface);
-  padding: var(--space-md) var(--space-lg);
-  margin: var(--space-md) 0;
-  border-radius: var(--radius-card);
-  box-shadow: var(--shadow-sm);
-  border: 1px solid var(--color-border-light);
+  padding: var(--space-sm) var(--space-md);
+  margin: var(--space-sm) 0 var(--space-md);
 }
 
 .wake-lock-status {
@@ -327,27 +540,29 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-md);
+  flex-wrap: wrap;
+  row-gap: var(--space-xs);
 }
 
-.wake-lock-indicator { font-size: 0.9rem; font-weight: 600; }
+.wake-lock-indicator {
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
 .wake-lock-active { color: var(--color-success); }
 .wake-lock-inactive { color: var(--color-text-muted); }
 
-.wake-lock-status button {
+.wake-lock-btn {
   flex-shrink: 0;
-  font-size: 0.85rem;
-  padding: 0.5em 1em;
-  min-height: 40px;
+  font-size: var(--text-sm);
+  padding: 0.4em 0.9em;
+  min-height: 36px;
 }
 
 /* ====== Notification Settings ====== */
 .notification-settings {
-  background: var(--color-surface);
   padding: var(--space-md) var(--space-lg);
   margin: var(--space-md) 0;
-  border-radius: var(--radius-card);
-  box-shadow: var(--shadow-sm);
-  border: 1px solid var(--color-border-light);
 }
 
 .notification-header {
@@ -399,17 +614,13 @@
 
 /* ====== Sections (Home, Role Select) ====== */
 .section {
-  background: var(--color-surface);
   padding: var(--space-lg);
   margin: var(--space-md) 0;
-  border-radius: var(--radius-card);
-  border: 1px solid var(--color-border-light);
-  box-shadow: var(--shadow-sm);
 }
 
 .section h2 {
   margin: 0 0 var(--space-md) 0;
-  font-size: 1.05rem;
+  font-size: var(--text-lg);
   font-weight: 600;
 }
 
@@ -453,7 +664,7 @@
 
 .room-sharing h3 {
   margin: 0 0 var(--space-md) 0;
-  font-size: 1.05rem;
+  font-size: var(--text-lg);
   font-weight: 600;
 }
 
@@ -491,6 +702,14 @@
 
 .qr-container p { margin: var(--space-sm) 0 0 0; color: var(--color-text-muted); font-size: 0.85rem; }
 
+.qr-fallback {
+  padding: var(--space-md);
+  background: var(--color-surface-alt);
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
 /* ====== Role Selection ====== */
 .role-selection {
   display: grid;
@@ -514,7 +733,7 @@
   transform: translateY(-2px);
 }
 
-.role-card h3 { margin: 0 0 var(--space-sm) 0; font-size: 1.3rem; font-weight: 700; }
+.role-card h3 { margin: 0 0 var(--space-sm) 0; font-size: var(--text-h2); font-weight: 700; }
 .role-card p { color: var(--color-text-secondary); margin: 0 0 var(--space-lg) 0; font-size: 0.92rem; line-height: 1.5; }
 .role-card form { display: flex; flex-direction: column; gap: var(--space-md); }
 .role-card label { font-weight: 500; color: var(--color-text-heading); text-align: left; font-size: 0.9rem; }
@@ -523,17 +742,28 @@
   min-height: 48px;
 }
 
-.role-btn {
+/* ====== Hero buttons ======
+   Wide, tall, prominent CTA — used by role-selection cards and the
+   onboarding wizard. `.btn-hero` is the canonical class; `.role-btn`
+   and `.onboarding-btn` ride along for legacy markup, identical
+   surface. Per-component extras (margin, display, letter-spacing)
+   stay in their own rules. */
+.btn-hero,
+.role-btn,
+.onboarding-btn {
   width: 100%;
   padding: 1em;
-  font-size: 1.05rem;
-  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 700;
   border: none;
   border-radius: var(--radius-md);
   cursor: pointer;
   transition: all var(--transition-base);
-  font-weight: 700;
   min-height: 52px;
+}
+
+.role-btn {
+  margin: 0;
   letter-spacing: 0.01em;
 }
 
@@ -586,18 +816,14 @@ body.role-page main {
 
 /* ====== Room PIN ====== */
 .pin-section {
-  background: var(--color-surface);
   padding: var(--space-xl);
   margin: var(--space-lg) 0;
-  border-radius: var(--radius-card);
-  border: 1px solid var(--color-border-light);
-  box-shadow: var(--shadow-sm);
   text-align: center;
 }
 
 .pin-section h3 {
   margin: 0 0 var(--space-sm);
-  font-size: 1.1rem;
+  font-size: var(--text-h3);
   font-weight: 600;
 }
 
@@ -768,6 +994,28 @@ body.role-page main {
   font-weight: 600;
   font-size: 0.95rem;
   color: var(--color-text-heading);
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  flex-wrap: wrap;
+}
+
+.device-type-badge {
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.15em 0.5em;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-tint, #eef);
+  color: var(--color-text-muted);
+  border: 1px solid var(--color-border-light);
+}
+
+.device-type-badge.device-type-s3 {
+  background: #e6f4ea;
+  color: #1f7a3a;
+  border-color: #b5dcc1;
 }
 
 .device-meta {
@@ -831,6 +1079,223 @@ body.role-page main {
   color: var(--color-text-muted);
   font-size: 0.9rem;
   padding: var(--space-lg);
+}
+
+/* ====== BLE Provisioning Wizard ======
+   Scoped utility classes for the device-onboarding panel in
+   select-role.html. Each class replaces a repeated inline style
+   block in the markup; pure dynamic-toggle display:none rules stay
+   inline (the JS flips .style.display directly). */
+.ble-section-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin: var(--space-md) 0 var(--space-xs);
+}
+
+.ble-mini-btn {
+  padding: 0.5em 0.8em;
+  font-size: 0.82rem;
+}
+
+.ble-mini-btn--spaced {
+  margin-top: var(--space-xs);
+}
+
+.ble-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.ble-row--spaced {
+  margin-bottom: var(--space-xs);
+}
+
+.ble-row--clickable {
+  cursor: pointer;
+}
+
+.ble-row-input {
+  width: 100%;
+  font-size: 0.85rem;
+  padding: 6px;
+}
+
+.ble-row-input--spaced {
+  margin-bottom: 4px;
+}
+
+.ble-checkbox {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--color-primary);
+}
+
+.ble-remove-btn {
+  background: var(--color-danger-bg);
+  color: var(--color-danger-text);
+  border: none;
+  border-radius: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.ble-empty-state {
+  color: var(--color-text-muted);
+  font-size: 0.82rem;
+  font-style: italic;
+  padding: 6px 0;
+}
+
+.ble-error-text {
+  color: var(--color-danger);
+  font-size: 0.85rem;
+}
+
+.ble-help-text {
+  font-size: 0.82rem;
+  color: var(--color-text-muted);
+}
+
+.ble-status {
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin-bottom: var(--space-md);
+  color: var(--color-primary);
+}
+
+.ble-info-text {
+  font-size: 0.85rem;
+  color: var(--color-text-secondary);
+  margin: 0 0 var(--space-sm);
+}
+
+.ble-flex-grow {
+  flex: 1;
+  min-width: 0;
+}
+
+.ble-config-row {
+  background: var(--color-surface-alt);
+  padding: 8px;
+  border-radius: 6px;
+  margin-bottom: 6px;
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+}
+
+.ble-active-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+  margin-top: 4px;
+}
+
+.ble-scan-hint {
+  font-size: 0.8rem;
+  color: var(--color-text-secondary);
+  margin: 4px 0;
+}
+
+.ble-scan-chip {
+  padding: 6px 10px;
+  font-size: 0.82rem;
+  margin: 2px 4px 2px 0;
+  text-align: left;
+}
+
+.ble-add-btn { margin-top: var(--space-md); }
+.ble-instructions { margin-top: var(--space-lg); }
+.ble-instructions-title { margin: 0 0 var(--space-sm); font-size: 0.95rem; }
+.ble-provision-row { margin-bottom: var(--space-md); }
+.ble-help-text--spaced { margin-top: var(--space-xs); }
+.ble-wizard { margin-bottom: var(--space-lg); }
+.ble-scan-list { margin-top: var(--space-xs); }
+.ble-wifi-rows { margin-top: var(--space-sm); }
+.ble-input-full { width: 100%; }
+.ble-save-btn { margin-top: var(--space-md); width: 100%; }
+.ble-manual-heading { font-size: 0.88rem; font-weight: 600; margin: 0 0 var(--space-sm); }
+.ble-manual-steps {
+  margin: 0;
+  padding-left: 1.5em;
+  font-size: 0.88rem;
+  line-height: 1.8;
+  color: var(--color-text-secondary);
+}
+
+.device-prefill {
+  margin-top: var(--space-md);
+  background: var(--color-surface-alt);
+  padding: var(--space-md);
+  border-radius: var(--radius-md);
+  font-size: 0.85rem;
+}
+
+/* ====== Settings forms (ntfy, sleep, devices) ======
+   Shared row/group primitives so the JS-touched markup in
+   select-role.html stops repeating the same inline style block. */
+.form-input-row {
+  display: flex;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+}
+
+.form-section {
+  margin-bottom: var(--space-md);
+}
+
+.form-group-label {
+  font-weight: 600;
+  margin-bottom: var(--space-sm);
+  font-size: 0.9rem;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  cursor: pointer;
+}
+
+.checkbox-row + .checkbox-row {
+  margin-top: var(--space-xs);
+}
+
+/* Bigger hit area for the form-control checkboxes. */
+.checkbox-lg {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--color-primary);
+}
+
+.btn-compact {
+  width: auto;
+  white-space: nowrap;
+}
+
+.link-primary {
+  color: var(--color-primary);
+}
+
+/* Native <select> sized to match the page's text inputs — same
+   border, height, font, surface. */
+.styled-select {
+  display: block;
+  width: 100%;
+  padding: 0.8em 1em;
+  font-size: 1rem;
+  font-family: var(--font-family);
+  border-radius: var(--radius-md);
+  border: 2px solid var(--color-border);
+  min-height: 48px;
+  background: var(--color-surface-alt);
+  color: var(--color-text);
+  margin-bottom: var(--space-lg);
 }
 
 /* ====== Responsive ====== */

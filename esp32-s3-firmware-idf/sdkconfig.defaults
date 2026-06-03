@@ -1,0 +1,90 @@
+# Sdkconfig defaults — applied as a starting point by idf.py before any
+# `idf.py menuconfig` overrides. Pinned values that the XIAO S3 + Arduino
+# component need.
+
+# Arduino requires the FreeRTOS tick rate at 1000 Hz (10 ms in PIO is
+# 1 Hz here — the docs are explicit about this).
+CONFIG_FREERTOS_HZ=1000
+
+# Use the app_main() entry-point pattern, not auto-call setup()/loop().
+CONFIG_AUTOSTART_ARDUINO=n
+
+# Match the PlatformIO build (was board_build.partitions = min_spiffs.csv).
+# Needed because the firmware exceeds the 1.3 MB default app slot once
+# NimBLE + provisioning + (later) esp_webrtc are linked.
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# OPI PSRAM on the XIAO ESP32-S3 R8 (8 MB). Allocator knobs copied from
+# pioarduino's S3 sdkconfig (the known-good config arduino-esp32
+# precompiles its libs against). Kept for ABI parity rather than crash
+# avoidance — the actual NimBLE init crash on this stack was a
+# different problem entirely (see [[project-esp32s3-nimble-crash]]).
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_MODE_OCT=y
+CONFIG_SPIRAM_TYPE_AUTO=y
+CONFIG_SPIRAM_SPEED_80M=y
+CONFIG_SPIRAM_USE_MALLOC=y
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=4096
+CONFIG_SPIRAM_MALLOC_RESERVE_INTERNAL=0
+CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY=y
+
+# Serial console on the XIAO S3's USB port via the USB-Serial-JTAG
+# controller (enumerates as 303a:1001 /dev/ttyACM0 — same as PIO).
+# Arduino's `Serial` object is aliased to HWCDCSerial (the JTAG-CDC
+# wrapper) when ARDUINO_USB_CDC_ON_BOOT=1 AND ARDUINO_USB_MODE=1.
+# Those two come in via build_flags in main/CMakeLists.txt because
+# they're plain C #defines, not Kconfig options.
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
+# Avoid the DTR/RTS post-flash reset that USB-Serial-JTAG also doesn't
+# honour (esptool fails with EPROTO at "Hard resetting via RTS pin",
+# though the flash itself succeeds). User power-cycles after flash.
+CONFIG_ESPTOOLPY_AFTER_NORESET=y
+
+# Higher CPU clock for the audio path.
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+
+# XIAO ESP32-S3 R8 has 8 MB flash. Default is 2 MB and our partition
+# table doesn't fit there.
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+CONFIG_ESPTOOLPY_FLASHSIZE="8MB"
+
+# BLE stack — pick NimBLE host (smaller than Bluedroid, what
+# h2zero/esp-nimble-cpp expects). Without CONFIG_BT_NIMBLE_ENABLED the
+# NimBLE component fails at "syscfg/syscfg.h: No such file or
+# directory" because the host's generated config header isn't built.
+CONFIG_BT_ENABLED=y
+CONFIG_BT_NIMBLE_ENABLED=y
+CONFIG_BT_BLUEDROID_ENABLED=n
+CONFIG_BT_CONTROLLER_ENABLED=y
+CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=5120
+# Match pioarduino's S3 sdkconfig: all roles enabled. Disabling
+# CENTRAL/OBSERVER turned out NOT to affect controller init failure
+# either way — keep them on for parity with the known-good config.
+CONFIG_BT_NIMBLE_ROLE_PERIPHERAL=y
+CONFIG_BT_NIMBLE_ROLE_BROADCASTER=y
+CONFIG_BT_NIMBLE_ROLE_CENTRAL=y
+CONFIG_BT_NIMBLE_ROLE_OBSERVER=y
+
+# WiFi/BT software coexistence — matches Arduino-ESP32's reference
+# sdkconfig. Belt-and-suspenders: WiFi and BLE never overlap in time
+# in this firmware, but the flag is what pioarduino ships with.
+CONFIG_SW_COEXIST_ENABLE=y
+CONFIG_ESP_COEX_SW_COEXIST_ENABLE=y
+
+
+# WSS uses Mozilla CA bundle for TLS — keeps us compatible with the
+# server's Let's Encrypt cert without per-build cert provisioning. The
+# default-full bundle is ~250 KB embedded, still fits comfortably.
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
+
+# DTLS + SRTP — required by espressif/esp_peer for WebRTC media
+# encryption. Without these the component fails to compile with
+# implicit-function-declaration errors for mbedtls_ssl_conf_dtls_*.
+# Branch 5.1c only link-verifies; the symbols stay unused until 5.2
+# wires them through PeerConnection.
+CONFIG_MBEDTLS_SSL_PROTO_DTLS=y
+CONFIG_MBEDTLS_SSL_DTLS_SRTP=y

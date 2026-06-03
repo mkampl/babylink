@@ -1,10 +1,27 @@
 /**
- * ESP32 Audio Handler - processes audio from ESP32 baby devices
+ * ESP32 Audio Handler — processes audio from ESP32 baby devices.
+ *
+ * Routes incoming binary PCM chunks into the parent's AudioContext for
+ * playback, and computes a per-device level for the UI meter.
+ *
+ * Two visualization paths, selected per chunk by `deviceType`:
+ *
+ *   - 'esp32-classic' (default) — preserves the long-tuned original
+ *     RMS-per-chunk meter with the existing thresholds 100/180.
+ *     DO NOT change without explicit user approval; the classic
+ *     ESP32 + INMP441 pipeline was calibrated against this.
+ *
+ *   - 'esp32-s3' — AnalyserNode with a dB range shifted for raw PDM
+ *     mic data (-40…-5 dBFS), polled via requestAnimationFrame at
+ *     ~60 Hz. Matches the WebRTC PWA-baby meter feel. Thresholds
+ *     60/130 because PDM signal sits in a narrower band than the
+ *     classic ESP32 with software gain.
  */
 class ESP32AudioHandler {
   constructor(esp32AudioContexts) {
     this.contexts = esp32AudioContexts;
     this.enabled = false;
+    this.multiBabyUI = null; // captured on first audio chunk
   }
 
   enableAudio() {
@@ -14,28 +31,75 @@ class ESP32AudioHandler {
     });
   }
 
+  _startLevelMonitor(fromId) {
+    const tick = () => {
+      const ctx = this.contexts.get(fromId);
+      if (!ctx || !ctx.analyser) return; // stopped
+
+      ctx.analyser.getByteFrequencyData(ctx.levelData);
+      let peak = 0;
+      for (let i = 0; i < ctx.levelData.length; i++) {
+        if (ctx.levelData[i] > peak) peak = ctx.levelData[i];
+      }
+      const volume = peak; // 0..255
+
+      let level = 'GREEN';
+      if (volume > 130)      level = 'RED';
+      else if (volume > 60)  level = 'YELLOW';
+
+      if (this.multiBabyUI && this.multiBabyUI.babyCards.has(fromId)) {
+        this.multiBabyUI.updateAudioLevel(fromId, level, volume);
+      }
+      ctx.levelRafId = requestAnimationFrame(tick);
+    };
+    const ctx = this.contexts.get(fromId);
+    ctx.levelRafId = requestAnimationFrame(tick);
+  }
+
   handleAudioData(data, multiBabyUI) {
-    const { fromId, fromName, audio, sampleRate, channels } = data;
+    const { fromId, fromName, audio, sampleRate, channels, deviceType } = data;
+    this.multiBabyUI = multiBabyUI;
+    const isS3 = deviceType === 'esp32-s3';
 
     try {
       if (!this.contexts.has(fromId)) {
         const audioContext = new (window.AudioContext || window.webkitAudioContext)();
         const gainNode = audioContext.createGain();
         gainNode.gain.value = 1.0;
-        gainNode.connect(audioContext.destination);
 
-        this.contexts.set(fromId, {
+        const ctxRecord = {
           audioContext, gainNode,
           sampleRate: sampleRate || 16000,
           channels: channels || 1,
           volume: 1.0,
-          buffer: []
-        });
+          buffer: [],
+          deviceType: deviceType || 'esp32-classic'
+        };
+
+        // gainNode is the mute point — connects to destination only.
+        gainNode.connect(audioContext.destination);
+
+        if (isS3) {
+          // AnalyserNode is wired in PARALLEL to gainNode (from the
+          // source — see source-connect below). That decouples it
+          // from mute / volume changes: mute the audible output but
+          // the meter keeps moving so we can still see if the baby is
+          // making noise. AnalyserNode is a passive node — it does not
+          // require a destination connection to keep processing.
+          const analyser = audioContext.createAnalyser();
+          analyser.fftSize = 256;
+          analyser.smoothingTimeConstant = 0.6; // more responsive to taps
+          analyser.minDecibels = -40;
+          analyser.maxDecibels = -5;
+
+          ctxRecord.analyser = analyser;
+          ctxRecord.levelData = new Uint8Array(analyser.frequencyBinCount);
+        }
+
+        this.contexts.set(fromId, ctxRecord);
 
         if (!this.enabled && audioContext.state === 'suspended') {
-          // Try auto-enable (works if user already interacted)
           if (window._enableAllAudio) window._enableAllAudio();
-          // If still suspended, show hint
           if (audioContext.state === 'suspended') {
             const alert = document.getElementById('alert');
             if (alert) {
@@ -44,6 +108,8 @@ class ESP32AudioHandler {
             }
           }
         }
+
+        if (isS3) this._startLevelMonitor(fromId);
       }
 
       const ctx = this.contexts.get(fromId);
@@ -90,7 +156,26 @@ class ESP32AudioHandler {
       audioBuffer.getChannelData(0).set(amplifiedData);
       const source = ctx.audioContext.createBufferSource();
       source.buffer = audioBuffer;
-      source.connect(ctx.gainNode);
+      // Audible branch (subject to mute / volume). Skipped only when
+      // MultiStreamManager has a WebRTC stream for this baby AND the
+      // remote audio track is actively producing samples — otherwise
+      // both paths overlap with a phase offset and the parent hears an
+      // echo. We also fall back to the WSS-PCM playback when the
+      // WebRTC track is muted (SRTP unprotect failures, peer in a
+      // weird state, ICE renegotiating, …) so the parent doesn't end
+      // up listening to silence when the WSS path could carry audio.
+      const webrtcActive = (function() {
+        if (!window._multiStreamManager) return false;
+        const stream = window._multiStreamManager.audioStreams.get(fromId);
+        if (!stream) return false;
+        const tracks = stream.getAudioTracks();
+        return tracks.length > 0 && !tracks[0].muted &&
+               tracks[0].readyState === 'live';
+      })();
+      if (!webrtcActive) source.connect(ctx.gainNode);
+      // Metering branch (always processed, independent of audible mute
+      // or WebRTC takeover — keeps the baby-card level meter alive).
+      if (ctx.analyser) source.connect(ctx.analyser);
 
       const now = ctx.audioContext.currentTime;
       const MIN_LEAD = 0.05;   // 50ms cushion against jitter
@@ -104,8 +189,10 @@ class ESP32AudioHandler {
       source.start(ctx.nextStartTime);
       ctx.nextStartTime += audioBuffer.duration;
 
-      // Update audio level visualization
-      if (multiBabyUI && multiBabyUI.babyCards.has(fromId)) {
+      // Classic ESP32 visualization — exact pre-Branch-2 behavior.
+      // Per-chunk RMS over the (sensitivity-applied) Float32, scaled
+      // ×500, color thresholds 40/120. Untouched on purpose.
+      if (!isS3 && multiBabyUI && multiBabyUI.babyCards.has(fromId)) {
         let sumSquares = 0;
         for (let i = 0; i < amplifiedData.length; i++) {
           sumSquares += amplifiedData[i] * amplifiedData[i];

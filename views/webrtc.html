@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>BabyLink Monitor</title>
   <link rel="manifest" href="/manifest.json">
-  <meta name="theme-color" content="#3b82f6">
+  <meta name="theme-color" content="#6B8EAE">
   <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-32x32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/icons/icon-16x16.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -26,11 +26,8 @@
   <!-- Wake Lock Status -->
   <div class="wake-lock-container">
     <div class="wake-lock-status">
-      <div>
-        <span id="wakeLockIndicator" class="wake-lock-indicator wake-lock-inactive">Screen Lock: Inactive</span>
-        <div style="font-size: 0.8em; color: var(--color-text-secondary);">Prevents screen from turning off</div>
-      </div>
-      <button id="wakeLockBtn" class="btn btn-success">Enable Wake Lock</button>
+      <span id="wakeLockIndicator" class="wake-lock-indicator wake-lock-inactive" title="Prevents screen from turning off">Screen Lock: Inactive</span>
+      <button id="wakeLockBtn" class="btn btn-success wake-lock-btn">Enable</button>
     </div>
   </div>
 
@@ -51,6 +48,7 @@
   <script src="/js/wake-lock-manager.js"></script>
   <script src="/js/alarm-manager.js"></script>
   <script src="/js/esp32-audio-handler.js"></script>
+  <script src="/js/sleep-tracker.js"></script>
   <script src="/js/app.js"></script>
 </body>
 </html>

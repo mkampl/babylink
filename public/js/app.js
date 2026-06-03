@@ -28,6 +28,13 @@
   const wakeLockMgr = new WakeLockManager();
   const alarmMgr = new AlarmManager();
   const esp32Handler = new ESP32AudioHandler(esp32AudioContexts);
+  // Sleep tracking is owned by the parent (this tab). One tracker per
+  // baby, fed by multiBabyUI.onLevelObserved. Persistence is in
+  // localStorage and survives reloads; per-parent observation is the
+  // intentional design — different parents may have different rooms /
+  // sensitivity and want their own picture.
+  const sleepTrackers = new Map();  // babyId → SleepTracker
+  let sleepRenderInterval = null;
 
   // Enable all audio (WebRTC + ESP32) — resumes suspended AudioContexts
   function enableAllAudio() {
@@ -105,9 +112,17 @@
   async function initialize() {
     console.log(`Initializing BabyLink as ${role} (${userName}) in room ${roomId}`);
 
-    // Parent must tap "Start Monitoring" to unlock audio (browser requirement)
+    // Parent must tap "Start Monitoring" to unlock audio (browser requirement).
+    // Dev shortcut: `?autostart=1` skips the gesture — works only when the
+    // browser is launched with --autoplay-policy=no-user-gesture-required.
     if (role === 'parent') {
-      await showStartOverlay();
+      const skipOverlay = new URLSearchParams(window.location.search).get('autostart') === '1';
+      if (skipOverlay) {
+        window.__sharedAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        enableAllAudio();
+      } else {
+        await showStartOverlay();
+      }
     }
 
     if (role === 'baby') {
@@ -152,24 +167,25 @@
     const container = document.getElementById('mainContainer');
     container.innerHTML = `
       <div class="baby-device-container">
-        <h2>Baby Device</h2>
-        <div class="baby-name-display">${escapeHtml(userName)}</div>
-        <div class="baby-waveform-section">
-          <canvas id="waveformCanvas" width="360" height="100"></canvas>
-          <div class="baby-mic-status" id="micStatus">Requesting microphone...</div>
-        </div>
-        <div class="baby-parent-count" id="parentCountSection">
-          <div class="parent-count-number" id="parentCountNum">0</div>
-          <div class="parent-count-label" id="parentCountLabel">parents monitoring</div>
-        </div>
-        <div class="baby-actions">
-          <button class="baby-test-btn" id="testAudioBtn" disabled>Test Audio</button>
-        </div>
-        <div class="baby-battery" id="batterySection" style="display:none;">
-          <div class="battery-indicator">
-            <div class="battery-level" id="batteryLevel"></div>
+        <div class="baby-header-strip">
+          <h2 class="baby-name-display">👶 ${escapeHtml(userName)}</h2>
+          <div class="baby-listeners" id="parentCountSection" title="Parents currently monitoring">
+            <span class="baby-listeners-num" id="parentCountNum">0</span>
+            <span class="baby-listeners-label" id="parentCountLabel">listening</span>
           </div>
-          <span class="battery-text" id="batteryText"></span>
+        </div>
+        <div class="baby-waveform-section">
+          <canvas id="waveformCanvas" width="360" height="80"></canvas>
+          <div class="baby-mic-status" id="micStatus">Requesting microphone…</div>
+        </div>
+        <div class="baby-footer">
+          <button class="baby-test-btn" id="testAudioBtn" disabled title="Play a short tone so parents can verify they hear this device">🔊 Test</button>
+          <div class="baby-battery" id="batterySection" style="display:none;">
+            <div class="battery-indicator">
+              <div class="battery-level" id="batteryLevel"></div>
+            </div>
+            <span class="battery-text" id="batteryText"></span>
+          </div>
         </div>
       </div>
     `;
@@ -305,21 +321,6 @@
     var RED_THRESHOLD = 180;
     var YELLOW_THRESHOLD = 100;
 
-    // --- Sleep tracking state ---
-    var currentLevel = 'GREEN';
-    var sleepTrackingEnabled = true;
-
-    // Load sleep tracking config
-    try {
-      var cfg = JSON.parse(localStorage.getItem('babylink-sleep-config-' + roomId) || '{}');
-      if (cfg.enabled === false) sleepTrackingEnabled = false;
-    } catch (e) {}
-
-    // Record initial state
-    if (sleepTrackingEnabled) {
-      recordSleepEvent('GREEN');
-    }
-
     function getLevel(volume) {
       if (volume > RED_THRESHOLD) return 'RED';
       if (volume > YELLOW_THRESHOLD) return 'YELLOW';
@@ -349,70 +350,9 @@
       } else {
         isCrying = false;
       }
-
-      // --- Sleep tracking (record every transition) ---
-      if (sleepTrackingEnabled && level !== currentLevel) {
-        currentLevel = level;
-        recordSleepEvent(level);
-      }
     }
 
     setInterval(check, 500);
-  }
-
-  // ========================
-  // Sleep event storage (localStorage)
-  // ========================
-
-  function getSleepStorageKey() {
-    return 'babylink-sleep-' + roomId;
-  }
-
-  function getSleepEvents() {
-    try {
-      return JSON.parse(localStorage.getItem(getSleepStorageKey()) || '[]');
-    } catch (e) { return []; }
-  }
-
-  function recordSleepEvent(level) {
-    var events = getSleepEvents();
-    var now = Date.now();
-
-    // Don't record duplicate consecutive states
-    if (events.length > 0 && events[events.length - 1].level === level) return;
-
-    events.push({ time: now, level: level });
-
-    // Prune old events based on retention
-    var retentionDays = 7;
-    try {
-      var cfg = JSON.parse(localStorage.getItem('babylink-sleep-config-' + roomId) || '{}');
-      if (cfg.retentionDays) retentionDays = cfg.retentionDays;
-    } catch (e) {}
-    var cutoff = now - (retentionDays * 24 * 60 * 60 * 1000);
-    events = events.filter(function(e) { return e.time >= cutoff; });
-
-    localStorage.setItem(getSleepStorageKey(), JSON.stringify(events));
-
-    // Broadcast updated timeline to parents
-    broadcastSleepTimeline();
-  }
-
-  function broadcastSleepTimeline() {
-    if (role !== 'baby' || !hasJoinedRoom) return;
-    var events = getSleepEvents();
-    socket.emit('sleep-timeline', { roomId: roomId, babyId: socket.id, babyName: userName, events: events });
-  }
-
-  // Serve sleep timeline to parents via socket
-  socket.on('request-sleep-timeline', function(data) {
-    if (role !== 'baby') return;
-    broadcastSleepTimeline();
-  });
-
-  // Periodically broadcast timeline so parent's counters stay fresh
-  if (role === 'baby') {
-    setInterval(function() { broadcastSleepTimeline(); }, 60000);
   }
 
   // ========================
@@ -457,7 +397,7 @@
     var numEl = document.getElementById('parentCountNum');
     var labelEl = document.getElementById('parentCountLabel');
     if (numEl) numEl.textContent = count;
-    if (labelEl) labelEl.textContent = count === 1 ? 'parent monitoring' : 'parents monitoring';
+    if (labelEl) labelEl.textContent = 'listening';
   }
 
   function initBatteryIndicator() {
@@ -499,6 +439,11 @@
     const configResponse = await fetch('/api/config/webrtc');
     const webrtcConfig = await configResponse.json();
     multiStreamManager = new MultiStreamManager(socket, webrtcConfig);
+    // Make the parent-side stream manager addressable for cross-file
+    // coordination (ESP32AudioHandler peeks at audioStreams to decide
+    // whether to mute the WSS-PCM playback for a baby that's already
+    // playing via WebRTC).
+    window._multiStreamManager = multiStreamManager;
 
     // Wire up UI callbacks to stream manager + ESP32
     multiBabyUI.onMuteToggle = (babyId, mute) => {
@@ -525,6 +470,12 @@
         ctx.sensitivity = sensitivity;
         ctx.sensitivityGain = sensitivity;
       }
+      // Live-tune the sleep tracker's volume thresholds. Past slots
+      // stay as recorded (re-classification would need the raw
+      // volume samples we don't keep); new observations use the
+      // updated thresholds immediately.
+      const tracker = sleepTrackers.get(babyId);
+      if (tracker) tracker.setSensitivity(sensitivity);
     };
 
     multiBabyUI.onSoloToggle = (babyId) => {
@@ -536,13 +487,36 @@
     multiStreamManager.onStreamAdded = (participantId, stream, participantInfo) => {
       multiBabyUI.addBaby(participantId, participantInfo);
       enableAllAudio();
-      // Request sleep timeline from baby
-      socket.emit('request-sleep-timeline', { roomId: roomId });
     };
 
     multiStreamManager.onStreamRemoved = (participantId) => {
       multiBabyUI.removeBaby(participantId);
     };
+
+    // Cross-source volume tap: every level update funnels through
+    // multi-baby-ui (both WSS-PCM via esp32-audio-handler and WebRTC
+    // via multi-stream-manager land here). Lazy-create the per-baby
+    // SleepTracker on first observation so babies whose WebRTC
+    // handshake fails (esp_peer SDP retry exhausted, etc.) still get
+    // tracked from the WSS-PCM analyser feed.
+    multiBabyUI.onLevelObserved = (babyId, level, volume) => {
+      let tracker = sleepTrackers.get(babyId);
+      if (!tracker) {
+        const sens = multiBabyUI.sensitivity.get(babyId) || 1.0;
+        tracker = new SleepTracker(babyId, roomId, { sensitivity: sens });
+        sleepTrackers.set(babyId, tracker);
+      }
+      tracker.observe(volume);
+    };
+
+    // Re-render every baby's sleep timeline on a 5 s tick. The
+    // tracker's internal state moves at 1 Hz so 5 s is the right
+    // balance between detail-bar movement and DOM churn.
+    sleepRenderInterval = setInterval(() => {
+      for (const [babyId, tracker] of sleepTrackers) {
+        multiBabyUI.renderSleepTimeline(babyId, tracker);
+      }
+    }, 5000);
 
     // Track crying state per baby to avoid spamming socket events
     const cryingState = new Map(); // babyId → { isCrying, lastEmit }
@@ -663,7 +637,14 @@
         if (!multiBabyUI.babyCards.has(baby.socketId)) {
           multiBabyUI.addBaby(baby.socketId, baby);
         }
-        // Request baby to send offer if no peer connection exists yet
+        // All baby types (PWA, classic ESP32, XIAO S3) take the same
+        // dispatch now: ask the baby to send us an offer. The signal
+        // handler routes the inbound offer to multiStreamManager which
+        // creates the peer + audio element. S3 babies generate their
+        // own offer from esp_peer; PWA babies create one from
+        // RTCPeerConnection.createOffer(); classic ESP32 stays on the
+        // legacy WSS-PCM path because it doesn't speak WebRTC and the
+        // requestOffer goes nowhere.
         if (!multiStreamManager.peerConnections.has(baby.socketId)) {
           socket.emit('signal', { requestOffer: true, to: baby.socketId });
         }
@@ -688,7 +669,9 @@
     } else if (role === 'parent' && pRole === 'baby') {
       multiBabyUI.addBaby(socketId, { socketId, role: pRole, userName: pName });
       if (multiBabyUI.babyCards.size > 0) alarmMgr.stop();
-      // Request the new baby to send us an offer
+      // Unified dispatch — same requestOffer kickoff for every baby
+      // type. multiStreamManager handles the inbound offer regardless
+      // of source. See the room-state handler above for the rationale.
       socket.emit('signal', { requestOffer: true, to: socketId });
     }
   });
@@ -701,6 +684,8 @@
     } else if (role === 'parent' && pRole === 'baby') {
       multiBabyUI.removeBaby(socketId);
       multiStreamManager.removeParticipant(socketId);
+      const tracker = sleepTrackers.get(socketId);
+      if (tracker) { tracker.destroy(); sleepTrackers.delete(socketId); }
       if (multiBabyUI.babyCards.size === 0) alarmMgr.play();
     }
   });
@@ -729,14 +714,6 @@
   socket.on('esp32-audio', (data) => {
     if (role !== 'parent') return;
     esp32Handler.handleAudioData(data, multiBabyUI);
-  });
-
-  // Handle sleep timeline from baby (parent side)
-  socket.on('sleep-timeline', (data) => {
-    if (role !== 'parent') return;
-    if (multiBabyUI && data.babyId) {
-      multiBabyUI.updateSleepTimeline(data.babyId, data.events || []);
-    }
   });
 
   // ========================

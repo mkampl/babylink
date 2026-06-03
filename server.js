@@ -61,12 +61,28 @@ app.use(cors({
 }));
 
 // Rate limiting middleware
+//
+// Static assets bypass the limiter: they're trivially cacheable, the
+// service worker handles repeat fetches client-side, and counting
+// them against the budget meant a normal browser reload (10-15 asset
+// requests) could exhaust 100/15min in under ten reloads — which is
+// exactly what bit us while iterating on the UI.
 const limiter = rateLimit({
   windowMs: config.security.rateLimitWindow,
   max: config.security.rateLimitMaxRequests,
   message: 'Too many requests from this IP, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => {
+    if (req.method !== 'GET') return false;
+    const p = req.path;
+    return p.startsWith('/css/') ||
+           p.startsWith('/js/') ||
+           p.startsWith('/icons/') ||
+           p === '/manifest.json' ||
+           p === '/service-worker.js' ||
+           p === '/health';
+  },
   handler: (req, res) => {
     logger.warn('Rate limit exceeded', { ip: req.ip, url: req.url });
     res.status(429).json({
@@ -121,6 +137,45 @@ app.get('/api/esp32/status', (req, res) => {
 // API endpoint to get WebRTC configuration
 app.get('/api/config/webrtc', (req, res) => {
   res.json(config.webrtcWithTurn);
+});
+
+// Best LAN address the server can advertise to ESP32 devices for the
+// BLE provisioning wizard. When the PWA is opened on http://localhost
+// (developer's own laptop) the wizard would otherwise pre-fill "host:
+// localhost" into the ESP's server profile — which on the ESP side
+// resolves to its own loopback and fails to connect.
+//
+// Resolution order:
+//   1. PUBLIC_HOST env var — set this in docker-compose when running
+//      containerized (the container only sees its bridge IP, not the
+//      host's LAN address).
+//   2. os.networkInterfaces() — works when running on bare metal.
+//   3. req.hostname — last resort.
+app.get('/api/config/server-hint', (req, res) => {
+  let host = process.env.PUBLIC_HOST;
+  if (!host) {
+    const os = require('os');
+    const interfaces = os.networkInterfaces();
+    let lanIp = null;
+    for (const name of Object.keys(interfaces)) {
+      for (const addr of interfaces[name]) {
+        if (addr.family === 'IPv4' && !addr.internal) {
+          // Prefer 192.168.x.x and 10.x.x.x over 172.16/12 (often Docker).
+          if (addr.address.startsWith('192.168.') || addr.address.startsWith('10.')) {
+            lanIp = addr.address;
+            break;
+          }
+          if (!lanIp) lanIp = addr.address;
+        }
+      }
+      if (lanIp && (lanIp.startsWith('192.168.') || lanIp.startsWith('10.'))) break;
+    }
+    host = lanIp || req.hostname;
+  }
+  res.json({
+    host,
+    port: parseInt(process.env.PUBLIC_PORT || process.env.PORT, 10) || 3001
+  });
 });
 
 // =============================================================================
@@ -515,13 +570,25 @@ io.on('connection', (socket) => {
 
       // If 'to' is specified, send to that specific socket
       if (data.to) {
-        io.to(data.to).emit('signal', {
-          ...data,
-          from: socket.role,
-          fromSocketId: socket.id,
-          fromUserName: socket.userName
-        });
-        logger.debug(`Signal routed to specific participant: ${data.to}`);
+        if (typeof data.to === 'string' && data.to.startsWith('esp32_')) {
+          // Cross-transport bridge: target is an ESP32 device on the
+          // raw WS endpoint. Server is a pure relay — no SDP inspection.
+          const ok = esp32Proxy.relaySignalToESP(
+            data.to, data, socket.id, socket.userName);
+          if (!ok) {
+            logger.warn(`Signal to ESP32 ${data.to} dropped — not connected`);
+          } else {
+            logger.debug(`Signal routed via WS to ESP32: ${data.to}`);
+          }
+        } else {
+          io.to(data.to).emit('signal', {
+            ...data,
+            from: socket.role,
+            fromSocketId: socket.id,
+            fromUserName: socket.userName
+          });
+          logger.debug(`Signal routed to specific participant: ${data.to}`);
+        }
       } else {
         // Otherwise broadcast to all participants in the room (legacy behavior)
         socket.to(socket.roomId).emit('signal', {
@@ -621,21 +688,6 @@ io.on('connection', (socket) => {
     } catch (error) {
       logger.error('Error in crying-detected handler', { error: error.message, socketId: socket.id });
     }
-  });
-
-  // Relay sleep timeline requests/responses between parent and baby
-  socket.on('request-sleep-timeline', (data) => {
-    if (!socket.roomId) return;
-    // Forward to all babies in the room
-    socket.to(socket.roomId).emit('request-sleep-timeline', {
-      fromSocketId: socket.id
-    });
-  });
-
-  socket.on('sleep-timeline', (data) => {
-    if (!socket.roomId) return;
-    // Forward to all parents in the room (or to specific requester)
-    socket.to(socket.roomId).emit('sleep-timeline', data);
   });
 
   // Handle errors

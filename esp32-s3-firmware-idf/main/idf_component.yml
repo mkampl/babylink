@@ -1,0 +1,38 @@
+## ESP-IDF Component Manager manifest. Resolved at `idf.py build` time.
+##
+## arduino-esp32 ships as a managed component; pulling it lets us keep
+## <Arduino.h>, <WiFi.h>, <Preferences.h>, etc.
+##
+## esp-nimble-cpp is the IDF-native flavour of h2zero's NimBLE wrapper —
+## same NimBLEDevice / NimBLEServerCallbacks / NIMBLE_PROPERTY API as
+## the PlatformIO build's NimBLE-Arduino, just without the Arduino
+## library shim. The 2.x line matches what the PIO firmware tracks.
+##
+## Later sub-branches will add:
+##   espressif/esp_webrtc — real WebRTC for Branch 5.1c onward
+
+dependencies:
+  # Pinned to 3.3.6 — the last version that boots cleanly with NimBLE
+  # on XIAO ESP32-S3 (arduino-esp32 issue #12357: 3.3.7+ broke
+  # btdm_controller_init on this board). 3.3.6 lacks the
+  # __wrap_esp_log_write stubs the esp_wifi adapter in IDF v5.5.4
+  # references, so we provide pass-through stubs in
+  # main/log_wrap_stubs.c. See [[project-esp32s3-nimble-crash]].
+  espressif/arduino-esp32: "3.3.6"
+  # Must be >= 2.4.0 (March 21, 2026) — earlier versions crash on init
+  # with arduino-esp32 v3.3.7+. The fix is PR #1090 in the sibling
+  # NimBLE-Arduino repo (released as v2.3.8 on the Arduino side,
+  # equivalent commits landed on esp-nimble-cpp master in early March
+  # and shipped as the 2.4.0 IDF-component release). The crash showed
+  # as a heap_caps_free assert in btdm_controller_deinit_internal,
+  # cascading from an uninitialised NPL mutex handle the wrapper
+  # passed to the controller during init.
+  h2zero/esp-nimble-cpp: "^2.4.0"
+  espressif/esp_websocket_client: "^1.5.0"
+  # Pulled in for Sub-Branch 5.2 (Opus + RTP/SRTP/ICE). The plan called
+  # this "espressif/esp_webrtc" — that name doesn't exist in the
+  # registry; the actual published component is "espressif/esp_peer"
+  # (PeerConnection Library: ICE/DTLS/SRTP), part of the same
+  # esp-webrtc-solution repo. 5.1c is a link-verification step only,
+  # no API use yet.
+  espressif/esp_peer: "^1.4.0"

@@ -49,16 +49,19 @@ class WakeLockManager {
     const button = document.getElementById('wakeLockBtn');
     if (!indicator || !button) return;
 
+    // Drop the surrounding container's classes when we swap (we want
+    // .wake-lock-btn to survive across re-renders so the row stays
+    // compact).
     if (active) {
       indicator.textContent = '\uD83D\uDD12 Screen Lock: Active';
       indicator.className = 'wake-lock-indicator wake-lock-active';
-      button.textContent = 'Release Wake Lock';
-      button.className = 'btn btn-danger';
+      button.textContent = 'Release';
+      button.className = 'btn btn-danger wake-lock-btn';
     } else {
       indicator.textContent = '\uD83D\uDCF1 Screen Lock: Inactive';
       indicator.className = 'wake-lock-indicator wake-lock-inactive';
-      button.textContent = btnText || 'Enable Wake Lock';
-      button.className = 'btn btn-success';
+      button.textContent = btnText || 'Enable';
+      button.className = 'btn btn-success wake-lock-btn';
       button.disabled = !!btnDisabled;
     }
   }
@@ -71,9 +74,9 @@ class WakeLockManager {
           this.release();
         } else {
           btn.disabled = true;
-          btn.textContent = 'Requesting...';
+          btn.textContent = '…';
           const ok = await this.request();
-          if (!ok) { btn.disabled = false; btn.textContent = 'Try Again'; }
+          if (!ok) { btn.disabled = false; btn.textContent = 'Retry'; }
         }
       });
     }

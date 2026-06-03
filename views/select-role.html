@@ -8,7 +8,7 @@
   <link rel="stylesheet" href="/css/base.css">
   <link rel="stylesheet" href="/css/components.css">
   <link rel="manifest" href="/manifest.json">
-  <meta name="theme-color" content="#3b82f6">
+  <meta name="theme-color" content="#6B8EAE">
   <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-32x32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="/icons/icon-16x16.png">
 </head>
@@ -65,33 +65,33 @@
     <!-- Notification Settings -->
     <div id="ntfySettings" class="pin-settings" style="display:none;">
       <h3>Push Notifications</h3>
-      <p>Get alerts on your phone via <a href="https://ntfy.sh" target="_blank" style="color:var(--color-primary);">ntfy.sh</a> when baby cries or a device disconnects.</p>
+      <p>Get alerts on your phone via <a href="https://ntfy.sh" target="_blank" class="link-primary">ntfy.sh</a> when baby cries or a device disconnects.</p>
       <form id="ntfyForm" class="pin-form">
         <label for="ntfyServer">Server URL (leave empty for ntfy.sh):</label>
         <input type="text" id="ntfyServer" placeholder="https://ntfy.sh" autocomplete="off" />
         <label for="ntfyTopic">Topic:</label>
-        <div style="display:flex;gap:var(--space-sm);margin-bottom:var(--space-md);">
-          <input type="text" id="ntfyTopic" placeholder="my-unique-topic-name" style="flex:1;" autocomplete="off" />
-          <button type="button" id="testNotificationBtn" disabled style="width:auto;white-space:nowrap;">Test</button>
+        <div class="form-input-row">
+          <input type="text" id="ntfyTopic" placeholder="my-unique-topic-name" class="ble-flex-grow" autocomplete="off" />
+          <button type="button" id="testNotificationBtn" disabled class="btn-compact">Test</button>
         </div>
-        <div style="margin-bottom:var(--space-md);">
-          <label style="display:flex;align-items:center;gap:var(--space-sm);margin-bottom:var(--space-xs);cursor:pointer;">
-            <input type="checkbox" id="ntfyEnabled" checked style="width:20px;height:20px;accent-color:var(--color-primary);">
+        <div class="form-section">
+          <label class="checkbox-row">
+            <input type="checkbox" id="ntfyEnabled" checked class="checkbox-lg">
             <span>Enable push notifications</span>
           </label>
         </div>
-        <div style="margin-bottom:var(--space-md);">
-          <div style="font-weight:600;margin-bottom:var(--space-sm);font-size:0.9rem;">Notify me when:</div>
-          <label style="display:flex;align-items:center;gap:var(--space-sm);margin-bottom:var(--space-xs);cursor:pointer;">
-            <input type="checkbox" id="notifyOnCrying" checked style="width:20px;height:20px;accent-color:var(--color-primary);">
+        <div class="form-section">
+          <div class="form-group-label">Notify me when:</div>
+          <label class="checkbox-row">
+            <input type="checkbox" id="notifyOnCrying" checked class="checkbox-lg">
             <span>Baby is crying</span>
           </label>
-          <label style="display:flex;align-items:center;gap:var(--space-sm);margin-bottom:var(--space-xs);cursor:pointer;">
-            <input type="checkbox" id="notifyOnDisconnect" checked style="width:20px;height:20px;accent-color:var(--color-primary);">
+          <label class="checkbox-row">
+            <input type="checkbox" id="notifyOnDisconnect" checked class="checkbox-lg">
             <span>Baby monitor disconnects</span>
           </label>
-          <label style="display:flex;align-items:center;gap:var(--space-sm);cursor:pointer;">
-            <input type="checkbox" id="notifyOnActivity" style="width:20px;height:20px;accent-color:var(--color-primary);">
+          <label class="checkbox-row">
+            <input type="checkbox" id="notifyOnActivity" class="checkbox-lg">
             <span>Activity events (low priority)</span>
           </label>
         </div>
@@ -105,14 +105,14 @@
       <h3>Sleep Tracking</h3>
       <p>Track baby's sleep patterns based on audio activity. Data is stored locally on the baby device.</p>
       <form id="sleepForm" class="pin-form">
-        <div style="margin-bottom:var(--space-md);">
-          <label style="display:flex;align-items:center;gap:var(--space-sm);cursor:pointer;">
-            <input type="checkbox" id="sleepEnabled" checked style="width:20px;height:20px;accent-color:var(--color-primary);">
+        <div class="form-section">
+          <label class="checkbox-row">
+            <input type="checkbox" id="sleepEnabled" checked class="checkbox-lg">
             <span>Enable sleep tracking</span>
           </label>
         </div>
         <label for="sleepRetention">Keep data for:</label>
-        <select id="sleepRetention" style="display:block;width:100%;padding:0.8em 1em;font-size:1rem;border-radius:var(--radius-md);border:2px solid var(--color-border);min-height:48px;background:var(--color-surface-alt);color:var(--color-text);margin-bottom:var(--space-lg);font-family:var(--font-family);">
+        <select id="sleepRetention" class="styled-select">
           <option value="1">1 day</option>
           <option value="3">3 days</option>
           <option value="7" selected>7 days</option>
@@ -130,45 +130,45 @@
       <p>Manage physical baby monitor hardware in this room.</p>
       <div id="devicesList" class="devices-list"></div>
       <div id="noDevices" class="no-devices">No ESP32 devices connected to this room.</div>
-      <button type="button" id="addDeviceBtn" class="onboarding-btn secondary" style="margin-top:var(--space-md);">Add ESP32 Device</button>
-      <div id="addDeviceInstructions" style="display:none;margin-top:var(--space-lg);">
-        <h4 style="margin:0 0 var(--space-sm);font-size:0.95rem;">Setup Instructions</h4>
-        <div id="bleProvisionBtn" style="display:none;margin-bottom:var(--space-md);">
+      <button type="button" id="addDeviceBtn" class="onboarding-btn secondary ble-add-btn">Add ESP32 Device</button>
+      <div id="addDeviceInstructions" class="ble-instructions" style="display:none;">
+        <h4 class="ble-instructions-title">Setup Instructions</h4>
+        <div id="bleProvisionBtn" class="ble-provision-row" style="display:none;">
           <button type="button" id="startBleBtn" class="onboarding-btn primary">Add via Bluetooth</button>
-          <p style="font-size:0.82rem;color:var(--color-text-muted);margin-top:var(--space-xs);">Android Chrome only — discovers nearby BabyLink devices</p>
+          <p class="ble-help-text ble-help-text--spaced">Android Chrome only — discovers nearby BabyLink devices</p>
         </div>
         <!-- BLE Wizard (shown after clicking Add via Bluetooth) -->
-        <div id="bleWizard" style="display:none;margin-bottom:var(--space-lg);">
-          <div id="bleStatus" style="font-size:0.9rem;font-weight:600;margin-bottom:var(--space-md);color:var(--color-primary);"></div>
+        <div id="bleWizard" class="ble-wizard" style="display:none;">
+          <div id="bleStatus" class="ble-status"></div>
           <div id="bleEditor" style="display:none;">
-            <p style="font-size:0.85rem;color:var(--color-text-secondary);margin:0 0 var(--space-sm);">Add the WiFi networks this device should roam between. The strongest known network at boot wins.</p>
+            <p class="ble-info-text">Add the WiFi networks this device should roam between. The strongest known network at boot wins.</p>
 
-            <div style="font-size:0.85rem;font-weight:600;margin:var(--space-md) 0 var(--space-xs);">WiFi networks</div>
-            <button type="button" id="bleScanBtn" class="onboarding-btn secondary" style="padding:0.5em 0.8em;font-size:0.82rem;">📡 Scan nearby</button>
-            <div id="bleScanList" style="margin-top:var(--space-xs);"></div>
-            <div id="bleWifiRows" style="margin-top:var(--space-sm);"></div>
-            <button type="button" id="bleAddWifi" class="onboarding-btn secondary" style="padding:0.5em 0.8em;font-size:0.82rem;margin-top:var(--space-xs);">+ Add manually</button>
+            <div class="ble-section-label">WiFi networks</div>
+            <button type="button" id="bleScanBtn" class="onboarding-btn secondary ble-mini-btn">📡 Scan nearby</button>
+            <div id="bleScanList" class="ble-scan-list"></div>
+            <div id="bleWifiRows" class="ble-wifi-rows"></div>
+            <button type="button" id="bleAddWifi" class="onboarding-btn secondary ble-mini-btn ble-mini-btn--spaced">+ Add manually</button>
 
-            <div style="font-size:0.85rem;font-weight:600;margin:var(--space-md) 0 var(--space-xs);">Server profiles</div>
+            <div class="ble-section-label">Server profiles</div>
             <div id="bleServerRows"></div>
-            <button type="button" id="bleAddServer" class="onboarding-btn secondary" style="padding:0.5em 0.8em;font-size:0.82rem;margin-top:var(--space-xs);">+ Add server</button>
+            <button type="button" id="bleAddServer" class="onboarding-btn secondary ble-mini-btn ble-mini-btn--spaced">+ Add server</button>
 
-            <div style="font-size:0.85rem;font-weight:600;margin:var(--space-md) 0 var(--space-xs);">Device name</div>
-            <input type="text" id="bleDevName" placeholder="e.g. Nursery ESP32" autocomplete="off" style="width:100%;" />
+            <div class="ble-section-label">Device name</div>
+            <input type="text" id="bleDevName" placeholder="e.g. Nursery ESP32" autocomplete="off" class="ble-input-full" />
 
-            <button type="button" id="bleSaveBtn" class="onboarding-btn primary" style="margin-top:var(--space-md);width:100%;">💾 Save &amp; Connect</button>
+            <button type="button" id="bleSaveBtn" class="onboarding-btn primary ble-save-btn">💾 Save &amp; Connect</button>
           </div>
           <div id="bleResult" class="pin-result" style="display:none;"></div>
         </div>
         <div class="device-setup-steps">
-          <p id="manualSetupHeading" style="font-size:0.88rem;font-weight:600;margin:0 0 var(--space-sm);">Manual Setup (all platforms):</p>
-          <ol style="margin:0;padding-left:1.5em;font-size:0.88rem;line-height:1.8;color:var(--color-text-secondary);">
+          <p id="manualSetupHeading" class="ble-manual-heading">Manual Setup (all platforms):</p>
+          <ol class="ble-manual-steps">
             <li>Power on your ESP32 device</li>
-            <li>Connect to WiFi network <strong>BabyLink-Setup</strong></li>
+            <li>Connect to its setup WiFi network (<strong>BabyLink-Setup</strong> for classic ESP32, <strong>BabyLinkS3-Setup</strong> for XIAO S3)</li>
             <li>Open <strong>http://192.168.4.1</strong> in your browser</li>
             <li>Enter your WiFi credentials and the values below:</li>
           </ol>
-          <div class="device-prefill" style="margin-top:var(--space-md);background:var(--color-surface-alt);padding:var(--space-md);border-radius:var(--radius-md);font-size:0.85rem;">
+          <div class="device-prefill">
             <div><strong>Server:</strong> <code id="prefillServer"></code></div>
             <div><strong>Port:</strong> <code id="prefillPort"></code></div>
             <div><strong>Room ID:</strong> <code id="prefillRoom"></code></div>
@@ -219,33 +219,31 @@
   </main>
 
   <script src="/js/utils.js"></script>
+  <script src="/js/qrcode-generator.js"></script>
   <script>
     // Dark mode toggle
     ThemeManager.createToggleButton(document.body);
 
-    // QR Code generation using QR Server API
+    // QR code rendered locally with qrcode-generator (MIT) — keeps the
+    // "data never leaves your home" promise. cellSize 6 / margin 4
+    // matches the 200x200 hint the previous URL was asking the remote
+    // service for.
     function generateQR(text) {
       const qrImg = document.getElementById('qrcode');
-
-      // Use QR Server API (free service) to generate QR code
-      const qrText = encodeURIComponent(text);
-      qrImg.src = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${qrText}&bgcolor=ffffff&color=000000&qzone=1&format=png`;
-      qrImg.alt = 'QR Code for room link';
-      qrImg.title = 'Scan to join BabyLink room';
-
-      // Add error handling
-      qrImg.onerror = function() {
-        console.log('QR Server API failed, trying alternative method');
-        // Use Google Charts API as fallback
-        qrImg.src = `https://chart.googleapis.com/chart?chs=200x200&cht=qr&chl=${qrText}&choe=UTF-8`;
-        qrImg.onerror = function() {
-          qrImg.style.display = 'none';
-          const fallback = document.createElement('div');
-          fallback.style.cssText = 'padding: 1em; background: #f8f9fa; border-radius: 0.5em;';
-          fallback.textContent = '📱 QR Code unavailable - please share the link above';
-          qrImg.parentNode.appendChild(fallback);
-        };
-      };
+      try {
+        const qr = qrcode(0, 'M');
+        qr.addData(text);
+        qr.make();
+        qrImg.src = qr.createDataURL(6, 4);
+        qrImg.alt = 'QR Code for room link';
+        qrImg.title = 'Scan to join BabyLink room';
+      } catch (e) {
+        qrImg.style.display = 'none';
+        const fallback = document.createElement('div');
+        fallback.className = 'qr-fallback';
+        fallback.textContent = '📱 QR Code unavailable - please share the link above';
+        qrImg.parentNode.appendChild(fallback);
+      }
     }
 
     // Initialize page
@@ -603,10 +601,14 @@
         document.getElementById('sleepSettings').style.display = 'none';
         loadDevices();
         startDevicePolling();
-        // Pre-fill server info
-        document.getElementById('prefillServer').textContent = window.location.hostname;
-        document.getElementById('prefillPort').textContent = window.location.port || (window.location.protocol === 'https:' ? '443' : '80');
-        document.getElementById('prefillRoom').textContent = window.location.pathname.slice(1);
+        // Pre-fill server info — same LAN-aware hint the BLE wizard
+        // uses, so the manual setup instructions don't tell the user
+        // to type "localhost" into an ESP on a different machine.
+        ensureServerHint().then(function(h) {
+          document.getElementById('prefillServer').textContent = h.host;
+          document.getElementById('prefillPort').textContent = h.port;
+          document.getElementById('prefillRoom').textContent = window.location.pathname.slice(1);
+        });
         // Show BLE button if Web Bluetooth available; otherwise emphasize
         // the SoftAP manual setup as the primary path (iOS / Safari / desktop).
         var manualHeading = document.getElementById('manualSetupHeading');
@@ -664,10 +666,13 @@
       list.innerHTML = devices.map(function(d) {
         var uptimeMin = Math.floor(d.uptime / 60000);
         var uptimeStr = uptimeMin < 60 ? uptimeMin + 'min' : Math.floor(uptimeMin / 60) + 'h ' + (uptimeMin % 60) + 'min';
+        var typeLabel = d.deviceType === 'esp32-s3' ? 'XIAO S3' : 'ESP32';
+        var typeClass = d.deviceType === 'esp32-s3' ? 'device-type-badge device-type-s3' : 'device-type-badge';
         return '<div class="device-item" data-id="' + d.id + '">' +
           '<div class="device-status-dot"></div>' +
           '<div class="device-info">' +
-            '<div class="device-name">' + escapeHtml(d.name) + '</div>' +
+            '<div class="device-name">' + escapeHtml(d.name) +
+              ' <span class="' + typeClass + '">' + typeLabel + '</span></div>' +
             '<div class="device-meta">' + d.clientIp + ' &middot; ' + uptimeStr + ' &middot; ' + d.audioPacketsReceived + ' packets</div>' +
           '</div>' +
           '<div class="device-actions">' +
@@ -742,6 +747,9 @@
     var BLE_CHAR_CONFIG  = 'bab71111-0002-1001-8000-00805f9b34fb';
     var BLE_CHAR_SCAN    = 'bab71111-0002-1002-8000-00805f9b34fb';
     var BLE_CHAR_COMMAND = 'bab71111-0002-1003-8000-00805f9b34fb';
+    // Optional — only the S3 firmware exposes this. Classic firmware
+    // doesn't have char 1004; we treat read failures as "unknown".
+    var BLE_CHAR_INFO    = 'bab71111-0002-1004-8000-00805f9b34fb';
 
     var bleDevice = null;
     var bleServer = null;
@@ -756,18 +764,18 @@
       var host = $('bleWifiRows');
       host.innerHTML = '';
       if (!bleConfig.wifi.length) {
-        host.innerHTML = '<div style="color:var(--color-text-muted);font-size:0.82rem;font-style:italic;padding:6px 0;">No WiFi networks yet — scan or add manually.</div>';
+        host.innerHTML = '<div class="ble-empty-state">No WiFi networks yet — scan or add manually.</div>';
         return;
       }
       bleConfig.wifi.forEach(function(p, i) {
         var div = document.createElement('div');
-        div.style.cssText = 'background:var(--color-surface-alt);padding:8px;border-radius:6px;margin-bottom:6px;display:flex;gap:6px;align-items:flex-start;';
+        div.className = 'ble-config-row';
         div.innerHTML =
-          '<div style="flex:1;min-width:0;">' +
-          '<input type="text" data-i="' + i + '" data-k="ssid" value="' + escapeHtml(p.ssid || '') + '" placeholder="SSID" style="width:100%;margin-bottom:4px;font-size:0.85rem;padding:6px;" />' +
-          '<input type="password" data-i="' + i + '" data-k="password" value="' + escapeHtml(p.password || '') + '" placeholder="Password" style="width:100%;font-size:0.85rem;padding:6px;" />' +
+          '<div class="ble-flex-grow">' +
+          '<input type="text" data-i="' + i + '" data-k="ssid" value="' + escapeHtml(p.ssid || '') + '" placeholder="SSID" class="ble-row-input ble-row-input--spaced" />' +
+          '<input type="password" data-i="' + i + '" data-k="password" value="' + escapeHtml(p.password || '') + '" placeholder="Password" class="ble-row-input" />' +
           '</div>' +
-          '<button type="button" data-rm-w="' + i + '" style="background:var(--color-danger-bg);color:var(--color-danger-text);border:none;border-radius:6px;padding:6px 10px;cursor:pointer;font-weight:600;flex-shrink:0;">×</button>';
+          '<button type="button" data-rm-w="' + i + '" class="ble-remove-btn">×</button>';
         host.appendChild(div);
       });
     }
@@ -776,22 +784,22 @@
       var host = $('bleServerRows');
       host.innerHTML = '';
       if (!bleConfig.servers.length) {
-        host.innerHTML = '<div style="color:var(--color-text-muted);font-size:0.82rem;font-style:italic;padding:6px 0;">No servers yet.</div>';
+        host.innerHTML = '<div class="ble-empty-state">No servers yet.</div>';
         return;
       }
       bleConfig.servers.forEach(function(p, i) {
         var div = document.createElement('div');
-        div.style.cssText = 'background:var(--color-surface-alt);padding:8px;border-radius:6px;margin-bottom:6px;display:flex;gap:6px;align-items:flex-start;';
+        div.className = 'ble-config-row';
         var active = (i === bleConfig.activeServer) ? 'checked' : '';
         div.innerHTML =
-          '<div style="flex:1;min-width:0;">' +
-          '<input type="text" data-i="' + i + '" data-k="label" value="' + escapeHtml(p.label || '') + '" placeholder="Label (e.g. Home)" style="width:100%;margin-bottom:4px;font-size:0.85rem;padding:6px;" />' +
-          '<input type="text" data-i="' + i + '" data-k="host" value="' + escapeHtml(p.host || '') + '" placeholder="Host or IP" style="width:100%;margin-bottom:4px;font-size:0.85rem;padding:6px;" />' +
-          '<input type="number" data-i="' + i + '" data-k="port" value="' + (p.port || 3001) + '" placeholder="Port" style="width:100%;margin-bottom:4px;font-size:0.85rem;padding:6px;" />' +
-          '<input type="text" data-i="' + i + '" data-k="roomId" value="' + escapeHtml(p.roomId || '') + '" placeholder="Room ID" style="width:100%;font-size:0.85rem;padding:6px;" />' +
-          '<label style="display:flex;align-items:center;gap:4px;font-size:0.8rem;color:var(--color-text-secondary);margin-top:4px;"><input type="radio" name="ble-active" data-a="' + i + '" ' + active + ' /> Active</label>' +
+          '<div class="ble-flex-grow">' +
+          '<input type="text" data-i="' + i + '" data-k="label" value="' + escapeHtml(p.label || '') + '" placeholder="Label (e.g. Home)" class="ble-row-input ble-row-input--spaced" />' +
+          '<input type="text" data-i="' + i + '" data-k="host" value="' + escapeHtml(p.host || '') + '" placeholder="Host or IP" class="ble-row-input ble-row-input--spaced" />' +
+          '<input type="number" data-i="' + i + '" data-k="port" value="' + (p.port || 3001) + '" placeholder="Port" class="ble-row-input ble-row-input--spaced" />' +
+          '<input type="text" data-i="' + i + '" data-k="roomId" value="' + escapeHtml(p.roomId || '') + '" placeholder="Room ID" class="ble-row-input" />' +
+          '<label class="ble-active-toggle"><input type="radio" name="ble-active" data-a="' + i + '" ' + active + ' /> Active</label>' +
           '</div>' +
-          '<button type="button" data-rm-s="' + i + '" style="background:var(--color-danger-bg);color:var(--color-danger-text);border:none;border-radius:6px;padding:6px 10px;cursor:pointer;font-weight:600;flex-shrink:0;">×</button>';
+          '<button type="button" data-rm-s="' + i + '" class="ble-remove-btn">×</button>';
         host.appendChild(div);
       });
     }
@@ -802,13 +810,35 @@
       $('bleDevName').value = bleConfig.deviceName || '';
     }
 
+    // Cached server hint — fetched once from /api/config/server-hint when
+    // the wizard opens on a loopback origin, so the ESP gets a LAN
+    // address it can actually reach instead of "localhost".
+    var cachedServerHint = null;
+
+    async function ensureServerHint() {
+      if (cachedServerHint) return cachedServerHint;
+      var h = window.location.hostname;
+      if (h !== 'localhost' && h !== '127.0.0.1' && h !== '::1') {
+        cachedServerHint = { host: h, port: window.location.port || (window.location.protocol === 'https:' ? 443 : 80) };
+        return cachedServerHint;
+      }
+      try {
+        var r = await fetch('/api/config/server-hint');
+        var j = await r.json();
+        cachedServerHint = { host: j.host, port: j.port };
+      } catch (e) {
+        cachedServerHint = { host: h, port: window.location.port || 80 };
+      }
+      return cachedServerHint;
+    }
+
     function defaultServerProfile() {
       var roomId = window.location.pathname.slice(1);
-      var port = window.location.port || (window.location.protocol === 'https:' ? 443 : 80);
+      var hint = cachedServerHint || { host: window.location.hostname, port: window.location.port || (window.location.protocol === 'https:' ? 443 : 80) };
       return {
-        label: window.location.hostname,
-        host: window.location.hostname,
-        port: parseInt(port, 10),
+        label: hint.host,
+        host: hint.host,
+        port: parseInt(hint.port, 10),
         roomId: roomId
       };
     }
@@ -861,6 +891,12 @@
       result.style.display = 'none';
       $('bleEditor').style.display = 'none';
 
+      // Pre-fetch the LAN address the server prefers — used by
+      // defaultServerProfile() and the empty-config seeder below so a
+      // wizard opened on http://localhost still hands the ESP a host
+      // it can actually reach.
+      await ensureServerHint();
+
       try {
         bleDevice = await navigator.bluetooth.requestDevice({
           filters: [{ namePrefix: 'BabyLink' }],
@@ -870,6 +906,23 @@
         status.textContent = 'Connecting to ' + bleDevice.name + '…';
         bleServer = await bleDevice.gatt.connect();
         bleService = await bleServer.getPrimaryService(BLE_SERVICE_UUID);
+
+        // Try to read device_info (new char on S3 firmware) — gives us
+        // the hardware model + firmware tag to show in the status line.
+        // Classic firmware doesn't expose this; the catch handles that
+        // gracefully (we just keep the BLE-advertised name).
+        var deviceLabel = bleDevice.name;
+        try {
+          var infoChar = await bleService.getCharacteristic(BLE_CHAR_INFO);
+          var infoRaw = await infoChar.readValue();
+          var info = JSON.parse(new TextDecoder().decode(infoRaw));
+          if (info.model) {
+            deviceLabel = bleDevice.name + ' (' + info.model +
+                          (info.fw ? ' · ' + info.fw : '') + ')';
+          }
+        } catch (e) {
+          /* classic firmware path, no device_info char — ignore */
+        }
 
         // Pull current config from device so the editor shows what's saved
         status.textContent = 'Reading current config…';
@@ -896,8 +949,11 @@
         // would inherit whatever the firmware happened to seed (its dev
         // defaults) and register against the wrong server — which is the
         // exact opposite of what the user clicked "Add ESP32" to do.
-        var curHost = window.location.hostname;
-        var curPort = parseInt(window.location.port || (window.location.protocol === 'https:' ? 443 : 80), 10);
+        // Use the LAN hint instead of raw location.hostname so the
+        // pre-seeded server entry points the ESP at the host's actual
+        // network address, not "localhost".
+        var curHost = cachedServerHint ? cachedServerHint.host : window.location.hostname;
+        var curPort = cachedServerHint ? parseInt(cachedServerHint.port, 10) : parseInt(window.location.port || (window.location.protocol === 'https:' ? 443 : 80), 10);
         var curRoom = window.location.pathname.slice(1);
         var matchIdx = -1;
         for (var i = 0; i < bleConfig.servers.length; i++) {
@@ -914,7 +970,7 @@
           bleConfig.activeServer = 0;
         }
 
-        status.textContent = 'Connected to ' + bleDevice.name;
+        status.textContent = 'Connected to ' + deviceLabel;
         $('bleEditor').style.display = 'block';
         renderBleEditor();
       } catch (err) {
@@ -930,7 +986,7 @@
     $('bleScanBtn').addEventListener('click', async function() {
       var btn = $('bleScanBtn');
       var sl = $('bleScanList');
-      if (!bleService) { sl.innerHTML = '<div style="color:var(--color-danger);font-size:0.85rem;">Not connected.</div>'; return; }
+      if (!bleService) { sl.innerHTML = '<div class="ble-error-text">Not connected.</div>'; return; }
       btn.disabled = true;
       var origLabel = btn.textContent;
       btn.textContent = 'Scanning…';
@@ -938,27 +994,38 @@
       try {
         var scanChar = await bleService.getCharacteristic(BLE_CHAR_SCAN);
         await scanChar.writeValue(new TextEncoder().encode('scan'));
-        // Give the device a moment to populate the readable side
-        await new Promise(function(r) { setTimeout(r, 4000); });
-        var raw = await scanChar.readValue();
-        var list = JSON.parse(new TextDecoder().decode(raw) || '[]');
+        // Poll for results. WiFi scan with BT coexist takes ~3–7 s on
+        // the S3; the fixed-4s wait we had before raced with finished
+        // scans, leaving the wizard reading the previous "[]" payload.
+        // Re-read every 500 ms until we see a non-empty array or the
+        // 12 s ceiling, whichever comes first.
+        var list = [];
+        var deadline = Date.now() + 12000;
+        // First grace period before the first read — the scan hasn't
+        // even started populating yet.
+        await new Promise(function(r) { setTimeout(r, 1500); });
+        while (Date.now() < deadline) {
+          var raw = await scanChar.readValue();
+          try { list = JSON.parse(new TextDecoder().decode(raw) || '[]'); } catch (_) { list = []; }
+          if (list.length) break;
+          await new Promise(function(r) { setTimeout(r, 500); });
+        }
         if (!list.length) {
-          sl.innerHTML = '<div style="font-size:0.82rem;color:var(--color-text-muted);">No networks found.</div>';
+          sl.innerHTML = '<div class="ble-help-text">No networks found.</div>';
         } else {
-          sl.innerHTML = '<div style="font-size:0.8rem;color:var(--color-text-secondary);margin:4px 0;">Tap to add:</div>';
+          sl.innerHTML = '<div class="ble-scan-hint">Tap to add:</div>';
           list.sort(function(a, b) { return (b.rssi || -100) - (a.rssi || -100); });
           list.forEach(function(n) {
             var b = document.createElement('button');
             b.type = 'button';
-            b.className = 'onboarding-btn secondary';
-            b.style.cssText = 'padding:6px 10px;font-size:0.82rem;margin:2px 4px 2px 0;text-align:left;';
+            b.className = 'onboarding-btn secondary ble-scan-chip';
             b.dataset.pickSsid = n.ssid;
             b.textContent = n.ssid + ' (' + n.rssi + ' dBm' + (n.secure ? '' : ' · open') + ')';
             sl.appendChild(b);
           });
         }
       } catch (e) {
-        sl.innerHTML = '<div style="color:var(--color-danger);font-size:0.85rem;">Scan failed: ' + e.message + '</div>';
+        sl.innerHTML = '<div class="ble-error-text">Scan failed: ' + escapeHtml(e.message) + '</div>';
       }
       btn.disabled = false;
       btn.textContent = origLabel;
