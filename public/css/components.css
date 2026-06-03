@@ -703,17 +703,28 @@
   min-height: 48px;
 }
 
-.role-btn {
+/* ====== Hero buttons ======
+   Wide, tall, prominent CTA — used by role-selection cards and the
+   onboarding wizard. `.btn-hero` is the canonical class; `.role-btn`
+   and `.onboarding-btn` ride along for legacy markup, identical
+   surface. Per-component extras (margin, display, letter-spacing)
+   stay in their own rules. */
+.btn-hero,
+.role-btn,
+.onboarding-btn {
   width: 100%;
   padding: 1em;
   font-size: var(--text-lg);
-  margin: 0;
+  font-weight: 700;
   border: none;
   border-radius: var(--radius-md);
   cursor: pointer;
   transition: all var(--transition-base);
-  font-weight: 700;
   min-height: 52px;
+}
+
+.role-btn {
+  margin: 0;
   letter-spacing: 0.01em;
 }
 
