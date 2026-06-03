@@ -1219,6 +1219,67 @@ body.role-page main {
 .ble-wifi-rows { margin-top: var(--space-sm); }
 .ble-input-full { width: 100%; }
 .ble-save-btn { margin-top: var(--space-md); width: 100%; }
+
+/* ====== BLE wizard 3-step layout ======
+   Mirrors the home onboarding wizard's progress-dot pattern, scoped
+   inside the BLE editor so it doesn't bleed into the home page. Only
+   one .ble-step is visible at a time; navigation is two buttons in
+   a row (back + next/save) at the bottom of each step. */
+.ble-progress {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-xs);
+  margin: 0 0 var(--space-md);
+}
+
+.ble-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-border);
+  transition: background var(--transition-base), transform var(--transition-base);
+}
+
+.ble-dot.active {
+  background: var(--color-primary);
+  transform: scale(1.3);
+}
+
+.ble-dot.completed {
+  background: var(--color-success);
+}
+
+.ble-step {
+  display: none;
+}
+
+.ble-step.active {
+  display: block;
+}
+
+.ble-step-title {
+  font-size: var(--text-h3);
+  font-weight: 600;
+  margin: 0 0 var(--space-xs);
+  color: var(--color-text-heading);
+}
+
+.ble-step-nav {
+  display: flex;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+}
+
+.ble-step-nav .ble-step-back {
+  flex: 0 0 auto;
+  width: auto;
+  padding: 0.6em 1em;
+}
+
+.ble-step-nav .ble-step-next,
+.ble-step-nav #bleSaveBtn {
+  flex: 1;
+}
 .ble-manual-heading { font-size: 0.88rem; font-weight: 600; margin: 0 0 var(--space-sm); }
 .ble-manual-steps {
   margin: 0;

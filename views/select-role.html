@@ -141,22 +141,47 @@
         <div id="bleWizard" class="ble-wizard" style="display:none;">
           <div id="bleStatus" class="ble-status"></div>
           <div id="bleEditor" style="display:none;">
-            <p class="ble-info-text">Add the WiFi networks this device should roam between. The strongest known network at boot wins.</p>
+            <div class="ble-progress" id="bleProgress">
+              <span class="ble-dot active" data-step="0"></span>
+              <span class="ble-dot" data-step="1"></span>
+              <span class="ble-dot" data-step="2"></span>
+            </div>
 
-            <div class="ble-section-label">WiFi networks</div>
-            <button type="button" id="bleScanBtn" class="onboarding-btn secondary ble-mini-btn">📡 Scan nearby</button>
-            <div id="bleScanList" class="ble-scan-list"></div>
-            <div id="bleWifiRows" class="ble-wifi-rows"></div>
-            <button type="button" id="bleAddWifi" class="onboarding-btn secondary ble-mini-btn ble-mini-btn--spaced">+ Add manually</button>
+            <!-- Step 1 — WiFi networks -->
+            <div class="ble-step active" data-step="0">
+              <h4 class="ble-step-title">WiFi networks</h4>
+              <p class="ble-info-text">Networks this device should roam between. The strongest known one at boot wins.</p>
+              <button type="button" id="bleScanBtn" class="onboarding-btn secondary ble-mini-btn">📡 Scan nearby</button>
+              <div id="bleScanList" class="ble-scan-list"></div>
+              <div id="bleWifiRows" class="ble-wifi-rows"></div>
+              <button type="button" id="bleAddWifi" class="onboarding-btn secondary ble-mini-btn ble-mini-btn--spaced">+ Add manually</button>
+              <div class="ble-step-nav">
+                <button type="button" class="onboarding-btn primary ble-step-next" data-ble-step-next="1">Next →</button>
+              </div>
+            </div>
 
-            <div class="ble-section-label">Server profiles</div>
-            <div id="bleServerRows"></div>
-            <button type="button" id="bleAddServer" class="onboarding-btn secondary ble-mini-btn ble-mini-btn--spaced">+ Add server</button>
+            <!-- Step 2 — Server profiles -->
+            <div class="ble-step" data-step="1">
+              <h4 class="ble-step-title">Server profiles</h4>
+              <p class="ble-info-text">Where this device sends its audio. The active server (radio) is the one it tries first.</p>
+              <div id="bleServerRows"></div>
+              <button type="button" id="bleAddServer" class="onboarding-btn secondary ble-mini-btn ble-mini-btn--spaced">+ Add server</button>
+              <div class="ble-step-nav">
+                <button type="button" class="onboarding-btn secondary ble-step-back" data-ble-step-back="0">← Back</button>
+                <button type="button" class="onboarding-btn primary ble-step-next" data-ble-step-next="2">Next →</button>
+              </div>
+            </div>
 
-            <div class="ble-section-label">Device name</div>
-            <input type="text" id="bleDevName" placeholder="e.g. Nursery ESP32" autocomplete="off" class="ble-input-full" />
-
-            <button type="button" id="bleSaveBtn" class="onboarding-btn primary ble-save-btn">💾 Save &amp; Connect</button>
+            <!-- Step 3 — Name + save -->
+            <div class="ble-step" data-step="2">
+              <h4 class="ble-step-title">Device name</h4>
+              <p class="ble-info-text">A short label so you can tell devices apart on the parent screen.</p>
+              <input type="text" id="bleDevName" placeholder="e.g. Nursery ESP32" autocomplete="off" class="ble-input-full" />
+              <div class="ble-step-nav">
+                <button type="button" class="onboarding-btn secondary ble-step-back" data-ble-step-back="1">← Back</button>
+                <button type="button" id="bleSaveBtn" class="onboarding-btn primary">💾 Save &amp; Connect</button>
+              </div>
+            </div>
           </div>
           <div id="bleResult" class="pin-result" style="display:none;"></div>
         </div>
@@ -810,6 +835,60 @@
       $('bleDevName').value = bleConfig.deviceName || '';
     }
 
+    // 3-step wizard navigation. Each step validates before letting the
+    // user move forward; back never validates (so a half-typed entry
+    // doesn't trap them). Progress dots get .active on the current,
+    // .completed on every step the user has passed validation on.
+    var bleWizardStep = 0;
+
+    function bleStepValid(stepIdx) {
+      if (stepIdx === 0) {
+        var hasWifi = bleConfig.wifi && bleConfig.wifi.some(function(w) {
+          return w.ssid && w.ssid.trim().length > 0;
+        });
+        if (!hasWifi) return 'Add at least one WiFi network.';
+      } else if (stepIdx === 1) {
+        var hasServer = bleConfig.servers && bleConfig.servers.some(function(s) {
+          return s.host && s.host.trim().length > 0 && s.roomId && s.roomId.trim().length > 0;
+        });
+        if (!hasServer) return 'Add at least one server with host and room ID.';
+      }
+      return null;
+    }
+
+    function goToBleStep(target) {
+      bleWizardStep = target;
+      document.querySelectorAll('#bleEditor .ble-step').forEach(function(el) {
+        el.classList.toggle('active', parseInt(el.dataset.step, 10) === target);
+      });
+      document.querySelectorAll('#bleProgress .ble-dot').forEach(function(el) {
+        var n = parseInt(el.dataset.step, 10);
+        el.classList.toggle('active', n === target);
+        el.classList.toggle('completed', n < target);
+      });
+      // Step status messages should reset whenever the user moves —
+      // a stale "add at least one server" from step 1 shouldn't shout
+      // at them on step 2.
+      $('bleStatus').textContent = 'Connected — step ' + (target + 1) + ' of 3';
+    }
+
+    document.addEventListener('click', function(e) {
+      var nextTo = e.target.getAttribute('data-ble-step-next');
+      if (nextTo !== null) {
+        var err = bleStepValid(bleWizardStep);
+        if (err) {
+          $('bleStatus').textContent = err;
+          return;
+        }
+        goToBleStep(parseInt(nextTo, 10));
+        return;
+      }
+      var backTo = e.target.getAttribute('data-ble-step-back');
+      if (backTo !== null) {
+        goToBleStep(parseInt(backTo, 10));
+      }
+    });
+
     // Cached server hint — fetched once from /api/config/server-hint when
     // the wizard opens on a loopback origin, so the ESP gets a LAN
     // address it can actually reach instead of "localhost".
@@ -972,6 +1051,7 @@
 
         status.textContent = 'Connected to ' + deviceLabel;
         $('bleEditor').style.display = 'block';
+        goToBleStep(0);
         renderBleEditor();
       } catch (err) {
         if (err.name === 'NotFoundError') {
