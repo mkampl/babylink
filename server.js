@@ -139,6 +139,36 @@ app.get('/api/config/webrtc', (req, res) => {
   res.json(config.webrtcWithTurn);
 });
 
+// Best LAN address the server can advertise to ESP32 devices for the
+// BLE provisioning wizard. When the PWA is opened on http://localhost
+// (developer's own laptop) the wizard would otherwise pre-fill "host:
+// localhost" into the ESP's server profile — which on the ESP side
+// resolves to its own loopback and fails to connect. The wizard
+// queries this endpoint and uses the returned address when its own
+// window.location.hostname is a loopback name.
+app.get('/api/config/server-hint', (req, res) => {
+  const os = require('os');
+  const interfaces = os.networkInterfaces();
+  let lanIp = null;
+  for (const name of Object.keys(interfaces)) {
+    for (const addr of interfaces[name]) {
+      if (addr.family === 'IPv4' && !addr.internal) {
+        // Prefer 192.168.x.x and 10.x.x.x over 172.16/12 (often Docker).
+        if (addr.address.startsWith('192.168.') || addr.address.startsWith('10.')) {
+          lanIp = addr.address;
+          break;
+        }
+        if (!lanIp) lanIp = addr.address;
+      }
+    }
+    if (lanIp && (lanIp.startsWith('192.168.') || lanIp.startsWith('10.'))) break;
+  }
+  res.json({
+    host: lanIp || req.hostname,
+    port: parseInt(process.env.PORT, 10) || 3001
+  });
+});
+
 // =============================================================================
 // ESP32 DEVICE MANAGEMENT ENDPOINTS
 // =============================================================================

@@ -601,10 +601,14 @@
         document.getElementById('sleepSettings').style.display = 'none';
         loadDevices();
         startDevicePolling();
-        // Pre-fill server info
-        document.getElementById('prefillServer').textContent = window.location.hostname;
-        document.getElementById('prefillPort').textContent = window.location.port || (window.location.protocol === 'https:' ? '443' : '80');
-        document.getElementById('prefillRoom').textContent = window.location.pathname.slice(1);
+        // Pre-fill server info — same LAN-aware hint the BLE wizard
+        // uses, so the manual setup instructions don't tell the user
+        // to type "localhost" into an ESP on a different machine.
+        ensureServerHint().then(function(h) {
+          document.getElementById('prefillServer').textContent = h.host;
+          document.getElementById('prefillPort').textContent = h.port;
+          document.getElementById('prefillRoom').textContent = window.location.pathname.slice(1);
+        });
         // Show BLE button if Web Bluetooth available; otherwise emphasize
         // the SoftAP manual setup as the primary path (iOS / Safari / desktop).
         var manualHeading = document.getElementById('manualSetupHeading');
@@ -806,13 +810,35 @@
       $('bleDevName').value = bleConfig.deviceName || '';
     }
 
+    // Cached server hint — fetched once from /api/config/server-hint when
+    // the wizard opens on a loopback origin, so the ESP gets a LAN
+    // address it can actually reach instead of "localhost".
+    var cachedServerHint = null;
+
+    async function ensureServerHint() {
+      if (cachedServerHint) return cachedServerHint;
+      var h = window.location.hostname;
+      if (h !== 'localhost' && h !== '127.0.0.1' && h !== '::1') {
+        cachedServerHint = { host: h, port: window.location.port || (window.location.protocol === 'https:' ? 443 : 80) };
+        return cachedServerHint;
+      }
+      try {
+        var r = await fetch('/api/config/server-hint');
+        var j = await r.json();
+        cachedServerHint = { host: j.host, port: j.port };
+      } catch (e) {
+        cachedServerHint = { host: h, port: window.location.port || 80 };
+      }
+      return cachedServerHint;
+    }
+
     function defaultServerProfile() {
       var roomId = window.location.pathname.slice(1);
-      var port = window.location.port || (window.location.protocol === 'https:' ? 443 : 80);
+      var hint = cachedServerHint || { host: window.location.hostname, port: window.location.port || (window.location.protocol === 'https:' ? 443 : 80) };
       return {
-        label: window.location.hostname,
-        host: window.location.hostname,
-        port: parseInt(port, 10),
+        label: hint.host,
+        host: hint.host,
+        port: parseInt(hint.port, 10),
         roomId: roomId
       };
     }
@@ -864,6 +890,12 @@
       status.textContent = 'Scanning for BabyLink devices…';
       result.style.display = 'none';
       $('bleEditor').style.display = 'none';
+
+      // Pre-fetch the LAN address the server prefers — used by
+      // defaultServerProfile() and the empty-config seeder below so a
+      // wizard opened on http://localhost still hands the ESP a host
+      // it can actually reach.
+      await ensureServerHint();
 
       try {
         bleDevice = await navigator.bluetooth.requestDevice({
@@ -917,8 +949,11 @@
         // would inherit whatever the firmware happened to seed (its dev
         // defaults) and register against the wrong server — which is the
         // exact opposite of what the user clicked "Add ESP32" to do.
-        var curHost = window.location.hostname;
-        var curPort = parseInt(window.location.port || (window.location.protocol === 'https:' ? 443 : 80), 10);
+        // Use the LAN hint instead of raw location.hostname so the
+        // pre-seeded server entry points the ESP at the host's actual
+        // network address, not "localhost".
+        var curHost = cachedServerHint ? cachedServerHint.host : window.location.hostname;
+        var curPort = cachedServerHint ? parseInt(cachedServerHint.port, 10) : parseInt(window.location.port || (window.location.protocol === 'https:' ? 443 : 80), 10);
         var curRoom = window.location.pathname.slice(1);
         var matchIdx = -1;
         for (var i = 0; i < bleConfig.servers.length; i++) {
