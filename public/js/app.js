@@ -167,24 +167,25 @@
     const container = document.getElementById('mainContainer');
     container.innerHTML = `
       <div class="baby-device-container">
-        <h2>Baby Device</h2>
-        <div class="baby-name-display">${escapeHtml(userName)}</div>
-        <div class="baby-waveform-section">
-          <canvas id="waveformCanvas" width="360" height="100"></canvas>
-          <div class="baby-mic-status" id="micStatus">Requesting microphone...</div>
-        </div>
-        <div class="baby-parent-count" id="parentCountSection">
-          <div class="parent-count-number" id="parentCountNum">0</div>
-          <div class="parent-count-label" id="parentCountLabel">parents monitoring</div>
-        </div>
-        <div class="baby-actions">
-          <button class="baby-test-btn" id="testAudioBtn" disabled>Test Audio</button>
-        </div>
-        <div class="baby-battery" id="batterySection" style="display:none;">
-          <div class="battery-indicator">
-            <div class="battery-level" id="batteryLevel"></div>
+        <div class="baby-header-strip">
+          <h2 class="baby-name-display">👶 ${escapeHtml(userName)}</h2>
+          <div class="baby-listeners" id="parentCountSection" title="Parents currently monitoring">
+            <span class="baby-listeners-num" id="parentCountNum">0</span>
+            <span class="baby-listeners-label" id="parentCountLabel">listening</span>
           </div>
-          <span class="battery-text" id="batteryText"></span>
+        </div>
+        <div class="baby-waveform-section">
+          <canvas id="waveformCanvas" width="360" height="80"></canvas>
+          <div class="baby-mic-status" id="micStatus">Requesting microphone…</div>
+        </div>
+        <div class="baby-footer">
+          <button class="baby-test-btn" id="testAudioBtn" disabled title="Play a short tone so parents can verify they hear this device">🔊 Test</button>
+          <div class="baby-battery" id="batterySection" style="display:none;">
+            <div class="battery-indicator">
+              <div class="battery-level" id="batteryLevel"></div>
+            </div>
+            <span class="battery-text" id="batteryText"></span>
+          </div>
         </div>
       </div>
     `;
@@ -396,7 +397,7 @@
     var numEl = document.getElementById('parentCountNum');
     var labelEl = document.getElementById('parentCountLabel');
     if (numEl) numEl.textContent = count;
-    if (labelEl) labelEl.textContent = count === 1 ? 'parent monitoring' : 'parents monitoring';
+    if (labelEl) labelEl.textContent = 'listening';
   }
 
   function initBatteryIndicator() {

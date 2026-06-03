@@ -183,11 +183,16 @@
   50% { transform: scale(1.04); }
 }
 
-/* ====== Baby Controls ====== */
+/* ====== Baby Controls ======
+   flex-wrap matters: the gear ⚙ <details> sits in this row, and when
+   it opens its advanced-panel needs flex-basis:100% to break onto a
+   new line. Without wrap enabled the panel gets crammed in next to
+   the Solo button and the sliders overflow the card. */
 .baby-controls {
   display: flex;
   flex-direction: row;
   align-items: stretch;
+  flex-wrap: wrap;
   gap: var(--space-xs);
   margin: var(--space-sm) 0;
 }
