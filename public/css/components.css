@@ -184,15 +184,13 @@
 }
 
 /* ====== Baby Controls ======
-   flex-wrap matters: the gear ⚙ <details> sits in this row, and when
-   it opens its advanced-panel needs flex-basis:100% to break onto a
-   new line. Without wrap enabled the panel gets crammed in next to
-   the Solo button and the sliders overflow the card. */
+   Single row, no wrap — the gear ⚙ stays on the right of Mute/Solo
+   even when its panel is open. The advanced-panel is a sibling of
+   this row (outside the <details>), revealed via :has() below. */
 .baby-controls {
   display: flex;
   flex-direction: row;
   align-items: stretch;
-  flex-wrap: wrap;
   gap: var(--space-xs);
   margin: var(--space-sm) 0;
 }
@@ -240,22 +238,23 @@
   color: var(--color-text);
 }
 
+/* The advanced-panel lives outside the <details> as a sibling of
+   .baby-controls. Hidden by default; revealed when the gear's
+   <details> goes into the [open] state via :has(). This keeps the
+   ⚙ summary button in its row no matter what — the panel flowing
+   below it doesn't bump the row layout around. */
 .advanced-panel {
-  position: relative;
-  width: 100%;
-  margin-top: var(--space-sm);
+  display: none;
+}
+
+.baby-card:has(.baby-controls-advanced[open]) .advanced-panel {
   display: flex;
   flex-direction: column;
   gap: var(--space-xs);
   padding: var(--space-sm);
+  margin-top: var(--space-xs);
   background: var(--color-border-light);
   border-radius: var(--radius-md);
-}
-
-/* When details is open the panel sits below the controls row but
-   inside the card; needs to break out of the row's flex layout. */
-.baby-controls-advanced[open] {
-  flex-basis: 100%;
 }
 
 .volume-control, .sensitivity-control {
@@ -512,11 +511,18 @@
     font-size: 0.9rem;
     padding: 0.55em 0.9em;
   }
-  .baby-controls-advanced > summary { display: none; }
-  .baby-controls-advanced > .advanced-panel {
-    display: flex !important;
-    flex-basis: 100%;
-    margin-top: 0;
+  /* On narrow cards the gear toggle goes away — the sliders show
+     unconditionally beneath the controls row. The .advanced-panel
+     selector here matches the new sibling-of-.baby-controls layout. */
+  .baby-controls-advanced { display: none; }
+  .baby-card .advanced-panel {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-xs);
+    padding: var(--space-sm);
+    margin-top: var(--space-xs);
+    background: var(--color-border-light);
+    border-radius: var(--radius-md);
   }
 }
 

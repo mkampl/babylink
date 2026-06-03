@@ -107,19 +107,19 @@ class MultiBabyUI {
         </button>
         <details class="baby-controls-advanced">
           <summary class="btn btn-settings" title="Volume &amp; sensitivity" aria-label="Volume and sensitivity">⚙</summary>
-          <div class="advanced-panel">
-            <div class="volume-control">
-              <label>Volume:</label>
-              <input type="range" id="volume-${babyId}" min="0" max="100" value="100" />
-              <span id="volume-value-${babyId}">100%</span>
-            </div>
-            <div class="sensitivity-control">
-              <label title="Adjust sensitivity for different microphones and room noise levels">Sensitivity:</label>
-              <input type="range" id="sensitivity-${babyId}" min="50" max="300" value="100" step="10" />
-              <span id="sensitivity-value-${babyId}">1.0x</span>
-            </div>
-          </div>
         </details>
+      </div>
+      <div class="advanced-panel">
+        <div class="volume-control">
+          <label>Volume:</label>
+          <input type="range" id="volume-${babyId}" min="0" max="100" value="100" />
+          <span id="volume-value-${babyId}">100%</span>
+        </div>
+        <div class="sensitivity-control">
+          <label title="Adjust sensitivity for different microphones and room noise levels">Sensitivity:</label>
+          <input type="range" id="sensitivity-${babyId}" min="50" max="300" value="100" step="10" />
+          <span id="sensitivity-value-${babyId}">1.0x</span>
+        </div>
       </div>
 
       <details class="baby-sleep-timeline" id="sleep-${babyId}" open>
