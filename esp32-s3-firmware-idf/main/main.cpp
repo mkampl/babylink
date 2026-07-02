@@ -110,6 +110,10 @@ TaskHandle_t webrtcLoopTaskHandle = nullptr;
 // the server routes them. Single-parent — multi-parent rooms need one
 // peer per parent and aren't supported yet.
 String parentSocketId;
+// A parent's requestOffer can arrive while esp_peer is still generating its
+// DTLS cert. Queue it here and fire it from loop() once the peer is ready,
+// rather than dropping it (which left WebRTC permanently unconnected).
+volatile bool pendingOfferRequest = false;
 WebServer  webServer(80);
 DNSServer  dnsServer;
 
@@ -983,7 +987,14 @@ static void handleWsTextFrame(const char* data, size_t len) {
     if (from[0]) parentSocketId = from;
 
     if (!webrtcPeer) {
-      Serial.println("[peer] inbound signal but esp_peer not initialised");
+      if (doc["requestOffer"] | false) {
+        // Peer still initialising — remember the request so loop() can fire
+        // it the moment esp_peer is ready.
+        pendingOfferRequest = true;
+        Serial.println("[peer] requestOffer before peer ready — queued");
+      } else {
+        Serial.println("[peer] inbound signal but esp_peer not initialised");
+      }
       return;
     }
     if (doc["requestOffer"] | false) {
@@ -1280,6 +1291,15 @@ void loop() {
   }
   updateLED();
   pollBleScanComplete();
+
+  // A requestOffer that raced esp_peer init is honoured here, once the peer
+  // exists and we know which parent to answer.
+  if (pendingOfferRequest && webrtcPeer && parentSocketId.length() > 0) {
+    pendingOfferRequest = false;
+    Serial.println("[peer] firing queued requestOffer");
+    esp_peer_new_connection(webrtcPeer);
+  }
+
   processAudio();
 
   unsigned long now = millis();
