@@ -1,7 +1,5 @@
 # BabyLink Deployment Guide
 
-This guide covers deploying BabyLink in various environments.
-
 ## Table of Contents
 
 - [Prerequisites](#prerequisites)
@@ -9,7 +7,9 @@ This guide covers deploying BabyLink in various environments.
 - [Production Deployment with Caddy](#production-deployment-with-caddy)
 - [Docker Deployment](#docker-deployment)
 - [Environment Configuration](#environment-configuration)
+- [Running a public / demo instance](#running-a-public--demo-instance)
 - [Monitoring & Maintenance](#monitoring--maintenance)
+- [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -18,7 +18,7 @@ This guide covers deploying BabyLink in various environments.
 - **Node.js**: v16+ (v18+ recommended)
 - **npm**: v8+
 - **Caddy**: v2.6+ (for production HTTPS)
-- **Docker & Docker Compose**: Optional, for containerized deployment
+- **Docker + Docker Compose v2**: optional, for containerised deployment
 
 ---
 
@@ -30,57 +30,49 @@ This guide covers deploying BabyLink in various environments.
 npm install
 ```
 
-### 2. Create Environment File
+### 2. Run the Server
 
 ```bash
-cp .env.example .env
+npm start
 ```
 
-Edit `.env` to configure your local environment (defaults work for most cases).
+Available at **http://localhost:3001**.
 
-### 3. Run Development Server
+### 3. (Optional) Local HTTPS with Caddy
 
-```bash
-npm run dev
-```
-
-The application will be available at **http://localhost:3001**
-
-### 4. (Optional) Local HTTPS with Caddy
-
-For testing HTTPS locally:
+`getUserMedia` requires a secure context. On `localhost` plain HTTP works,
+but on a LAN IP you need TLS. The bundled `Caddyfile.local` sets up a
+self-signed certificate:
 
 ```bash
-# Install Caddy (macOS example)
-brew install caddy
-
-# Use the local Caddyfile
 caddy run --config Caddyfile.local
 ```
 
-Access at **https://localhost**
+Access at **https://localhost** (accept the self-signed cert warning).
 
 ---
 
 ## Production Deployment with Caddy
 
-Caddy provides automatic HTTPS with Let's Encrypt SSL certificates.
+Caddy provides automatic HTTPS with Let's Encrypt.
 
 ### Architecture
 
 ```
-Internet (HTTPS) → Caddy (SSL Termination) → BabyLink (HTTP:3001)
+Internet (HTTPS) → Caddy (TLS termination) → BabyLink (HTTP :3001)
 ```
 
 ### 1. Install Caddy
 
-**Ubuntu/Debian:**
+**Ubuntu / Debian:**
+
 ```bash
 sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https
-curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
-sudo apt update
-sudo apt install caddy
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
+  | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
+  | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+sudo apt update && sudo apt install caddy
 ```
 
 **Other platforms:** https://caddyserver.com/docs/install
@@ -98,18 +90,11 @@ yourdomain.com {
 ### 3. Install BabyLink
 
 ```bash
-# Clone repository
-git clone <your-repo-url> babylink
+git clone https://github.com/your-org/babylink babylink
 cd babylink
-
-# Install dependencies
 npm ci --only=production
-
-# Create environment file
 cp .env.example .env
-
-# Edit environment variables
-nano .env
+nano .env   # set NODE_ENV=production and PUBLIC_HOST=yourdomain.com
 ```
 
 ### 4. Set Up as System Service
@@ -128,46 +113,30 @@ WorkingDirectory=/opt/babylink
 ExecStart=/usr/bin/node server.js
 Restart=always
 RestartSec=10
-Environment=NODE_ENV=production
-
-# Security
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ReadWritePaths=/opt/babylink/logs
+EnvironmentFile=/opt/babylink/.env
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-**Create user and install:**
+**Install and start:**
 
 ```bash
-# Create babylink user
 sudo useradd -r -s /bin/false babylink
-
-# Copy app to /opt
 sudo mkdir -p /opt/babylink
 sudo cp -r . /opt/babylink/
 sudo chown -R babylink:babylink /opt/babylink
-
-# Enable and start service
-sudo systemctl enable babylink
-sudo systemctl start babylink
-sudo systemctl status babylink
+sudo systemctl enable --now babylink
 ```
 
 ### 5. Start Caddy
 
 ```bash
-# Copy Caddyfile
 sudo cp Caddyfile /etc/caddy/Caddyfile
-
-# Reload Caddy
 sudo systemctl reload caddy
 ```
 
-Caddy will automatically obtain and renew SSL certificates from Let's Encrypt.
+Caddy obtains and renews Let's Encrypt certificates automatically.
 
 ---
 
@@ -176,23 +145,22 @@ Caddy will automatically obtain and renew SSL certificates from Let's Encrypt.
 ### 1. Build and Run
 
 ```bash
-# Build image
-docker-compose build
-
-# Start services
-docker-compose up -d
+# Build and start
+PUBLIC_HOST=yourdomain.com docker compose up -d --build
 
 # View logs
-docker-compose logs -f
+docker compose logs -f
 ```
+
+`PUBLIC_HOST` is mandatory: it is the address the server advertises to
+ESP32-S3 devices during BLE provisioning. Set it to your domain name or
+LAN IP as appropriate.
 
 ### 2. With Caddy Reverse Proxy
 
 Create `docker-compose.override.yml`:
 
 ```yaml
-version: '3.8'
-
 services:
   caddy:
     image: caddy:alpine
@@ -214,107 +182,112 @@ volumes:
 ```
 
 ```bash
-docker-compose -f docker-compose.yml -f docker-compose.override.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.override.yml up -d
 ```
 
 ---
 
 ## Environment Configuration
 
-### Required Variables
+### Key Variables
+
+| Variable | Default | Notes |
+| -------- | ------- | ----- |
+| `NODE_ENV` | `development` | Set `production` to trim logs |
+| `PORT` | `3001` | HTTP port the server listens on |
+| `PUBLIC_HOST` | auto | Host advertised to ESP32-S3 devices. **Must be set in Docker.** |
+| `PUBLIC_PORT` | `$PORT` | Port advertised to ESP32-S3 devices |
+| `RATE_LIMIT_MAX_REQUESTS` | `100` | Per-IP request cap per 15-minute window |
+| `LOG_LEVEL` | `info` | `error` / `warn` / `info` / `debug` |
+
+### WebRTC / TURN
 
 ```env
-NODE_ENV=production
-PORT=3001
-```
-
-### Optional Variables
-
-```env
-# WebRTC Configuration
 STUN_SERVER=stun:stun.l.google.com:19302
 # TURN_SERVER=turn:turn.example.com:3478
 # TURN_USERNAME=username
 # TURN_PASSWORD=password
-
-# Room Limits
-MAX_ROOMS=1000
-MAX_BABIES_PER_ROOM=5
-MAX_PARENTS_PER_ROOM=10
-
-# Security
-RATE_LIMIT_WINDOW=900000  # 15 minutes
-RATE_LIMIT_MAX_REQUESTS=100
-SESSION_SECRET=your-secure-random-secret-here
-
-# Logging
-LOG_LEVEL=info
-LOG_TO_FILE=true
-LOG_FILE_PATH=./logs/babylink.log
-
-# CORS (if needed)
-# CORS_ORIGIN=https://yourdomain.com
 ```
 
-**Generate secure secret:**
-```bash
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+### Room limits
+
+```env
+MAX_BABIES_PER_ROOM=5
+MAX_PARENTS_PER_ROOM=10
 ```
 
 ---
 
-## Monitoring & Maintenance
+## Running a public / demo instance
 
-### Health Check
+Things to know before exposing BabyLink to the internet.
+
+**Data that persists in `data/`:**
+Room configuration (PIN hashes, ntfy topics, device associations) is
+written to `data/` and survives restarts. Rooms do not expire
+automatically; add a cron task or admin script if you want a TTL.
+
+**What the server can see:**
+The server sees signaling metadata (room membership, join/leave events),
+client IP addresses in logs, and Opus audio frames relayed from
+ESP32-S3 devices. WebRTC audio between two browsers never traverses the
+server. See [SECURITY.md](SECURITY.md) for the full breakdown.
+
+**Abuse considerations:**
+
+- Rate limiting is on by default (`RATE_LIMIT_MAX_REQUESTS=100` per 15
+  min). Tighten it for public instances.
+- Room creation is unauthenticated; anyone with network access can
+  create rooms. Consider adding a reverse-proxy basic-auth layer or
+  keeping `MAX_ROOMS` set to a conservative value to cap server load.
+- Room IDs are 128-bit random tokens, but the server does not
+  time-out idle rooms. Monitor room count via `/health`.
+
+**Health endpoint:**
 
 ```bash
-curl http://localhost:3001/health
+curl https://yourdomain.com/health
 ```
 
-Response:
 ```json
 {
   "status": "healthy",
   "uptime": 12345.67,
   "timestamp": "2025-01-01T00:00:00.000Z",
   "rooms": 5,
+  "esp32Devices": 2,
   "version": "1.0.0"
 }
 ```
 
+---
+
+## Monitoring & Maintenance
+
 ### Logs
 
-**System service:**
 ```bash
+# System service
 sudo journalctl -u babylink -f
+
+# Docker
+docker compose logs -f babylink
 ```
 
-**Docker:**
-```bash
-docker-compose logs -f babylink
-```
+### Restart
 
-**Application logs:**
 ```bash
-tail -f logs/babylink.log
-tail -f logs/error.log
-```
-
-### Restart Service
-
-**System service:**
-```bash
+# System service
 sudo systemctl restart babylink
+
+# Docker
+docker compose restart babylink
 ```
 
-**Docker:**
-```bash
-docker-compose restart babylink
-```
-
-### Update Deployment
+### Update
 
 **System service:**
+
 ```bash
 cd /opt/babylink
 sudo -u babylink git pull
@@ -323,105 +296,47 @@ sudo systemctl restart babylink
 ```
 
 **Docker:**
+
 ```bash
 git pull
-docker-compose build
-docker-compose up -d
+docker compose up -d --build
 ```
-
----
-
-## Security Checklist
-
-- [ ] Set secure `SESSION_SECRET` in `.env`
-- [ ] Configure HTTPS with Caddy
-- [ ] Set appropriate `CORS_ORIGIN` if needed
-- [ ] Enable firewall (allow 80, 443, SSH only)
-- [ ] Keep Node.js and dependencies updated
-- [ ] Monitor logs for suspicious activity
-- [ ] Set up automatic backups (if using persistent storage)
-- [ ] Configure rate limiting appropriately
-- [ ] Review security headers (configured by helmet.js)
-
----
-
-## Performance Tuning
-
-### For High Traffic
-
-1. **Increase room limits:**
-   ```env
-   MAX_ROOMS=5000
-   MAX_BABIES_PER_ROOM=10
-   MAX_PARENTS_PER_ROOM=20
-   ```
-
-2. **Add TURN server** (for difficult network scenarios):
-   ```env
-   TURN_SERVER=turn:turn.example.com:3478
-   TURN_USERNAME=user
-   TURN_PASSWORD=pass
-   ```
-
-3. **Enable log rotation:**
-   ```bash
-   sudo nano /etc/logrotate.d/babylink
-   ```
-   ```
-   /opt/babylink/logs/*.log {
-       daily
-       missingok
-       rotate 14
-       compress
-       delaycompress
-       notifempty
-       create 0640 babylink babylink
-       sharedscripts
-       postrotate
-           systemctl reload babylink
-       endscript
-   }
-   ```
 
 ---
 
 ## Troubleshooting
 
-### Service Won't Start
+### Service won't start
 
-Check logs:
 ```bash
 sudo journalctl -u babylink -n 50
 ```
 
-Common issues:
-- Port 3001 already in use: `sudo lsof -i :3001`
-- Missing dependencies: `npm install`
-- Wrong Node version: `node --version` (need 16+)
+Common causes: port 3001 in use (`sudo lsof -i :3001`); missing
+dependencies (`npm install`); wrong Node version (`node --version`,
+need 16+).
 
-### WebRTC Connection Issues
+### Can't use microphone on LAN IP
 
-1. Check STUN server is accessible
-2. Add TURN server for NAT traversal
-3. Verify firewall rules allow UDP traffic
-4. Check browser console for errors
+`getUserMedia` requires a secure context. Plain HTTP only works on
+`localhost`. Use `Caddyfile.local` for local TLS or run behind Caddy
+with a real certificate. See the Quick Start section in
+[README.md](README.md) for options.
 
-### Can't Access via HTTPS
+### WebRTC connection issues
 
-1. Verify Caddy is running: `sudo systemctl status caddy`
-2. Check Caddy logs: `sudo journalctl -u caddy`
-3. Verify DNS points to your server
-4. Check firewall allows ports 80 and 443
+1. Verify the STUN server is reachable.
+2. Add a TURN server for NAT traversal (`TURN_SERVER`, `TURN_USERNAME`,
+   `TURN_PASSWORD`).
+3. Check firewall rules allow UDP traffic.
+4. Open the browser console (F12) for ICE errors.
 
----
+### Can't reach HTTPS endpoint
 
-## Support
-
-For issues, please check:
-- [GitHub Issues](your-repo-url/issues)
-- Application logs
-- Browser console (F12)
+1. `sudo systemctl status caddy`
+2. `sudo journalctl -u caddy`
+3. Verify DNS points to your server and ports 80 + 443 are open.
 
 ---
 
-**Next:** See [README.md](README.md) for usage instructions and features.
+See [README.md](README.md) for usage and feature overview.
