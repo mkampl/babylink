@@ -1029,7 +1029,9 @@ static void handleWsTextFrame(const char* data, size_t len) {
       pmsg.data = (uint8_t*)cand.c_str();
       pmsg.size = cand.length();
       esp_peer_send_msg(webrtcPeer, &pmsg);
-      Serial.printf("[peer] <- ICE (%u B)\n", (unsigned)cand.length());
+      // Log the full candidate: a browser without mic/cam permission hides
+      // its LAN IP behind an mDNS `.local` name the device can't resolve.
+      Serial.printf("[peer] <- ICE: %s\n", cand.c_str());
     }
   }
 }
@@ -1210,7 +1212,20 @@ void setupWebRTC() {
   defaults.rtp_cfg.send_pool_size = 1024;
   defaults.rtp_cfg.send_queue_num = 10;
 
+  // STUN so the device advertises a server-reflexive candidate, not just a
+  // bare host one. Note: WebRTC media does not currently complete on this
+  // stack — the browser's DTLS ClientHello arrives fragmented (large modern
+  // ClientHello) and ESP-IDF's mbedtls DTLS server cannot reassemble a
+  // fragmented ClientHello (ssl_tls12_server.c: "ClientHello fragmentation
+  // not supported" → MBEDTLS_ERR_SSL_FEATURE_UNAVAILABLE). Until that upstream
+  // limitation is resolved, audio rides the WSS-PCM path. Kept wired so the
+  // moment mbedtls/esp_peer gains fragmented-ClientHello support this works.
+  static esp_peer_ice_server_cfg_t iceServers[1] = {};
+  iceServers[0].stun_url = (char*)"stun:stun.l.google.com:19302";
+
   esp_peer_cfg_t cfg = {};
+  cfg.server_lists     = iceServers;
+  cfg.server_num       = 1;
   cfg.role             = ESP_PEER_ROLE_CONTROLLING;     // baby initiates the offer
   cfg.ice_trans_policy = ESP_PEER_ICE_TRANS_POLICY_ALL;
   cfg.audio_info.codec       = ESP_PEER_AUDIO_CODEC_OPUS;
