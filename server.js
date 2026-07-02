@@ -396,6 +396,19 @@ app.get('/api/rooms/:roomId/config', validateRoomId, (req, res) => {
   });
 });
 
+// Read ntfy.sh settings for a room (owner only) — used to pre-fill the settings panel
+app.get('/api/rooms/:roomId/ntfy', validateRoomId, requireOwnerAuth, (req, res) => {
+  const cfg = roomConfig.getConfig(req.params.roomId) || {};
+  res.json({
+    ntfyServer: cfg.ntfyServer || null,
+    ntfyTopic: cfg.ntfyTopic || null,
+    ntfyEnabled: cfg.ntfyEnabled === true,
+    notifyOnCrying: cfg.notifyOnCrying !== false,
+    notifyOnDisconnect: cfg.notifyOnDisconnect !== false,
+    notifyOnActivity: cfg.notifyOnActivity === true
+  });
+});
+
 // Set ntfy.sh topic for a room (owner only)
 app.post('/api/rooms/:roomId/ntfy', validateRoomId, requireOwnerAuth, async (req, res) => {
   const { roomId } = req.params;
