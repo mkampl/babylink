@@ -16,6 +16,7 @@ class MultiStreamManager {
     this.onStreamAdded = null;
     this.onStreamRemoved = null;
     this.onAudioLevelUpdate = null;
+    this.onConnectionFailed = null;
   }
 
   /**
@@ -84,11 +85,28 @@ class MultiStreamManager {
 
     // Handle connection state changes
     peer.onconnectionstatechange = () => {
-      console.log(`Connection state for ${participantInfo.userName}: ${peer.connectionState}`);
+      const state = peer.connectionState;
+      console.log(`Connection state for ${participantInfo.userName}: ${state}`);
 
-      if (peer.connectionState === 'disconnected' || peer.connectionState === 'failed') {
-        console.warn(`Connection ${peer.connectionState} for ${participantInfo.userName}`);
-        // Could trigger reconnection logic here
+      if (state === 'disconnected') {
+        console.warn(`Connection disconnected for ${participantInfo.userName}`);
+      } else if (state === 'failed') {
+        // Tear down the silently-dead peer and re-request a fresh offer
+        // (reuses the same retry breaker already in handleSignal).
+        const retries = this.offerRetries.get(participantId) || 0;
+        if (retries < 3) {
+          console.warn(`ICE failed for ${participantInfo.userName} — tearing down and re-requesting offer (attempt ${retries + 1}/3)`);
+          this.offerRetries.set(participantId, retries + 1);
+          if (this.peerConnections.has(participantId)) {
+            try { peer.close(); } catch (e) {}
+            this.peerConnections.delete(participantId);
+          }
+          this.socket.emit('signal', { requestOffer: true, to: participantId });
+        } else {
+          console.error(`ICE repeatedly failed for ${participantInfo.userName} — giving up`);
+        }
+        // Update status dot so the card turns red instead of showing green
+        if (this.onConnectionFailed) this.onConnectionFailed(participantId);
       }
     };
 
@@ -105,7 +123,9 @@ class MultiStreamManager {
     audio.playsInline = true;
     audio.srcObject = stream;
     audio.volume = 1.0;
-    audio.muted = false; // Let browser autoplay policy handle blocking; auto-mute logic takes over once levels are read
+    // Start muted so the card state ("Muted") matches the audio element.
+    // The auto-mute logic in MultiBabyUI will unmute when sound is detected.
+    audio.muted = true;
 
     // Hide audio element (we'll control it via UI)
     audio.style.display = 'none';
@@ -158,23 +178,23 @@ class MultiStreamManager {
   }
 
   /**
-   * Monitor audio levels for a specific baby
+   * Monitor audio levels for a specific baby.
+   * Uses setInterval instead of requestAnimationFrame so the loop keeps
+   * running in background tabs (rAF is throttled/suspended when hidden).
    */
   monitorAudioLevel(participantId) {
     const analyse = () => {
-      if (!this.analysers.has(participantId)) {
-        return; // Stop if analyser was removed
-      }
+      const ad = this.analysers.get(participantId);
+      if (!ad) return; // removeParticipant already cleared the interval
 
-      const { analyser, dataArray } = this.analysers.get(participantId);
+      const { analyser, dataArray } = ad;
       analyser.getByteFrequencyData(dataArray);
 
-      // Calculate average volume (0-255 range)
-      const sum = dataArray.reduce((a, b) => a + b, 0);
-      const average = sum / dataArray.length;
-
-      // Find peak value for better sensitivity
-      const peak = Math.max(...dataArray);
+      // Find peak value for sensitivity-aware detection
+      let peak = 0;
+      for (let i = 0; i < dataArray.length; i++) {
+        if (dataArray[i] > peak) peak = dataArray[i];
+      }
 
       // Get sensitivity for this participant (default 1.0 if not set)
       const sensitivity = this.sensitivity.get(participantId) || 1.0;
@@ -186,39 +206,36 @@ class MultiStreamManager {
       let redThreshold = 180;
 
       if (sensitivity < 0.71) {
-        // Scale down thresholds proportionally to keep the full range accessible
         yellowThreshold = 100 * sensitivity;
         redThreshold = 180 * sensitivity;
       }
 
-      // Determine level based on adjusted volume and thresholds
       let level = 'GREEN';
       if (adjustedVolume > redThreshold) {
-        level = 'RED'; // Crying/Loud noise
+        level = 'RED';
       } else if (adjustedVolume > yellowThreshold) {
-        level = 'YELLOW'; // Movement/Talking
+        level = 'YELLOW';
       }
-      // GREEN: 0-yellowThreshold (quiet/background noise)
 
-      // Always call the callback with current values (not just on change)
       if (this.onAudioLevelUpdate) {
         this.onAudioLevelUpdate(participantId, level, volume);
       }
 
-      // Store level in analysis data
       const analysisData = this.analysers.get(participantId);
       if (analysisData) {
         const levelChanged = analysisData.currentLevel !== level;
         analysisData.currentLevel = level;
-        if (levelChanged) {
-          analysisData.lastUpdate = Date.now();
-        }
+        if (levelChanged) analysisData.lastUpdate = Date.now();
       }
-
-      requestAnimationFrame(analyse);
     };
 
-    analyse();
+    // 250 ms gives ~4 reads/s — enough for crying detection without
+    // burning CPU. Critically, setInterval runs in hidden tabs while
+    // requestAnimationFrame does not.
+    const analysisData = this.analysers.get(participantId);
+    if (analysisData) {
+      analysisData.intervalId = setInterval(analyse, 250);
+    }
   }
 
   /**
@@ -405,6 +422,7 @@ class MultiStreamManager {
     // Clean up analyser
     const analyser = this.analysers.get(participantId);
     if (analyser) {
+      if (analyser.intervalId) clearInterval(analyser.intervalId);
       analyser.source.disconnect();
       analyser.audioContext.close();
       this.analysers.delete(participantId);

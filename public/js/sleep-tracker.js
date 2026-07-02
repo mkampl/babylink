@@ -194,6 +194,32 @@ class SleepTracker {
     this._prune();
     this._save();
   }
+
+  /**
+   * One-time startup sweep: delete any babylink-sleep-* localStorage entries
+   * whose savedAt timestamp is older than retentionMs (default 48 h).
+   * This clears orphaned blobs left behind when the tracker was keyed on
+   * socket IDs (which change on each reconnect).
+   */
+  static purgeOrphans(retentionMs = 48 * 3600 * 1000) {
+    try {
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const key = localStorage.key(i);
+        if (!key || !key.startsWith('babylink-sleep-')) continue;
+        try {
+          const data = JSON.parse(localStorage.getItem(key));
+          if (!data || !data.savedAt || Date.now() - data.savedAt > retentionMs) {
+            localStorage.removeItem(key);
+          }
+        } catch (e) {
+          // Corrupt entry — remove it
+          localStorage.removeItem(key);
+        }
+      }
+    } catch (e) {
+      // localStorage may be unavailable in some environments
+    }
+  }
 }
 
 if (typeof window !== 'undefined') {

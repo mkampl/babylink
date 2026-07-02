@@ -17,9 +17,15 @@ class ESP32AudioHandler {
   }
 
   _startLevelMonitor(fromId) {
-    const tick = () => {
+    // setInterval keeps the meter running in background/hidden tabs.
+    // rAF is throttled to 1 fps or suspended entirely when the tab is
+    // hidden, which would freeze crying detection and auto-mute logic.
+    const intervalId = setInterval(() => {
       const ctx = this.contexts.get(fromId);
-      if (!ctx || !ctx.analyser) return; // stopped
+      if (!ctx || !ctx.analyser) {
+        clearInterval(intervalId);
+        return;
+      }
 
       ctx.analyser.getByteFrequencyData(ctx.levelData);
       let peak = 0;
@@ -35,10 +41,22 @@ class ESP32AudioHandler {
       if (this.multiBabyUI && this.multiBabyUI.babyCards.has(fromId)) {
         this.multiBabyUI.updateAudioLevel(fromId, level, volume);
       }
-      ctx.levelRafId = requestAnimationFrame(tick);
-    };
+    }, 250);
+
     const ctx = this.contexts.get(fromId);
-    ctx.levelRafId = requestAnimationFrame(tick);
+    ctx.levelIntervalId = intervalId;
+  }
+
+  /**
+   * Release all resources for a departed participant.
+   * Call this from app.js participant-left when role === 'parent'.
+   */
+  removeContext(fromId) {
+    const ctx = this.contexts.get(fromId);
+    if (!ctx) return;
+    if (ctx.levelIntervalId) clearInterval(ctx.levelIntervalId);
+    try { ctx.audioContext.close(); } catch (e) {}
+    this.contexts.delete(fromId);
   }
 
   handleAudioData(data, multiBabyUI) {
