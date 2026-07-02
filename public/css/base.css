@@ -208,3 +208,15 @@ body, .baby-card, .master-controls, .wake-lock-container,
   h1 { font-size: var(--text-h2); }
   button { font-size: var(--text-sm); }
 }
+
+/* ====== Accessibility: reduced-motion ======
+   Respect the user's preference for reduced motion by disabling
+   decorative animations. Functionality (e.g. spinner on slow load)
+   can use a brief single-step transition instead. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

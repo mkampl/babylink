@@ -34,6 +34,46 @@
   const sleepTrackers = new Map();  // babyId → SleepTracker
   let sleepRenderInterval = null;
 
+  // ========================
+  // Disconnect alarm banner (parent role)
+  // Visible banner with a mute button so the user isn't left with
+  // an invisible 880 Hz tone and no explanation.
+  // ========================
+
+  let disconnectBanner = null;
+
+  function showDisconnectBanner() {
+    if (role !== 'parent') return;
+    if (disconnectBanner) return; // already showing
+    disconnectBanner = document.createElement('div');
+    disconnectBanner.id = 'disconnectBanner';
+    disconnectBanner.style.cssText =
+      'position:fixed;bottom:1rem;left:50%;transform:translateX(-50%);' +
+      'z-index:8888;background:var(--color-danger-bg);color:var(--color-danger-text);' +
+      'border:2px solid var(--color-danger);border-radius:var(--radius-md);' +
+      'padding:0.75rem 1rem;display:flex;align-items:center;gap:0.75rem;' +
+      'font-size:0.95rem;font-weight:600;box-shadow:var(--shadow-md);' +
+      'max-width:calc(100vw - 2rem);';
+    disconnectBanner.innerHTML =
+      '<span>⚠ Connection lost — babies offline</span>' +
+      '<button id="muteAlarmBtn" style="padding:0.3em 0.8em;border:1px solid var(--color-danger);' +
+        'background:transparent;color:var(--color-danger-text);border-radius:var(--radius-sm);' +
+        'cursor:pointer;font-size:0.85rem;">Mute alarm</button>';
+    document.body.appendChild(disconnectBanner);
+    document.getElementById('muteAlarmBtn').addEventListener('click', () => {
+      alarmMgr.stop();
+      const btn = document.getElementById('muteAlarmBtn');
+      if (btn) { btn.textContent = 'Muted'; btn.disabled = true; }
+    });
+  }
+
+  function hideDisconnectBanner() {
+    if (disconnectBanner) {
+      disconnectBanner.remove();
+      disconnectBanner = null;
+    }
+  }
+
   // Enable all audio (WebRTC + ESP32) — resumes suspended AudioContexts
   function enableAllAudio() {
     if (webrtcAudioEnabled) return;
@@ -47,17 +87,18 @@
       });
     }
 
-    // Unmute any existing audio elements
+    // Kick playback on any existing audio elements. Do NOT force-unmute:
+    // MultiBabyUI controls the muted state based on audio levels; we just
+    // make sure the element is playing so autoplay policy is satisfied.
     if (multiStreamManager && multiStreamManager.audioElements) {
       multiStreamManager.audioElements.forEach(audio => {
-        audio.muted = false;
         audio.play().catch(() => {});
       });
     }
 
     const alert = document.getElementById('alert');
     if (alert) alert.hidden = true;
-    console.log('Audio enabled');
+    // audio unlocked
   }
 
   window._enableAllAudio = enableAllAudio;
@@ -108,7 +149,6 @@
   // ========================
 
   async function initialize() {
-    console.log(`Initializing BabyLink as ${role} (${userName}) in room ${roomId}`);
 
     // Parent must tap "Start Monitoring" to unlock audio (browser requirement).
     // Dev shortcut: `?autostart=1` skips the gesture — works only when the
@@ -133,7 +173,6 @@
 
     // Process any signals that arrived during initialization
     if (multiStreamManager && pendingSignals.length > 0) {
-      console.log(`Processing ${pendingSignals.length} queued signal(s)`);
       pendingSignals.forEach(sig => multiStreamManager.handleSignal(sig));
       pendingSignals.length = 0;
     }
@@ -150,7 +189,6 @@
 
   function joinRoom() {
     if (hasJoinedRoom) return;
-    console.log('Joining room:', roomId);
     var joinData = { roomId, role, userName };
     if (roomPin) joinData.pin = roomPin;
     socket.emit('join', joinData);
@@ -166,7 +204,7 @@
     container.innerHTML = `
       <div class="baby-device-container">
         <div class="baby-header-strip">
-          <h2 class="baby-name-display">👶 ${escapeHtml(userName)}</h2>
+          <h2 class="baby-name-display">${escapeHtml(userName)}</h2>
           <div class="baby-listeners" id="parentCountSection" title="Parents currently monitoring">
             <span class="baby-listeners-num" id="parentCountNum">0</span>
             <span class="baby-listeners-label" id="parentCountLabel">listening</span>
@@ -177,7 +215,7 @@
           <div class="baby-mic-status" id="micStatus">Requesting microphone…</div>
         </div>
         <div class="baby-footer">
-          <button class="baby-test-btn" id="testAudioBtn" disabled title="Play a short tone so parents can verify they hear this device">🔊 Test</button>
+          <button class="baby-test-btn" id="testAudioBtn" disabled title="Play a short tone so parents can verify they hear this device">Test</button>
           <div class="baby-battery" id="batterySection" style="display:none;">
             <div class="battery-indicator">
               <div class="battery-level" id="batteryLevel"></div>
@@ -193,6 +231,24 @@
 
     // Set up battery indicator
     initBatteryIndicator();
+
+    // Microphone requires a secure context. On plain http:// LAN addresses
+    // navigator.mediaDevices is undefined and the user would see a confusing
+    // "access denied" error instead of the real cause.
+    if (!window.isSecureContext || !navigator.mediaDevices) {
+      const msg = 'Microphone access requires HTTPS (or localhost). ' +
+                  'Open this page via HTTPS or use a reverse proxy.';
+      document.getElementById('status').textContent = 'Secure context required';
+      document.getElementById('micStatus').textContent = 'HTTPS required';
+      document.getElementById('micStatus').classList.add('error');
+      document.getElementById('alert').textContent = msg;
+      document.getElementById('alert').hidden = false;
+      return;
+    }
+
+    // One-line privacy notice shown before the browser mic dialog appears.
+    document.getElementById('micStatus').textContent =
+      'Your browser will ask for the microphone. Audio stays on your local network.';
 
     try {
       localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -211,7 +267,6 @@
 
       // Connect to any parents that joined while we were waiting for mic permission
       if (pendingParents.length > 0) {
-        console.log(`Connecting to ${pendingParents.length} parent(s) that joined during mic setup`);
         pendingParents.forEach(p => createPeerConnectionToParent(p));
         pendingParents.length = 0;
       }
@@ -220,7 +275,10 @@
       document.getElementById('status').textContent = 'Microphone access denied';
       document.getElementById('micStatus').textContent = 'Microphone denied';
       document.getElementById('micStatus').classList.add('error');
-      document.getElementById('alert').textContent = 'Please allow microphone access to use baby monitor';
+      const hint = err.name === 'NotAllowedError'
+        ? 'Allow microphone access in your browser settings, then reload.'
+        : 'Please allow microphone access to use baby monitor.';
+      document.getElementById('alert').textContent = hint;
       document.getElementById('alert').hidden = false;
     }
   }
@@ -431,6 +489,9 @@
   // ========================
 
   async function initializeParentDevice() {
+    // Sweep stale/orphaned sleep-tracker blobs left behind by old socket-ID-keyed entries
+    SleepTracker.purgeOrphans();
+
     const container = document.getElementById('mainContainer');
     multiBabyUI = new MultiBabyUI(container);
 
@@ -491,6 +552,10 @@
       multiBabyUI.removeBaby(participantId);
     };
 
+    multiStreamManager.onConnectionFailed = (participantId) => {
+      multiBabyUI.updateBabyStatus(participantId, false, 'ICE connection failed');
+    };
+
     // Both WSS-PCM and WebRTC level updates land here. Lazy-create the
     // tracker on first observation so a baby whose WebRTC handshake
     // never succeeds still gets tracked off the WSS feed.
@@ -498,7 +563,13 @@
       let tracker = sleepTrackers.get(babyId);
       if (!tracker) {
         const sens = multiBabyUI.sensitivity.get(babyId) || 1.0;
-        tracker = new SleepTracker(babyId, roomId, { sensitivity: sens });
+        // Use the baby's userName as the stable storage key so history
+        // survives reconnects (socket IDs change; names don't).
+        const info = multiStreamManager.participants.get(babyId);
+        const stableId = (info && info.userName)
+          ? info.userName.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 32)
+          : babyId;
+        tracker = new SleepTracker(stableId, roomId, { sensitivity: sens });
         sleepTrackers.set(babyId, tracker);
       }
       tracker.observe(volume);
@@ -571,10 +642,10 @@
   // ========================
 
   socket.on('connect', () => {
-    console.log('Connected to server');
     document.getElementById('status').textContent = 'Connected - Rejoining room...';
     document.getElementById('alert').hidden = true;
     alarmMgr.stop();
+    hideDisconnectBanner();
 
     if (wasDisconnected) {
       hasJoinedRoom = false;
@@ -583,7 +654,12 @@
         babyIds.forEach(id => {
           multiBabyUI.removeBaby(id);
           multiStreamManager.removeParticipant(id);
+          esp32Handler.removeContext(id);
         });
+      } else if (role === 'baby' && multiStreamManager) {
+        // Close all parent peer connections so we get fresh offers on rejoin
+        const peerIds = Array.from(multiStreamManager.peerConnections.keys());
+        peerIds.forEach(id => multiStreamManager.removeParticipant(id));
       }
       wasDisconnected = false;
     }
@@ -592,7 +668,6 @@
   });
 
   socket.on('disconnect', (reason) => {
-    console.log('Disconnected from server:', reason);
     document.getElementById('status').textContent = 'Disconnected - Reconnecting...';
     wasDisconnected = true;
 
@@ -632,19 +707,13 @@
         if (!multiBabyUI.babyCards.has(baby.socketId)) {
           multiBabyUI.addBaby(baby.socketId, baby);
         }
-        // All baby types (PWA, classic ESP32, XIAO S3) take the same
-        // dispatch now: ask the baby to send us an offer. The signal
-        // handler routes the inbound offer to multiStreamManager which
-        // creates the peer + audio element. S3 babies generate their
-        // own offer from esp_peer; PWA babies create one from
-        // RTCPeerConnection.createOffer(); classic ESP32 stays on the
-        // legacy WSS-PCM path because it doesn't speak WebRTC and the
-        // requestOffer goes nowhere.
+        // Ask each baby to send us a WebRTC offer. PWA babies respond
+        // with RTCPeerConnection.createOffer(); S3 firmware uses esp_peer.
         if (!multiStreamManager.peerConnections.has(baby.socketId)) {
           socket.emit('signal', { requestOffer: true, to: baby.socketId });
         }
       });
-      if (babies.length > 0) alarmMgr.stop();
+      if (babies.length > 0) { alarmMgr.stop(); hideDisconnectBanner(); }
     }
   });
 
@@ -663,7 +732,7 @@
       }
     } else if (role === 'parent' && pRole === 'baby') {
       multiBabyUI.addBaby(socketId, { socketId, role: pRole, userName: pName });
-      if (multiBabyUI.babyCards.size > 0) alarmMgr.stop();
+      if (multiBabyUI.babyCards.size > 0) { alarmMgr.stop(); hideDisconnectBanner(); }
       // Unified dispatch — same requestOffer kickoff for every baby
       // type. multiStreamManager handles the inbound offer regardless
       // of source. See the room-state handler above for the rationale.
@@ -676,19 +745,24 @@
 
     if (role === 'baby' && pRole === 'parent') {
       updateParentCount(participants);
+      // Close the peer connection to the departed parent to release ICE/SRTP resources.
+      if (multiStreamManager) multiStreamManager.removeParticipant(socketId);
     } else if (role === 'parent' && pRole === 'baby') {
       multiBabyUI.removeBaby(socketId);
       multiStreamManager.removeParticipant(socketId);
+      esp32Handler.removeContext(socketId);
       const tracker = sleepTrackers.get(socketId);
       if (tracker) { tracker.destroy(); sleepTrackers.delete(socketId); }
-      if (multiBabyUI.babyCards.size === 0) alarmMgr.play();
+      if (multiBabyUI.babyCards.size === 0) {
+        alarmMgr.play();
+        showDisconnectBanner();
+      }
     }
   });
 
   socket.on('signal', (data) => {
     // Handle request from parent asking baby to (re)send an offer
     if (data.requestOffer && role === 'baby' && multiStreamManager && localStream) {
-      console.log('Parent requested offer, creating peer connection to', data.fromSocketId);
       createPeerConnectionToParent({ socketId: data.fromSocketId, role: 'parent', userName: data.fromUserName || 'Parent' });
       return;
     }
