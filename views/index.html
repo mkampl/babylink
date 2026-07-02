@@ -347,19 +347,42 @@
       section.style.display = 'block';
       roomsList.innerHTML = '';
 
+      // Build rows with DOM methods — room.name and room.id are user-supplied
+      // and must never be interpolated into innerHTML or onclick strings.
       rooms.forEach(room => {
         const roomDiv = document.createElement('div');
         roomDiv.className = 'room-item';
-        roomDiv.innerHTML = `
-          <div>
-            <div class="room-name">${room.name}</div>
-            <div class="room-id">ID: ${room.id.substring(0, 8)}...</div>
-          </div>
-          <div class="room-actions">
-            <button class="join-btn" onclick="joinRoom('${room.id}')">Join</button>
-            <button class="delete-btn" onclick="deleteRoom('${room.id}')">Delete</button>
-          </div>
-        `;
+
+        const infoDiv = document.createElement('div');
+
+        const nameDiv = document.createElement('div');
+        nameDiv.className = 'room-name';
+        nameDiv.textContent = room.name;
+
+        const idDiv = document.createElement('div');
+        idDiv.className = 'room-id';
+        idDiv.textContent = 'ID: ' + room.id.substring(0, 8) + '...';
+
+        infoDiv.appendChild(nameDiv);
+        infoDiv.appendChild(idDiv);
+
+        const actionsDiv = document.createElement('div');
+        actionsDiv.className = 'room-actions';
+
+        const joinBtn = document.createElement('button');
+        joinBtn.className = 'join-btn';
+        joinBtn.textContent = 'Join';
+        joinBtn.addEventListener('click', () => joinRoom(room.id));
+
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'delete-btn';
+        deleteBtn.textContent = 'Delete';
+        deleteBtn.addEventListener('click', () => deleteRoom(room.id));
+
+        actionsDiv.appendChild(joinBtn);
+        actionsDiv.appendChild(deleteBtn);
+        roomDiv.appendChild(infoDiv);
+        roomDiv.appendChild(actionsDiv);
         roomsList.appendChild(roomDiv);
       });
     }

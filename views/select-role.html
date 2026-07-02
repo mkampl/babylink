@@ -686,29 +686,68 @@
       }
 
       noDevices.style.display = 'none';
-      list.innerHTML = devices.map(function(d) {
+      // Build each row with DOM methods so device names (user-settable) and
+      // IDs (server-issued hex) are inserted as text — never as raw HTML.
+      list.innerHTML = '';
+      devices.forEach(function(d) {
         var uptimeMin = Math.floor(d.uptime / 60000);
-        var uptimeStr = uptimeMin < 60 ? uptimeMin + 'min' : Math.floor(uptimeMin / 60) + 'h ' + (uptimeMin % 60) + 'min';
-        var typeLabel = d.deviceType === 'esp32-s3' ? 'XIAO S3' : 'ESP32';
-        var typeClass = d.deviceType === 'esp32-s3' ? 'device-type-badge device-type-s3' : 'device-type-badge';
-        return '<div class="device-item" data-id="' + d.id + '">' +
-          '<div class="device-status-dot"></div>' +
-          '<div class="device-info">' +
-            '<div class="device-name">' + escapeHtml(d.name) +
-              ' <span class="' + typeClass + '">' + typeLabel + '</span></div>' +
-            '<div class="device-meta">' + d.clientIp + ' &middot; ' + uptimeStr + ' &middot; ' + d.audioPacketsReceived + ' packets</div>' +
-          '</div>' +
-          '<div class="device-actions">' +
-            '<button class="device-rename-btn" onclick="renameDevice(\'' + d.id + '\',\'' + escapeHtml(d.name) + '\')">Rename</button>' +
-            '<button class="device-disconnect-btn" onclick="disconnectDevice(\'' + d.id + '\')">Disconnect</button>' +
-            '<button class="device-reset-btn" onclick="resetDevice(\'' + d.id + '\')">Reset</button>' +
-          '</div>' +
-        '</div>';
-      }).join('');
-    }
+        var uptimeStr = uptimeMin < 60
+          ? uptimeMin + 'min'
+          : Math.floor(uptimeMin / 60) + 'h ' + (uptimeMin % 60) + 'min';
 
-    function escapeHtml(str) {
-      return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        var item = document.createElement('div');
+        item.className = 'device-item';
+
+        var dot = document.createElement('div');
+        dot.className = 'device-status-dot';
+        item.appendChild(dot);
+
+        var info = document.createElement('div');
+        info.className = 'device-info';
+
+        var nameRow = document.createElement('div');
+        nameRow.className = 'device-name';
+        nameRow.textContent = d.name;
+        var badge = document.createElement('span');
+        badge.className = d.deviceType === 'esp32-s3'
+          ? 'device-type-badge device-type-s3' : 'device-type-badge';
+        badge.textContent = d.deviceType === 'esp32-s3' ? 'XIAO S3' : 'ESP32';
+        nameRow.appendChild(document.createTextNode(' '));
+        nameRow.appendChild(badge);
+        info.appendChild(nameRow);
+
+        var meta = document.createElement('div');
+        meta.className = 'device-meta';
+        // clientIp is a server-emitted IP string; audioPacketsReceived is a number.
+        // Both are set via textContent to be safe.
+        meta.textContent = d.clientIp + ' · ' + uptimeStr + ' · ' + d.audioPacketsReceived + ' packets';
+        info.appendChild(meta);
+        item.appendChild(info);
+
+        var actions = document.createElement('div');
+        actions.className = 'device-actions';
+
+        var renameBtn = document.createElement('button');
+        renameBtn.className = 'device-rename-btn';
+        renameBtn.textContent = 'Rename';
+        renameBtn.addEventListener('click', function() { renameDevice(d.id, d.name); });
+
+        var disconnectBtn = document.createElement('button');
+        disconnectBtn.className = 'device-disconnect-btn';
+        disconnectBtn.textContent = 'Disconnect';
+        disconnectBtn.addEventListener('click', function() { disconnectDevice(d.id); });
+
+        var resetBtn = document.createElement('button');
+        resetBtn.className = 'device-reset-btn';
+        resetBtn.textContent = 'Reset';
+        resetBtn.addEventListener('click', function() { resetDevice(d.id); });
+
+        actions.appendChild(renameBtn);
+        actions.appendChild(disconnectBtn);
+        actions.appendChild(resetBtn);
+        item.appendChild(actions);
+        list.appendChild(item);
+      });
     }
 
     window.renameDevice = async function(esp32Id, currentName) {
