@@ -94,6 +94,11 @@ String deviceId;
 unsigned long lastLedToggle = 0;
 bool ledState = false;
 unsigned long lastStatusReport = 0;
+// Watchdog: last time the WS was healthy (registered). If WiFi is up but this
+// goes stale, the esp_websocket reconnect has wedged (seen after a server
+// restart) and we force-recreate the client.
+unsigned long lastWsOkMs = 0;
+const unsigned long WS_WATCHDOG_MS = 60000;
 
 I2SClass I2S;
 int16_t audioBuffer[BUFFER_SIZE];
@@ -1318,6 +1323,27 @@ void loop() {
   processAudio();
 
   unsigned long now = millis();
+
+  // Reconnect watchdog. esp_websocket auto-reconnects, but after a server
+  // restart it can wedge and never recover on its own — the device then sits
+  // "gone" until a power-cycle. If WiFi is up but we haven't been registered
+  // for WS_WATCHDOG_MS, tear the client down and recreate it for a clean
+  // reconnect. lastWsOkMs is seeded at boot so a device that never registers
+  // (server down at startup) is also retried rather than stuck forever.
+  if (isRegistered) lastWsOkMs = now;
+  if (WiFi.status() == WL_CONNECTED && now - lastWsOkMs > WS_WATCHDOG_MS) {
+    Serial.println("[WS] watchdog: unregistered too long — recreating client");
+    if (webSocket) {
+      esp_websocket_client_stop(webSocket);
+      esp_websocket_client_destroy(webSocket);
+      webSocket = nullptr;
+    }
+    isConnected = false;
+    isRegistered = false;
+    connectWebSocket();
+    lastWsOkMs = now;   // give the fresh client a full window before retrying
+  }
+
   if (now - lastStatusReport >= 5000) {
     lastStatusReport = now;
     Serial.printf("[status] uptime=%lus wifi=%s ws=%s heap=%u\n",
