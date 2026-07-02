@@ -398,21 +398,13 @@ void processAudio() {
 
   const int chunkBytes = sampleCount * sizeof(int16_t);
 
-  // Primary audio path: raw PCM over the WSS control socket. The server
-  // relays it to parents as `esp32-audio` and exempts these binary frames
-  // from its control-message rate limit. This is the path browsers play
-  // today. The WebRTC tunnel below is best-effort — used only once esp_peer
-  // reaches CONNECTED, at which point the browser mutes the WSS copy to
-  // avoid an echo.
-  if (isConnected && isRegistered && webSocket) {
-    esp_websocket_client_send_bin(webSocket, (const char*)audioBuffer,
-                                  chunkBytes, portMAX_DELAY);
-    wssPacketsSent++;
-  }
-
-  // WebRTC path: Opus-encoded peer-to-peer, no server round-trip. esp_peer
-  // takes raw PCM at the codec's sample rate; PTS is monotonic samples-since-
-  // tunnel-open, which it maps onto the RTP timestamp.
+  // WebRTC is the primary path once its tunnel is up: Opus-encoded, encrypted
+  // (DTLS-SRTP), peer-to-peer, no server round-trip. esp_peer takes raw PCM at
+  // the codec's sample rate; PTS is monotonic samples-since-tunnel-open, which
+  // it maps onto the RTP timestamp. Fall back to raw PCM over the WSS control
+  // socket only while WebRTC isn't connected — sending both at once would play
+  // twice on the parent and echo. The server relays the PCM frames to parents
+  // as `esp32-audio` and exempts them from its control-message rate limit.
   if (webrtcConnected && webrtcPeer) {
     esp_peer_audio_frame_t frame = {};
     frame.pts  = webrtcAudioPts;
@@ -422,6 +414,10 @@ void processAudio() {
       webrtcPacketsSent++;
     }
     webrtcAudioPts += sampleCount;
+  } else if (isConnected && isRegistered && webSocket) {
+    esp_websocket_client_send_bin(webSocket, (const char*)audioBuffer,
+                                  chunkBytes, portMAX_DELAY);
+    wssPacketsSent++;
   }
 
   static unsigned long framesProcessed = 0;
