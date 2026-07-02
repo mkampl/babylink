@@ -2,6 +2,11 @@
 # `idf.py menuconfig` overrides. Pinned values that the XIAO S3 + Arduino
 # component need.
 
+# Target chip. Pinned here so a clean build (no pre-existing sdkconfig)
+# doesn't silently fall back to the default esp32 target — which builds the
+# wrong Arduino variant and fails on HWCDCSerial.
+CONFIG_IDF_TARGET="esp32s3"
+
 # Arduino requires the FreeRTOS tick rate at 1000 Hz (10 ms in PIO is
 # 1 Hz here — the docs are explicit about this).
 CONFIG_FREERTOS_HZ=1000

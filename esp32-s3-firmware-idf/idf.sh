@@ -18,8 +18,15 @@
 
 set -euo pipefail
 
-IMAGE="${IDF_DOCKER_IMAGE:-espressif/idf:v5.5.4}"
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# Default to the patched IDF image (adds mbedtls 3.6.6 DTLS ClientHello
+# defragmentation, required for the WebRTC handshake — see ./Dockerfile).
+# Built automatically on first use. Override with IDF_DOCKER_IMAGE.
+IMAGE="${IDF_DOCKER_IMAGE:-babylink-idf:v5.5.4-dtls}"
+if [ "$IMAGE" = "babylink-idf:v5.5.4-dtls" ] && ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+  echo "Building patched IDF image $IMAGE (first run)…" >&2
+  docker build -t "$IMAGE" -f "$PROJECT_DIR/Dockerfile" "$PROJECT_DIR" >&2
+fi
 USB_DEV="${IDF_USB_DEV:-/dev/ttyACM0}"
 
 EXTRA_DEVICE_ARGS=()
