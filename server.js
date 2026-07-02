@@ -4,7 +4,7 @@
 const express = require('express');
 const http = require('http');
 const path = require('path');
-// body-parser replaced with express built-in middleware
+const crypto = require('crypto');
 const helmet = require('helmet');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
@@ -13,10 +13,114 @@ const { Server } = require('socket.io');
 // Load configuration and utilities
 const config = require('./config');
 const logger = require('./utils/logger');
-const { validateRoomId, validateRole, validateSocketJoinData } = require('./middleware/validation');
+const { validateRoomId, validateRole, validateSocketJoinData, sanitizeInput } = require('./middleware/validation');
 const ESP32AudioProxy = require('./server/esp32-proxy');
 const roomConfig = require('./server/room-config');
 const notificationService = require('./server/notification-service');
+const { validateNtfyTopic, validateNtfyServer } = require('./server/notification-service');
+
+// =============================================================================
+// OWNER AUTH MIDDLEWARE
+// =============================================================================
+
+/**
+ * Verify the Authorization: Bearer <ownerToken> header against the stored
+ * SHA-256 hash for this room.
+ *
+ * Responses:
+ *   401 – no header or wrong token
+ *   403 – room exists but was not created via POST /api/rooms (no owner)
+ *   next() – token is valid
+ */
+function requireOwnerAuth(req, res, next) {
+  const authHeader = req.headers['authorization'];
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Authorization required: Bearer <ownerToken>' });
+  }
+
+  const token = authHeader.slice(7);
+  const { roomId } = req.params;
+
+  const result = roomConfig.verifyOwnerToken(roomId, token);
+
+  if (result === 'no-owner') {
+    return res.status(403).json({
+      error: 'Room not manageable: create the room via POST /api/rooms first'
+    });
+  }
+  if (result === 'invalid') {
+    return res.status(401).json({ error: 'Invalid authorization token' });
+  }
+
+  next();
+}
+
+// =============================================================================
+// SOCKET RATE LIMITING HELPERS
+// =============================================================================
+
+/**
+ * Per-socket event rate limiter. Returns a function that can be called before
+ * handling an event; returns true if the event is allowed.
+ *
+ * @param {number} max  - max events per window
+ * @param {number} windowMs - rolling window length in ms
+ */
+function makeSocketRateLimiter(max, windowMs) {
+  return function allowed(socket, eventName) {
+    const key = `rl:${eventName}`;
+    if (!socket[key]) socket[key] = { count: 0, start: Date.now() };
+    const rl = socket[key];
+    const now = Date.now();
+    if (now - rl.start > windowMs) { rl.count = 0; rl.start = now; }
+    rl.count++;
+    return rl.count <= max;
+  };
+}
+
+// join: 10 per 10 s (avoid room-scan abuse)
+const joinRateOk = makeSocketRateLimiter(10, 10_000);
+// signal: 200 per 10 s (WebRTC negotiation bursts can be large)
+const signalRateOk = makeSocketRateLimiter(200, 10_000);
+// crying-detected: 5 per 10 s (client-side detection can fire rapidly)
+const cryingRateOk = makeSocketRateLimiter(5, 10_000);
+
+// =============================================================================
+// PIN LOCKOUT STATE
+// =============================================================================
+
+// key: `${roomId}:${ip}` → { failures, lockedUntil }
+const pinLockout = new Map();
+const PIN_MAX_FAILURES = 5;
+const PIN_LOCKOUT_BASE_MS = 30_000; // 30 s base, doubles per failure beyond threshold
+
+function getPinLockout(roomId, ip) {
+  return pinLockout.get(`${roomId}:${ip}`) || { failures: 0, lockedUntil: 0 };
+}
+
+function recordPinFailure(roomId, ip) {
+  const key = `${roomId}:${ip}`;
+  const state = getPinLockout(roomId, ip);
+  state.failures++;
+  if (state.failures >= PIN_MAX_FAILURES) {
+    const extra = state.failures - PIN_MAX_FAILURES;
+    state.lockedUntil = Date.now() + PIN_LOCKOUT_BASE_MS * Math.pow(2, extra);
+  }
+  pinLockout.set(key, state);
+}
+
+function clearPinLockout(roomId, ip) {
+  pinLockout.delete(`${roomId}:${ip}`);
+}
+
+function isPinLocked(roomId, ip) {
+  const state = getPinLockout(roomId, ip);
+  return state.lockedUntil > Date.now();
+}
+
+// =============================================================================
+// FACTORY
+// =============================================================================
 
 /**
  * Create and configure the BabyLink server.
@@ -24,7 +128,6 @@ const notificationService = require('./server/notification-service');
  */
 function createServer() {
 
-// Initialize Express app
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -34,8 +137,15 @@ const io = new Server(server, {
   }
 });
 
+// Trust the first proxy hop so rate limiters key on the real client IP
+// when running behind Caddy / nginx (not the loopback address).
+app.set('trust proxy', 1);
+
 // Track rooms and their participants
 const rooms = new Map();
+
+// Per-IP socket connection tracking (anti-DoS)
+const socketIpCount = new Map();
 
 // Track intervals for cleanup in tests
 const intervals = [];
@@ -48,10 +158,31 @@ esp32Proxy.createWebSocketServer();
 // MIDDLEWARE
 // =============================================================================
 
-// Security middleware
+// Security middleware — enable a tailored CSP that still allows WebRTC
 app.use(helmet({
-  contentSecurityPolicy: false, // Disable for WebRTC
-  crossOriginEmbedderPolicy: false // Needed for some WebRTC scenarios
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", 'data:', 'blob:'],
+      mediaSrc: ["'self'", 'blob:'],
+      // WebRTC: allow wss: and STUN/TURN connections
+      connectSrc: [
+        "'self'",
+        'wss:',
+        'ws:',
+        'stun:',
+        'turn:',
+      ],
+      fontSrc: ["'self'"],
+      frameSrc: ["'none'"],
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
+    },
+  },
+  crossOriginEmbedderPolicy: false, // Needed for some WebRTC scenarios
 }));
 
 // CORS middleware
@@ -60,8 +191,7 @@ app.use(cors({
   credentials: config.security.corsCredentials
 }));
 
-// Rate limit dynamic routes only — static assets bypass so a normal
-// page reload doesn't burn the budget.
+// Rate limit dynamic routes only
 const limiter = rateLimit({
   windowMs: config.security.rateLimitWindow,
   max: config.security.rateLimitMaxRequests,
@@ -80,23 +210,24 @@ const limiter = rateLimit({
   },
   handler: (req, res) => {
     logger.warn('Rate limit exceeded', { ip: req.ip, url: req.url });
-    res.status(429).json({
-      error: 'Too many requests, please try again later.'
-    });
+    res.status(429).json({ error: 'Too many requests, please try again later.' });
   }
 });
 
-// Apply rate limiting to all routes
-app.use(limiter);
+// Stricter limiter for PIN verify (brute-force target)
+const pinVerifyLimiter = rateLimit({
+  windowMs: 60_000, // 1 minute
+  max: 10,
+  message: 'Too many PIN attempts, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
-// Body parsing middleware
+app.use(limiter);
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
-
-// Static files middleware
 app.use(express.static('public'));
 
-// Request logging middleware
 app.use((req, res, next) => {
   logger.logRequest(req, `${req.method} ${req.url}`);
   next();
@@ -106,12 +237,11 @@ app.use((req, res, next) => {
 // ROUTES
 // =============================================================================
 
-// Home page - Room creation/joining
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'views', 'index.html'));
 });
 
-// Health check endpoint
+// Health check — aggregate counts only, no PII
 app.get('/health', (req, res) => {
   res.status(200).json({
     status: 'healthy',
@@ -123,21 +253,17 @@ app.get('/health', (req, res) => {
   });
 });
 
-// ESP32 status endpoint
+// ESP32 aggregate status — no room IDs, device IDs, or IPs (H4)
 app.get('/api/esp32/status', (req, res) => {
-  const stats = esp32Proxy.getStatistics();
-  res.json(stats);
+  res.json(esp32Proxy.getStatistics());
 });
 
-// API endpoint to get WebRTC configuration
+// WebRTC ICE server configuration (public)
 app.get('/api/config/webrtc', (req, res) => {
   res.json(config.webrtcWithTurn);
 });
 
-// Host the BLE wizard hands to the ESP32. Falls back through
-// PUBLIC_HOST env, then a non-loopback LAN interface, then req.hostname.
-// PUBLIC_HOST is mandatory in Docker — the container only sees its
-// own bridge IP.
+// LAN address hint for the BLE wizard
 app.get('/api/config/server-hint', (req, res) => {
   let host = process.env.PUBLIC_HOST;
   if (!host) {
@@ -147,7 +273,6 @@ app.get('/api/config/server-hint', (req, res) => {
     for (const name of Object.keys(interfaces)) {
       for (const addr of interfaces[name]) {
         if (addr.family === 'IPv4' && !addr.internal) {
-          // Prefer 192.168.x.x and 10.x.x.x over 172.16/12 (often Docker).
           if (addr.address.startsWith('192.168.') || addr.address.startsWith('10.')) {
             lanIp = addr.address;
             break;
@@ -166,20 +291,51 @@ app.get('/api/config/server-hint', (req, res) => {
 });
 
 // =============================================================================
-// ESP32 DEVICE MANAGEMENT ENDPOINTS
+// ROOM CREATION (Contract: POST /api/rooms)
 // =============================================================================
 
-// List ESP32 devices in a room
-app.get('/api/rooms/:roomId/esp32/devices', validateRoomId, (req, res) => {
-  const { roomId } = req.params;
-  const devices = esp32Proxy.getDevicesForRoom(roomId);
+/**
+ * POST /api/rooms
+ * Create a new room with a stable owner token.
+ *
+ * Body (optional): { "name": string }
+ * Response 201: { "roomId": "<32-hex>", "ownerToken": "<64-hex>" }
+ * Response 429: server at capacity
+ */
+app.post('/api/rooms', async (req, res) => {
+  // Enforce maxRooms cap on persisted configs
+  if (roomConfig.configs.size >= config.room.maxRooms) {
+    logger.warn('Room limit reached', { current: roomConfig.configs.size, max: config.room.maxRooms });
+    return res.status(429).json({ error: 'Room limit reached. Try again later.' });
+  }
+
+  const roomId = crypto.randomBytes(16).toString('hex');      // 32-hex
+  const ownerToken = crypto.randomBytes(32).toString('hex'); // 64-hex
+
+  try {
+    await roomConfig.setOwnerToken(roomId, ownerToken);
+    logger.info(`Room created: ${roomId}`);
+    return res.status(201).json({ roomId, ownerToken });
+  } catch (err) {
+    logger.error('Failed to create room', { error: err.message });
+    return res.status(500).json({ error: 'Failed to create room' });
+  }
+});
+
+// =============================================================================
+// ESP32 DEVICE MANAGEMENT ENDPOINTS (owner-authenticated)
+// =============================================================================
+
+// List ESP32 devices in a room (owner only)
+app.get('/api/rooms/:roomId/esp32/devices', validateRoomId, requireOwnerAuth, (req, res) => {
+  const devices = esp32Proxy.getDevicesForRoom(req.params.roomId);
   res.json({ devices });
 });
 
-// Rename an ESP32 device
-app.patch('/api/rooms/:roomId/esp32/:esp32Id', validateRoomId, (req, res) => {
+// Rename an ESP32 device (owner only)
+app.patch('/api/rooms/:roomId/esp32/:esp32Id', validateRoomId, requireOwnerAuth, (req, res) => {
   const { roomId, esp32Id } = req.params;
-  const { name } = req.body;
+  const name = sanitizeInput(req.body.name);
 
   if (!name || typeof name !== 'string' || name.trim().length === 0) {
     return res.status(400).json({ error: 'Name is required' });
@@ -194,8 +350,8 @@ app.patch('/api/rooms/:roomId/esp32/:esp32Id', validateRoomId, (req, res) => {
   res.json({ success: true, device: result });
 });
 
-// Force disconnect an ESP32 device
-app.delete('/api/rooms/:roomId/esp32/:esp32Id', validateRoomId, (req, res) => {
+// Force disconnect an ESP32 device (owner only)
+app.delete('/api/rooms/:roomId/esp32/:esp32Id', validateRoomId, requireOwnerAuth, (req, res) => {
   const { roomId, esp32Id } = req.params;
 
   const client = esp32Proxy.esp32Clients.get(esp32Id);
@@ -207,8 +363,8 @@ app.delete('/api/rooms/:roomId/esp32/:esp32Id', validateRoomId, (req, res) => {
   res.json({ success: true, message: 'Device disconnected' });
 });
 
-// Factory-reset an ESP32 device (clears WiFi/server/room config, enters portal)
-app.post('/api/rooms/:roomId/esp32/:esp32Id/reset', validateRoomId, (req, res) => {
+// Factory-reset an ESP32 device (owner only)
+app.post('/api/rooms/:roomId/esp32/:esp32Id/reset', validateRoomId, requireOwnerAuth, (req, res) => {
   const { roomId, esp32Id } = req.params;
 
   const client = esp32Proxy.esp32Clients.get(esp32Id);
@@ -217,38 +373,53 @@ app.post('/api/rooms/:roomId/esp32/:esp32Id/reset', validateRoomId, (req, res) =
   }
 
   const ok = esp32Proxy.sendFactoryReset(esp32Id);
-  if (!ok) {
-    return res.status(500).json({ error: 'Failed to send reset command' });
-  }
+  if (!ok) return res.status(500).json({ error: 'Failed to send reset command' });
+
   res.json({ success: true, message: 'Reset command sent; device will reboot into provisioning mode' });
 });
 
 // =============================================================================
-// NOTIFICATION API ENDPOINTS
+// NOTIFICATION API ENDPOINTS (owner-authenticated mutations)
 // =============================================================================
 
-// Get room configuration including ntfy settings
+/**
+ * GET /api/rooms/:roomId/config
+ * Public — returns only non-sensitive fields.
+ * NEVER returns pin hash/salt, ntfy topic, or ntfy server URL.
+ */
 app.get('/api/rooms/:roomId/config', validateRoomId, (req, res) => {
   const { roomId } = req.params;
-  const roomConfiguration = roomConfig.getConfig(roomId);
-
+  const cfg = roomConfig.getConfig(roomId);
   res.json({
-    roomId,
-    ...roomConfiguration
+    hasPin: roomConfig.hasPin(roomId),
+    ntfyEnabled: cfg.ntfyEnabled,
   });
 });
 
-// Set ntfy.sh topic for a room
-app.post('/api/rooms/:roomId/ntfy', validateRoomId, async (req, res) => {
+// Set ntfy.sh topic for a room (owner only)
+app.post('/api/rooms/:roomId/ntfy', validateRoomId, requireOwnerAuth, async (req, res) => {
   const { roomId } = req.params;
-  const { topic, ntfyServer, enabled = true, notifyOnCrying = true, notifyOnDisconnect = true, notifyOnActivity = false } = req.body;
+  const {
+    topic,
+    ntfyServer,
+    enabled = true,
+    notifyOnCrying = true,
+    notifyOnDisconnect = true,
+    notifyOnActivity = false
+  } = req.body;
 
   if (!topic || typeof topic !== 'string') {
     return res.status(400).json({ error: 'Topic is required and must be a string' });
   }
 
+  const topicErr = validateNtfyTopic(topic);
+  if (topicErr) return res.status(400).json({ error: topicErr });
+
+  const serverErr = validateNtfyServer(ntfyServer || null, notificationService.allowedHosts);
+  if (serverErr) return res.status(400).json({ error: serverErr });
+
   try {
-    const updated = await roomConfig.updateConfig(roomId, {
+    await roomConfig.updateConfig(roomId, {
       ntfyTopic: topic,
       ntfyServer: ntfyServer || null,
       ntfyEnabled: enabled,
@@ -257,91 +428,36 @@ app.post('/api/rooms/:roomId/ntfy', validateRoomId, async (req, res) => {
       notifyOnActivity
     });
 
-    logger.info(`ntfy.sh configured for room ${roomId}: topic=${topic}, enabled=${enabled}`);
-
-    res.json({
-      success: true,
-      message: 'ntfy.sh notifications configured',
-      config: updated
-    });
+    logger.info(`ntfy configured for room ${roomId}: topic=${topic}, enabled=${enabled}`);
+    res.json({ success: true, message: 'ntfy.sh notifications configured' });
   } catch (error) {
     logger.error(`Failed to configure ntfy for room ${roomId}:`, error);
     res.status(500).json({ error: 'Failed to save configuration' });
   }
 });
 
-// Update ntfy settings for a room
-app.patch('/api/rooms/:roomId/ntfy', validateRoomId, async (req, res) => {
+// Test notification endpoint (owner only)
+app.post('/api/rooms/:roomId/ntfy/test', validateRoomId, requireOwnerAuth, async (req, res) => {
   const { roomId } = req.params;
-  const updates = req.body;
+  const cfg = roomConfig.getConfig(roomId);
 
-  try {
-    const updated = await roomConfig.updateConfig(roomId, updates);
-
-    logger.info(`ntfy.sh settings updated for room ${roomId}`);
-
-    res.json({
-      success: true,
-      message: 'ntfy.sh settings updated',
-      config: updated
-    });
-  } catch (error) {
-    logger.error(`Failed to update ntfy settings for room ${roomId}:`, error);
-    res.status(500).json({ error: 'Failed to update configuration' });
-  }
-});
-
-// Disable ntfy notifications for a room
-app.delete('/api/rooms/:roomId/ntfy', validateRoomId, async (req, res) => {
-  const { roomId } = req.params;
-
-  try {
-    await roomConfig.updateConfig(roomId, {
-      ntfyEnabled: false
-    });
-
-    logger.info(`ntfy.sh notifications disabled for room ${roomId}`);
-
-    res.json({
-      success: true,
-      message: 'ntfy.sh notifications disabled'
-    });
-  } catch (error) {
-    logger.error(`Failed to disable ntfy for room ${roomId}:`, error);
-    res.status(500).json({ error: 'Failed to update configuration' });
-  }
-});
-
-// Test notification endpoint (for debugging)
-app.post('/api/rooms/:roomId/ntfy/test', validateRoomId, async (req, res) => {
-  const { roomId } = req.params;
-  const config = roomConfig.getConfig(roomId);
-  const topic = config.ntfyEnabled ? config.ntfyTopic : null;
-
-  if (!topic) {
+  if (!cfg.ntfyEnabled || !cfg.ntfyTopic) {
     return res.status(400).json({ error: 'No ntfy.sh topic configured for this room' });
   }
 
   try {
-    // Use per-room ntfy server if configured
-    const originalServer = notificationService.ntfyServer;
-    if (config.ntfyServer) {
-      notificationService.ntfyServer = config.ntfyServer;
-    }
-
     const serverUrl = `${req.protocol}://${req.get('host')}`;
     const success = await notificationService.sendNotification(
-      topic,
+      cfg.ntfyTopic,
       'Test Notification',
       'This is a test notification from BabyLink',
       {
         priority: 'default',
         tags: ['test', 'baby'],
         click: `${serverUrl}/${roomId}?role=parent`
-      }
+      },
+      cfg.ntfyServer || null
     );
-
-    notificationService.ntfyServer = originalServer;
 
     res.json({
       success,
@@ -357,23 +473,20 @@ app.post('/api/rooms/:roomId/ntfy/test', validateRoomId, async (req, res) => {
 // ROOM PIN ENDPOINTS
 // =============================================================================
 
-// Check if a room has a PIN set
+/**
+ * GET /api/rooms/:roomId/pin — public: does a PIN exist?
+ */
 app.get('/api/rooms/:roomId/pin', validateRoomId, (req, res) => {
-  const { roomId } = req.params;
-  res.json({ hasPin: roomConfig.hasPin(roomId) });
+  res.json({ hasPin: roomConfig.hasPin(req.params.roomId) });
 });
 
-// Set or remove a PIN for a room
-app.post('/api/rooms/:roomId/pin', validateRoomId, async (req, res) => {
+/**
+ * POST /api/rooms/:roomId/pin — owner only: set or remove PIN.
+ * Minimum PIN length is 6 digits.
+ */
+app.post('/api/rooms/:roomId/pin', validateRoomId, requireOwnerAuth, async (req, res) => {
   const { roomId } = req.params;
-  const { pin, currentPin } = req.body;
-
-  // If room already has a PIN, require current PIN to change it
-  if (roomConfig.hasPin(roomId)) {
-    if (!roomConfig.verifyPin(roomId, currentPin)) {
-      return res.status(403).json({ error: 'Current PIN is incorrect' });
-    }
-  }
+  const { pin } = req.body;
 
   if (pin === null || pin === '') {
     await roomConfig.setPin(roomId, null);
@@ -381,8 +494,8 @@ app.post('/api/rooms/:roomId/pin', validateRoomId, async (req, res) => {
     return res.json({ success: true, message: 'PIN removed', hasPin: false });
   }
 
-  if (typeof pin !== 'string' || pin.length < 4 || pin.length > 6 || !/^\d+$/.test(pin)) {
-    return res.status(400).json({ error: 'PIN must be 4-6 digits' });
+  if (typeof pin !== 'string' || pin.length < 6 || pin.length > 8 || !/^\d+$/.test(pin)) {
+    return res.status(400).json({ error: 'PIN must be 6–8 digits' });
   }
 
   await roomConfig.setPin(roomId, pin);
@@ -390,25 +503,44 @@ app.post('/api/rooms/:roomId/pin', validateRoomId, async (req, res) => {
   res.json({ success: true, message: 'PIN set', hasPin: true });
 });
 
-// Verify a PIN for a room
-app.post('/api/rooms/:roomId/pin/verify', validateRoomId, (req, res) => {
+/**
+ * POST /api/rooms/:roomId/pin/verify — public with rate limiting + lockout.
+ * Does NOT require owner auth (parents need to verify without owning the room).
+ */
+app.post('/api/rooms/:roomId/pin/verify', validateRoomId, pinVerifyLimiter, (req, res) => {
   const { roomId } = req.params;
   const { pin } = req.body;
+  const ip = req.ip || 'unknown';
 
   if (!roomConfig.hasPin(roomId)) {
     return res.json({ valid: true, hasPin: false });
   }
 
+  if (isPinLocked(roomId, ip)) {
+    return res.status(429).json({
+      valid: false,
+      hasPin: true,
+      error: 'Too many failed attempts. Please wait before trying again.'
+    });
+  }
+
   const valid = roomConfig.verifyPin(roomId, pin);
-  res.json({ valid, hasPin: true });
+  if (valid) {
+    clearPinLockout(roomId, ip);
+    return res.json({ valid: true, hasPin: true });
+  }
+
+  recordPinFailure(roomId, ip);
+  res.json({ valid: false, hasPin: true });
 });
 
-// Room route with validation
+// =============================================================================
+// ROOM ROUTES
+// =============================================================================
+
 app.get('/:roomId', validateRoomId, validateRole, (req, res) => {
   const { role } = req.query;
-
   if (role === 'baby' || role === 'parent') {
-    // Disable caching for webrtc.html to ensure users get latest version
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
@@ -418,7 +550,6 @@ app.get('/:roomId', validateRoomId, validateRole, (req, res) => {
   }
 });
 
-// Room role selection (POST)
 app.post('/:roomId', validateRoomId, (req, res) => {
   const { roomId } = req.params;
   const { role } = req.body;
@@ -452,10 +583,31 @@ app.use((err, req, res, next) => {
 io.on('connection', (socket) => {
   logger.info(`Client connected: ${socket.id}`);
 
+  // Per-IP socket connection cap
+  const clientIp = socket.handshake.address || 'unknown';
+  const ipSockCount = (socketIpCount.get(clientIp) || 0) + 1;
+  if (ipSockCount > config.room.maxSocketsPerIp) {
+    logger.warn(`Socket rejected: IP ${clientIp} at connection cap`);
+    socket.emit('error', { message: 'Connection limit reached', code: 'CONN_LIMIT' });
+    socket.disconnect(true);
+    return;
+  }
+  socketIpCount.set(clientIp, ipSockCount);
+
+  socket.on('disconnect', () => {
+    const remaining = (socketIpCount.get(clientIp) || 1) - 1;
+    if (remaining <= 0) socketIpCount.delete(clientIp);
+    else socketIpCount.set(clientIp, remaining);
+  });
+
   // Handle room join
-  socket.on('join', (data) => {
+  socket.on('join', async (data) => {
+    if (!joinRateOk(socket, 'join')) {
+      socket.emit('error', { message: 'Too many join attempts', code: 'RATE_LIMIT' });
+      return;
+    }
+
     try {
-      // Validate join data
       const validation = validateSocketJoinData(data);
       if (!validation.isValid) {
         logger.warn('Invalid join data', { socketId: socket.id, errors: validation.errors });
@@ -463,32 +615,45 @@ io.on('connection', (socket) => {
         return;
       }
 
-      const { roomId, role, userName, pin } = data;
+      const { roomId, role, pin } = data;
+      const userName = sanitizeInput(data.userName) || role;
 
-      // Verify PIN if room has one set
-      if (roomConfig.hasPin(roomId) && !roomConfig.verifyPin(roomId, pin)) {
-        socket.emit('error', { message: 'Invalid room PIN', code: 'INVALID_PIN' });
+      // maxRooms cap on lazy-created rooms
+      if (!rooms.has(roomId) && rooms.size >= config.room.maxRooms) {
+        socket.emit('error', { message: 'Server at capacity', code: 'ROOM_LIMIT' });
         return;
       }
 
-      // Join the room
+      // PIN verification with lockout
+      if (roomConfig.hasPin(roomId)) {
+        const ip = clientIp;
+
+        if (isPinLocked(roomId, ip)) {
+          socket.emit('error', { message: 'Too many failed PIN attempts. Please wait.', code: 'PIN_LOCKED' });
+          return;
+        }
+
+        if (!roomConfig.verifyPin(roomId, pin)) {
+          recordPinFailure(roomId, ip);
+          socket.emit('error', { message: 'Invalid room PIN', code: 'INVALID_PIN' });
+          return;
+        }
+
+        clearPinLockout(roomId, ip);
+      }
+
       socket.join(roomId);
       socket.roomId = roomId;
       socket.role = role;
-      socket.userName = userName || role;
+      socket.userName = userName;
 
-      // Initialize room if it doesn't exist
       if (!rooms.has(roomId)) {
-        rooms.set(roomId, {
-          participants: [],
-          createdAt: new Date().toISOString()
-        });
+        rooms.set(roomId, { participants: [], createdAt: new Date().toISOString() });
         logger.logRoomEvent(roomId, 'room-created', { role });
       }
 
       const room = rooms.get(roomId);
 
-      // Check room capacity
       const roleCount = room.participants.filter(p => p.role === role).length;
       const maxCapacity = role === 'baby' ? config.room.maxBabiesPerRoom : config.room.maxParentsPerRoom;
 
@@ -498,10 +663,7 @@ io.on('connection', (socket) => {
         return;
       }
 
-      // Remove any existing entry for this socket (reconnection)
       room.participants = room.participants.filter(p => p.socketId !== socket.id);
-
-      // Add current participant
       room.participants.push({
         socketId: socket.id,
         role,
@@ -516,10 +678,8 @@ io.on('connection', (socket) => {
         totalParticipants: room.participants.length
       });
 
-      // Get all participants including ESP32 devices
       const allParticipants = esp32Proxy.getRoomParticipants(roomId);
 
-      // Notify all participants in the room about the new joiner
       socket.to(roomId).emit('participant-joined', {
         role,
         userName: socket.userName,
@@ -527,10 +687,7 @@ io.on('connection', (socket) => {
         participants: allParticipants
       });
 
-      // Send current participants to the new joiner
-      socket.emit('room-state', {
-        participants: allParticipants
-      });
+      socket.emit('room-state', { participants: allParticipants });
 
     } catch (error) {
       logger.error('Error in join handler', { error: error.message, socketId: socket.id });
@@ -540,6 +697,11 @@ io.on('connection', (socket) => {
 
   // Handle WebRTC signaling
   socket.on('signal', (data) => {
+    if (!signalRateOk(socket, 'signal')) {
+      logger.warn('Signal rate limit exceeded', { socketId: socket.id });
+      return;
+    }
+
     try {
       if (!socket.roomId) {
         logger.warn('Signal from socket not in a room', { socketId: socket.id });
@@ -547,7 +709,6 @@ io.on('connection', (socket) => {
       }
 
       const signalType = data.offer ? 'offer' : data.answer ? 'answer' : data.ice ? 'ice' : 'unknown';
-
       logger.logSocketEvent('signal', socket.id, {
         type: signalType,
         from: socket.role,
@@ -555,18 +716,10 @@ io.on('connection', (socket) => {
         roomId: socket.roomId
       });
 
-      // If 'to' is specified, send to that specific socket
       if (data.to) {
         if (typeof data.to === 'string' && data.to.startsWith('esp32_')) {
-          // Cross-transport bridge: target is an ESP32 device on the
-          // raw WS endpoint. Server is a pure relay — no SDP inspection.
-          const ok = esp32Proxy.relaySignalToESP(
-            data.to, data, socket.id, socket.userName);
-          if (!ok) {
-            logger.warn(`Signal to ESP32 ${data.to} dropped — not connected`);
-          } else {
-            logger.debug(`Signal routed via WS to ESP32: ${data.to}`);
-          }
+          const ok = esp32Proxy.relaySignalToESP(data.to, data, socket.id, socket.userName);
+          if (!ok) logger.warn(`Signal to ESP32 ${data.to} dropped — not connected`);
         } else {
           io.to(data.to).emit('signal', {
             ...data,
@@ -574,17 +727,14 @@ io.on('connection', (socket) => {
             fromSocketId: socket.id,
             fromUserName: socket.userName
           });
-          logger.debug(`Signal routed to specific participant: ${data.to}`);
         }
       } else {
-        // Otherwise broadcast to all participants in the room (legacy behavior)
         socket.to(socket.roomId).emit('signal', {
           ...data,
           from: socket.role,
           fromSocketId: socket.id,
           fromUserName: socket.userName
         });
-        logger.debug('Signal broadcast to all room participants');
       }
 
     } catch (error) {
@@ -600,7 +750,6 @@ io.on('connection', (socket) => {
       if (socket.roomId) {
         const room = rooms.get(socket.roomId);
         if (room) {
-          // Remove participant
           room.participants = room.participants.filter(p => p.socketId !== socket.id);
 
           logger.logRoomEvent(socket.roomId, 'participant-left', {
@@ -609,7 +758,6 @@ io.on('connection', (socket) => {
             remainingParticipants: room.participants.length
           });
 
-          // Notify remaining participants
           socket.to(socket.roomId).emit('participant-left', {
             role: socket.role,
             socketId: socket.id,
@@ -617,23 +765,22 @@ io.on('connection', (socket) => {
             participants: room.participants
           });
 
-          // Send ntfy disconnect notification if baby device disconnects
           if (socket.role === 'baby') {
             try {
-              const config = roomConfig.getConfig(socket.roomId);
-              if (config.ntfyEnabled && config.ntfyTopic && config.notifyOnDisconnect) {
-                const ntfyServer = config.ntfyServer || notificationService.ntfyServer;
-                const originalServer = notificationService.ntfyServer;
-                notificationService.ntfyServer = ntfyServer;
-                notificationService.sendDisconnectAlert(config.ntfyTopic, socket.roomId, socket.userName || 'Baby');
-                notificationService.ntfyServer = originalServer;
+              const cfg = roomConfig.getConfig(socket.roomId);
+              if (cfg.ntfyEnabled && cfg.ntfyTopic && cfg.notifyOnDisconnect) {
+                notificationService.sendDisconnectAlert(
+                  cfg.ntfyTopic,
+                  socket.roomId,
+                  socket.userName || 'Baby',
+                  cfg.ntfyServer || null
+                );
               }
             } catch (ntfyErr) {
               logger.error('Failed to send disconnect notification', { error: ntfyErr.message });
             }
           }
 
-          // Clean up empty rooms
           if (room.participants.length === 0) {
             rooms.delete(socket.roomId);
             logger.logRoomEvent(socket.roomId, 'room-deleted', { reason: 'empty' });
@@ -645,39 +792,40 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Handle crying detection — send ntfy.sh notification
+  // Handle crying detection — sanitize babyName and enforce rate limit
   socket.on('crying-detected', async (data) => {
+    if (!cryingRateOk(socket, 'crying-detected')) {
+      logger.warn('crying-detected rate limit exceeded', { socketId: socket.id });
+      return;
+    }
+
     try {
       if (!socket.roomId) {
         logger.warn('crying-detected from socket not in room', { socketId: socket.id });
         return;
       }
-      const { babyName } = data;
+
+      // Sanitize client-supplied name to prevent XSS in notifications
+      const babyName = sanitizeInput(data && data.babyName) || 'Baby';
+
       logger.info('Crying detected', { roomId: socket.roomId, babyName, from: socket.role });
-      const config = roomConfig.getConfig(socket.roomId);
 
-      if (!config.ntfyEnabled || !config.ntfyTopic || !config.notifyOnCrying) {
-        return;
-      }
-
-      const ntfyServer = config.ntfyServer || notificationService.ntfyServer;
-      const originalServer = notificationService.ntfyServer;
-      notificationService.ntfyServer = ntfyServer;
+      const cfg = roomConfig.getConfig(socket.roomId);
+      if (!cfg.ntfyEnabled || !cfg.ntfyTopic || !cfg.notifyOnCrying) return;
 
       await notificationService.sendCryingAlert(
-        config.ntfyTopic,
+        cfg.ntfyTopic,
         socket.roomId,
-        babyName || 'Baby',
-        null
+        babyName,
+        null,
+        cfg.ntfyServer || null
       );
 
-      notificationService.ntfyServer = originalServer;
     } catch (error) {
       logger.error('Error in crying-detected handler', { error: error.message, socketId: socket.id });
     }
   });
 
-  // Handle errors
   socket.on('error', (error) => {
     logger.error('Socket error', { socketId: socket.id, error: error.message });
   });
@@ -687,13 +835,11 @@ io.on('connection', (socket) => {
 // CLEANUP & MONITORING
 // =============================================================================
 
-// Periodic room cleanup (remove stale rooms)
 intervals.push(setInterval(() => {
   const now = Date.now();
   let cleanedCount = 0;
 
   for (const [roomId, room] of rooms.entries()) {
-    // Remove rooms with no participants that are older than cleanup interval
     if (room.participants.length === 0) {
       const roomAge = now - new Date(room.createdAt).getTime();
       if (roomAge > config.room.cleanupInterval) {
@@ -704,37 +850,28 @@ intervals.push(setInterval(() => {
     }
   }
 
-  if (cleanedCount > 0) {
-    logger.info(`Cleaned up ${cleanedCount} stale rooms`);
-  }
+  if (cleanedCount > 0) logger.info(`Cleaned up ${cleanedCount} stale rooms`);
 }, config.room.cleanupInterval));
 
-// Log room statistics periodically
 intervals.push(setInterval(() => {
-  const stats = {
+  logger.info('Room statistics', {
     totalRooms: rooms.size,
-    totalParticipants: Array.from(rooms.values()).reduce((sum, room) => sum + room.participants.length, 0)
-  };
-  logger.info('Room statistics', stats);
-}, 300000)); // Every 5 minutes
+    totalParticipants: Array.from(rooms.values()).reduce((s, r) => s + r.participants.length, 0)
+  });
+}, 300000));
 
 // =============================================================================
 // ESP32 WEBSOCKET UPGRADE HANDLER
 // =============================================================================
 
-// Handle WebSocket upgrade for ESP32 devices
-// Only intercept /esp32-baby path; let Socket.IO handle its own upgrades
 server.on('upgrade', (request, socket, head) => {
   const pathname = new URL(request.url, `http://${request.headers.host}`).pathname;
-
   if (pathname === '/esp32-baby') {
     logger.info(`ESP32 WebSocket upgrade request from ${socket.remoteAddress}`);
     esp32Proxy.handleUpgrade(request, socket, head);
   }
-  // Other paths (e.g., /socket.io/) are handled by Socket.IO automatically
 });
 
-// Return all server components for testing and startup
 return { app, server, io, rooms, esp32Proxy, intervals };
 
 } // end createServer()
@@ -746,7 +883,6 @@ return { app, server, io, rooms, esp32Proxy, intervals };
 if (require.main === module) {
   const { server, intervals } = createServer();
 
-  // Graceful shutdown
   const shutdown = () => {
     logger.info('Shutting down gracefully');
     intervals.forEach(id => clearInterval(id));
@@ -759,24 +895,13 @@ if (require.main === module) {
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
 
-  // Load room configurations then start server
   roomConfig.load().then(() => {
-  server.listen(config.server.port, () => {
-    logger.info(`BabyLink HTTP Server running at http://localhost:${config.server.port}`);
-    logger.info(`Environment: ${config.server.nodeEnv}`);
-    logger.info(`Use a reverse proxy (Caddy/Nginx) for HTTPS in production`);
-    logger.info(`Multi-baby mode: ${config.features.multiBaby ? 'Enabled' : 'Disabled'}`);
-
-    if (config.server.isDevelopment) {
-      logger.debug('Configuration loaded', {
-        port: config.server.port,
-        maxRooms: config.room.maxRooms,
-        maxBabiesPerRoom: config.room.maxBabiesPerRoom,
-        maxParentsPerRoom: config.room.maxParentsPerRoom,
-        logLevel: config.logging.level
-      });
-    }
-  });
+    server.listen(config.server.port, () => {
+      logger.info(`BabyLink HTTP Server running at http://localhost:${config.server.port}`);
+      logger.info(`Environment: ${config.server.nodeEnv}`);
+      logger.info(`Use a reverse proxy (Caddy/Nginx) for HTTPS in production`);
+      logger.info(`Multi-baby mode: ${config.features.multiBaby ? 'Enabled' : 'Disabled'}`);
+    });
   });
 }
 
