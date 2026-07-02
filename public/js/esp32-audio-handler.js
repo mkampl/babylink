@@ -65,7 +65,14 @@ class ESP32AudioHandler {
       if (!this.contexts.has(fromId)) {
         const audioContext = new (window.AudioContext || window.webkitAudioContext)();
         const gainNode = audioContext.createGain();
-        gainNode.gain.value = 1.0;
+        // The context is created lazily on the first audio frame, after
+        // addBaby has already set the baby to muted. Start the gain in sync
+        // with the card's mute state — otherwise the meter shows "Muted"
+        // while PCM plays at full volume, and auto-mute never engages because
+        // it thinks the baby is already muted.
+        const startMuted = !!(this.multiBabyUI && this.multiBabyUI.isMuted &&
+                              this.multiBabyUI.isMuted.get(fromId));
+        gainNode.gain.value = startMuted ? 0 : 1.0;
 
         // Analyser branches from the source in parallel to gainNode
         // so muting the audible output doesn't kill the meter.
