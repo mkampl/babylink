@@ -525,9 +525,9 @@
     multiBabyUI.onSensitivityChange = (babyId, sensitivity) => {
       multiStreamManager.setSensitivity(babyId, sensitivity);
       if (esp32AudioContexts.has(babyId)) {
-        const ctx = esp32AudioContexts.get(babyId);
-        ctx.sensitivity = sensitivity;
-        ctx.sensitivityGain = sensitivity;
+        // Detection-only: the level monitor reads ctx.sensitivity. It must not
+        // scale the audio samples (that made sensitivity act like volume).
+        esp32AudioContexts.get(babyId).sensitivity = sensitivity;
       }
       // Live-tune the sleep tracker's volume thresholds. Past slots
       // stay as recorded (re-classification would need the raw

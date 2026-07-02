@@ -195,8 +195,7 @@
   margin: var(--space-sm) 0;
 }
 
-.baby-controls > .btn,
-.baby-controls-advanced > summary {
+.baby-controls > .btn {
   padding: 0.4em 0.85em;
   font-size: 0.85rem;
   font-weight: 600;
@@ -209,13 +208,7 @@
   align-items: center;
   justify-content: center;
   gap: 0.35em;
-  list-style: none;
 }
-
-/* Strip the default `<summary>` triangle since we're styling it as a
-   button. ::-webkit-details-marker covers Safari/iOS. */
-.baby-controls-advanced > summary::-webkit-details-marker { display: none; }
-.baby-controls-advanced > summary::marker { content: ''; }
 
 .btn-mute { background: var(--color-success); color: white; flex: 1 1 auto; }
 .btn-mute.muted { background: var(--color-danger); }
@@ -229,21 +222,15 @@
 }
 .btn-settings:hover { background: var(--color-border); color: var(--color-text); }
 
-.baby-controls-advanced {
-  flex: 0 0 auto;
-}
-
-.baby-controls-advanced[open] > summary {
+.btn-settings.active {
   background: var(--color-border);
   color: var(--color-text);
 }
 
-/* The advanced-panel is now INSIDE the <details> element (native
-   show/hide via the [open] attribute). This makes it work on Firefox
-   <121 and Safari <15.4, which don't support :has(). The :has() rule
-   below is kept as a progressive enhancement but is no longer the
-   only reveal mechanism. */
-.baby-controls-advanced .advanced-panel {
+/* Full-width panel, a plain sibling of the button row. Shown/hidden by the
+   gear via the `hidden` attribute (toggled in JS) — no <details> nesting or
+   :has(), so it lays out correctly and works on every browser. */
+.advanced-panel {
   display: flex;
   flex-direction: column;
   gap: var(--space-xs);
@@ -252,6 +239,7 @@
   background: var(--color-border-light);
   border-radius: var(--radius-md);
 }
+.advanced-panel[hidden] { display: none; }
 
 .volume-control, .sensitivity-control {
   display: flex;
@@ -485,10 +473,8 @@
 /* ====== Baby Card narrow-container fallback ======
    Triggers when the card's own width drops below ~380 px — typically
    when the grid wraps to single column on narrow viewports OR the
-   user split a desktop window. Keeps touch targets ≥ 44 px, makes
-   the meter span its own row so the header stays readable, and
-   forces sliders visible (the cog `<details>` is intentionally a
-   desktop convenience). */
+   user split a desktop window. Keeps touch targets ≥ 44 px and makes
+   the meter span its own row so the header stays readable. */
 @container (max-width: 379px) {
   .baby-header {
     flex-wrap: wrap;
@@ -501,20 +487,10 @@
   .baby-controls {
     flex-wrap: wrap;
   }
-  .baby-controls > .btn,
-  .baby-controls-advanced > summary {
+  .baby-controls > .btn {
     min-height: 44px;
     font-size: 0.9rem;
     padding: 0.55em 0.9em;
-  }
-  /* On narrow cards the gear toggle summary is hidden and the sliders
-     show unconditionally. Since .advanced-panel is now inside <details>,
-     we hide the summary and force the panel visible via display override
-     (browsers expose the closed-details content hide as a UA display:none
-     which we can override here with display:flex). */
-  .baby-controls-advanced > summary { display: none; }
-  .baby-controls-advanced .advanced-panel {
-    display: flex !important;
   }
 }
 

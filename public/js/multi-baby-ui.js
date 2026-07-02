@@ -107,26 +107,25 @@ class MultiBabyUI {
         <button class="btn btn-solo" id="solo-${babyId}" title="Listen to only this baby" aria-pressed="false">
           🎧 <span class="btn-label">Solo</span>
         </button>
-        <details class="baby-controls-advanced">
-          <summary class="btn btn-settings" title="Volume &amp; sensitivity" aria-label="Volume and sensitivity">⚙</summary>
-          <!-- Panel is inside <details> for native show/hide on all browsers.
-               Firefox <121 and Safari <15.4 do not support :has(), so the
-               old sibling-reveal pattern broke on those browsers. -->
-          <div class="advanced-panel">
-            <div class="volume-control">
-              <label for="volume-${babyId}">Volume:</label>
-              <input type="range" id="volume-${babyId}" min="0" max="100" value="100"
-                     aria-label="Volume for ${this.escapeHtml(babyName)}" />
-              <span id="volume-value-${babyId}" aria-live="polite">100%</span>
-            </div>
-            <div class="sensitivity-control">
-              <label for="sensitivity-${babyId}" title="Adjust sensitivity for different microphones and room noise levels">Sensitivity:</label>
-              <input type="range" id="sensitivity-${babyId}" min="50" max="300" value="100" step="10"
-                     aria-label="Sensitivity for ${this.escapeHtml(babyName)}" />
-              <span id="sensitivity-value-${babyId}" aria-live="polite">1.0x</span>
-            </div>
-          </div>
-        </details>
+        <button class="btn btn-settings" id="settings-${babyId}" title="Volume &amp; sensitivity"
+                aria-label="Volume and sensitivity" aria-expanded="false" aria-controls="advanced-${babyId}">⚙</button>
+      </div>
+      <!-- Full-width panel below the button row. Toggled by the gear via a JS
+           class (no :has() / <details> nesting, which mislaid the panel and
+           broke on old browsers). -->
+      <div class="advanced-panel" id="advanced-${babyId}" hidden>
+        <div class="volume-control">
+          <label for="volume-${babyId}">Volume:</label>
+          <input type="range" id="volume-${babyId}" min="0" max="100" value="100"
+                 aria-label="Volume for ${this.escapeHtml(babyName)}" />
+          <span id="volume-value-${babyId}" aria-live="polite">100%</span>
+        </div>
+        <div class="sensitivity-control">
+          <label for="sensitivity-${babyId}" title="Adjust sensitivity for different microphones and room noise levels">Sensitivity:</label>
+          <input type="range" id="sensitivity-${babyId}" min="50" max="300" value="100" step="10"
+                 aria-label="Sensitivity for ${this.escapeHtml(babyName)}" />
+          <span id="sensitivity-value-${babyId}" aria-live="polite">1.0x</span>
+        </div>
       </div>
 
       <details class="baby-sleep-timeline" id="sleep-${babyId}" open>
@@ -224,6 +223,19 @@ class MultiBabyUI {
       }
       this.logActivity(babyId, 'Solo mode activated', 'info');
     });
+
+    // Settings gear — toggles the full-width advanced panel below the row.
+    const settingsBtn = document.getElementById(`settings-${babyId}`);
+    const advancedPanel = document.getElementById(`advanced-${babyId}`);
+    if (settingsBtn && advancedPanel) {
+      settingsBtn.addEventListener('click', () => {
+        const open = advancedPanel.hasAttribute('hidden');
+        if (open) advancedPanel.removeAttribute('hidden');
+        else advancedPanel.setAttribute('hidden', '');
+        settingsBtn.setAttribute('aria-expanded', String(open));
+        settingsBtn.classList.toggle('active', open);
+      });
+    }
 
     // Volume slider
     const volumeSlider = document.getElementById(`volume-${babyId}`);

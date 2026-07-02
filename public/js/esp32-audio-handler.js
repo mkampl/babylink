@@ -14,10 +14,19 @@ class ESP32AudioHandler {
     });
   }
 
+  // Is WebRTC delivering this baby's audio right now? If so, its receiver
+  // owns playback and the meter — this PCM handler stays out of the way.
+  _webrtcActive(fromId) {
+    if (!window._multiStreamManager) return false;
+    const stream = window._multiStreamManager.audioStreams.get(fromId);
+    if (!stream) return false;
+    const tracks = stream.getAudioTracks();
+    return tracks.length > 0 && !tracks[0].muted && tracks[0].readyState === 'live';
+  }
+
   _startLevelMonitor(fromId) {
-    // setInterval keeps the meter running in background/hidden tabs.
-    // rAF is throttled to 1 fps or suspended entirely when the tab is
-    // hidden, which would freeze crying detection and auto-mute logic.
+    // setInterval (not rAF) so the meter keeps running in background/hidden
+    // tabs. 100 ms ≈ 10 fps — responsive without burning CPU.
     const intervalId = setInterval(() => {
       const ctx = this.contexts.get(fromId);
       if (!ctx || !ctx.analyser) {
@@ -25,21 +34,32 @@ class ESP32AudioHandler {
         return;
       }
 
+      // WebRTC path owns the meter when it's live — don't fight it.
+      if (this._webrtcActive(fromId)) return;
+
       ctx.analyser.getByteFrequencyData(ctx.levelData);
       let peak = 0;
       for (let i = 0; i < ctx.levelData.length; i++) {
         if (ctx.levelData[i] > peak) peak = ctx.levelData[i];
       }
-      const volume = peak; // 0..255
+
+      // Sensitivity scales DETECTION, never the audio: a higher setting lets a
+      // quieter sound reach YELLOW/RED. Below 1.0x the thresholds scale down
+      // too so RED stays reachable. (Amplifying the samples instead would make
+      // sensitivity double as a volume control and clip — the old bug.)
+      const sensitivity = ctx.sensitivity || 1.0;
+      const volume = Math.min(255, peak * sensitivity);
+      let yellow = 60, red = 130;
+      if (sensitivity < 0.71) { yellow = 60 * sensitivity; red = 130 * sensitivity; }
 
       let level = 'GREEN';
-      if (volume > 130)      level = 'RED';
-      else if (volume > 60)  level = 'YELLOW';
+      if (volume > red)         level = 'RED';
+      else if (volume > yellow) level = 'YELLOW';
 
       if (this.multiBabyUI && this.multiBabyUI.babyCards.has(fromId)) {
         this.multiBabyUI.updateAudioLevel(fromId, level, volume);
       }
-    }, 250);
+    }, 100);
 
     const ctx = this.contexts.get(fromId);
     ctx.levelIntervalId = intervalId;
@@ -124,37 +144,25 @@ class ESP32AudioHandler {
         return;
       }
 
-      // Convert Int16 PCM to Float32
+      // Convert Int16 PCM to Float32 and play as-is. Loudness is the gain
+      // node (volume slider); sensitivity is detection-only and must NOT
+      // touch the samples here (that made it act like a second, clipping
+      // volume control).
       const floatData = new Float32Array(pcmData.length);
       for (let i = 0; i < pcmData.length; i++) {
         floatData[i] = pcmData[i] / 32768.0;
       }
 
-      // Apply sensitivity gain
-      const sensitivityGain = ctx.sensitivityGain || 1.0;
-      const amplifiedData = new Float32Array(floatData.length);
-      for (let i = 0; i < floatData.length; i++) {
-        amplifiedData[i] = Math.max(-1.0, Math.min(1.0, floatData[i] * sensitivityGain));
-      }
-
       // Schedule each chunk to start where the previous one ended,
       // with ~50 ms of lead. Re-anchor if we drift too far ahead or
       // fall into the past.
-      const audioBuffer = ctx.audioContext.createBuffer(ctx.channels, amplifiedData.length, ctx.sampleRate);
-      audioBuffer.getChannelData(0).set(amplifiedData);
+      const audioBuffer = ctx.audioContext.createBuffer(ctx.channels, floatData.length, ctx.sampleRate);
+      audioBuffer.getChannelData(0).set(floatData);
       const source = ctx.audioContext.createBufferSource();
       source.buffer = audioBuffer;
       // Skip WSS playback when WebRTC is actively delivering this
       // baby's audio — both paths overlap into an echo otherwise.
-      const webrtcActive = (function() {
-        if (!window._multiStreamManager) return false;
-        const stream = window._multiStreamManager.audioStreams.get(fromId);
-        if (!stream) return false;
-        const tracks = stream.getAudioTracks();
-        return tracks.length > 0 && !tracks[0].muted &&
-               tracks[0].readyState === 'live';
-      })();
-      if (!webrtcActive) source.connect(ctx.gainNode);
+      if (!this._webrtcActive(fromId)) source.connect(ctx.gainNode);
       // Metering branch — always processed regardless of audible mute
       // or WebRTC takeover so the baby-card level meter stays live.
       source.connect(ctx.analyser);

@@ -193,12 +193,11 @@ class MultiStreamManager {
       }
     };
 
-    // 250 ms gives ~4 reads/s — enough for crying detection without
-    // burning CPU. Critically, setInterval runs in hidden tabs while
-    // requestAnimationFrame does not.
+    // 100 ms ≈ 10 reads/s — responsive meter without burning CPU. setInterval
+    // (not rAF) so it keeps running in hidden tabs for crying detection.
     const analysisData = this.analysers.get(participantId);
     if (analysisData) {
-      analysisData.intervalId = setInterval(analyse, 250);
+      analysisData.intervalId = setInterval(analyse, 100);
     }
   }
 
