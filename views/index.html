@@ -97,7 +97,7 @@
           </div>
         </div>
         <p class="onboarding-hint">One device is the <strong>baby</strong> (near the crib), the other is the <strong>parent</strong> (with you).</p>
-        <button class="onboarding-btn primary" onclick="onboardingFinish()">Start Monitoring</button>
+        <button class="onboarding-btn primary" onclick="onboardingFinish()">Choose a role</button>
       </div>
     </div>
   </dialog>
@@ -128,9 +128,11 @@
     <!-- Join Existing Room Section -->
     <div class="section">
       <h2>Join Existing Room</h2>
+      <p style="font-size:0.9rem;color:var(--color-text-muted);">Paste the link you received, or enter the 32-character room ID.</p>
       <form id="joinRoomForm">
         <label for="roomId">Room ID:</label>
-        <input id="roomId" name="roomId" placeholder="Enter room ID" required />
+        <input id="roomId" name="roomId" placeholder="e.g. a1b2c3d4… (32 hex chars)" autocomplete="off" required />
+        <div id="joinRoomError" class="pin-error" hidden style="margin-top:0.4rem;"></div>
         <button type="submit">Join Room</button>
       </form>
     </div>
@@ -242,23 +244,35 @@
       showOnboarding();
     }
 
-    // Onboarding room form
-    document.getElementById('onboardingRoomForm').addEventListener('submit', function(e) {
+    // Onboarding room form — create room via server so we get a server-issued
+    // roomId and ownerToken (required for management actions).
+    document.getElementById('onboardingRoomForm').addEventListener('submit', async function(e) {
       e.preventDefault();
       onboardingRoomName = document.getElementById('onboardingRoomName').value.trim();
       if (!onboardingRoomName) return;
 
-      onboardingRoomId = generateRoomId();
-      saveRoom(onboardingRoomName, onboardingRoomId);
+      const submitBtn = this.querySelector('[type="submit"]');
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Creating…';
+
+      try {
+        const res = await createRoom(onboardingRoomName);
+        onboardingRoomId = res.roomId;
+      } catch (err) {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Create Room';
+        alert('Could not create room: ' + err.message);
+        return;
+      }
+
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Create Room';
 
       // Set up step 2 with room link + QR
       var roomUrl = window.location.origin + '/' + onboardingRoomId;
       document.getElementById('onboardingRoomLink').value = roomUrl;
 
-      // QR code rendered locally — no third-party fetch. The
-      // qrcode-generator lib turns the room URL into an SVG we drop
-      // into the existing <img> as a data URL, keeping the layout the
-      // CSS expects.
+      // QR code rendered locally — no third-party fetch.
       try {
         var qr = qrcode(0, 'M');
         qr.addData(roomUrl);
@@ -294,24 +308,56 @@
     }
 
     // ========================
-    // PWA and Wake Lock
+    // PWA
     // ========================
 
     let deferredPrompt;
-    let wakeLock = null;
 
-    // Room storage functions
-    function saveRoom(name, id) {
+    // ========================
+    // Room auth — creation, ownerToken, saved rooms
+    // ========================
+
+    /**
+     * Create a room on the server. Returns { roomId, ownerToken }.
+     * Saves the ownerToken to localStorage so management actions can
+     * attach Authorization: Bearer <ownerToken>.
+     */
+    async function createRoom(name) {
+      const res = await fetch('/api/rooms', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name || undefined })
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || 'Server error ' + res.status);
+      }
+      const data = await res.json();
+      if (!data.roomId) throw new Error('Server did not return a roomId');
+      // Persist the ownerToken under the canonical key so select-role.html
+      // can find it and show management controls to this device only.
+      if (data.ownerToken) {
+        localStorage.setItem('babylink-owner-' + data.roomId, data.ownerToken);
+      }
+      saveRoom(name || 'Room', data.roomId, data.ownerToken);
+      return data;
+    }
+
+    // Room storage — includes ownerToken so a returning owner keeps rights
+    function saveRoom(name, id, ownerToken) {
       const rooms = JSON.parse(localStorage.getItem('babylink-rooms') || '[]');
       const existingIndex = rooms.findIndex(room => room.id === id);
+      const entry = { name, id, lastUsed: Date.now() };
+      // Keep ownerToken in the record as a convenience backup; the canonical
+      // copy is under babylink-owner-<roomId>.
+      if (ownerToken) entry.ownerToken = ownerToken;
 
       if (existingIndex >= 0) {
-        rooms[existingIndex] = { name, id, lastUsed: Date.now() };
+        rooms[existingIndex] = entry;
       } else {
-        rooms.push({ name, id, lastUsed: Date.now() });
+        rooms.push(entry);
       }
 
-      // Keep only last 10 rooms
       rooms.sort((a, b) => b.lastUsed - a.lastUsed);
       localStorage.setItem('babylink-rooms', JSON.stringify(rooms.slice(0, 10)));
       displayPreviousRooms();
@@ -324,14 +370,8 @@
       if (!confirm('Remove ' + label + ' from this device?\n\nThe room itself keeps running for anyone with the link.')) return;
       const filteredRooms = rooms.filter(room => room.id !== id);
       localStorage.setItem('babylink-rooms', JSON.stringify(filteredRooms));
+      // Leave the ownerToken in localStorage — the user may want to re-add the room later.
       displayPreviousRooms();
-    }
-
-    function generateRoomId() {
-      // Generate a secure random room ID
-      const array = new Uint8Array(16);
-      crypto.getRandomValues(array);
-      return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
     }
 
     function displayPreviousRooms() {
@@ -433,22 +473,40 @@
     }
 
     // Form handlers
-    document.getElementById("createRoomForm").addEventListener("submit", function (e) {
+    document.getElementById("createRoomForm").addEventListener("submit", async function (e) {
       e.preventDefault();
       const roomName = document.getElementById("roomName").value.trim();
-      if (roomName) {
-        const roomId = generateRoomId();
-        saveRoom(roomName, roomId);
-        window.location.href = "/" + encodeURIComponent(roomId);
+      if (!roomName) return;
+      const btn = this.querySelector('button[type="submit"]');
+      btn.disabled = true;
+      btn.textContent = 'Creating…';
+      try {
+        const data = await createRoom(roomName);
+        window.location.href = "/" + encodeURIComponent(data.roomId);
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = 'Create Room';
+        alert('Could not create room: ' + err.message);
       }
     });
 
     document.getElementById("joinRoomForm").addEventListener("submit", function (e) {
       e.preventDefault();
-      const roomId = document.getElementById("roomId").value.trim();
-      if (roomId) {
-        window.location.href = "/" + encodeURIComponent(roomId);
+      const rawId = document.getElementById("roomId").value.trim();
+      if (!rawId) return;
+      // Room IDs are server-issued hex strings (32 hex chars = 16 bytes).
+      // Validate before navigating so the user gets a helpful inline error
+      // instead of a dead-end JSON 404.
+      const errorEl = document.getElementById('joinRoomError');
+      if (!/^[0-9a-f]{32}$/i.test(rawId)) {
+        if (errorEl) {
+          errorEl.textContent = 'Room IDs are 32 hex characters (the part after the last "/" in a shared link).';
+          errorEl.hidden = false;
+        }
+        return;
       }
+      if (errorEl) errorEl.hidden = true;
+      window.location.href = "/" + encodeURIComponent(rawId);
     });
 
     // Initialize

@@ -16,6 +16,58 @@
   <main>
     <h1>Choose Your Role</h1>
 
+    <!-- Role Selection — shown first so arriving joiners immediately see what to do -->
+    <!-- PIN Entry (shown if room has a PIN) -->
+    <div id="pinSection" class="pin-section" style="display:none;">
+      <h3>This room is protected</h3>
+      <p>Enter the room PIN to continue.</p>
+      <form id="pinForm" class="pin-form">
+        <input type="password" id="pinInput" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="Enter PIN" autocomplete="off" required />
+        <button type="submit">Unlock</button>
+        <div id="pinError" class="pin-error" style="display:none;">Incorrect PIN</div>
+      </form>
+    </div>
+
+    <!-- Role Selection -->
+    <div class="role-selection" id="roleSelection">
+      <div class="role-card">
+        <h3>Baby Device</h3>
+        <p>Place this device near the baby to stream audio</p>
+        <form id="babyForm">
+          <label for="babyName">Baby's Name:</label>
+          <input
+            type="text"
+            id="babyName"
+            name="userName"
+            placeholder="e.g. Emma, Room 1, etc."
+            maxlength="50"
+            required
+          />
+          <button type="submit" class="role-btn baby-btn">
+            Join as Baby Device
+          </button>
+        </form>
+      </div>
+
+      <div class="role-card">
+        <h3>Parent Device</h3>
+        <p>Listen and monitor your babies from this device</p>
+        <form id="parentForm">
+          <label for="parentName">Your Name (optional):</label>
+          <input
+            type="text"
+            id="parentName"
+            name="userName"
+            placeholder="e.g. Mom, Dad, etc."
+            maxlength="50"
+          />
+          <button type="submit" class="role-btn parent-btn">
+            Join as Parent Device
+          </button>
+        </form>
+      </div>
+    </div>
+
     <!-- Room Sharing Section -->
     <div class="room-sharing">
       <h3>Share this room</h3>
@@ -29,22 +81,10 @@
       </div>
     </div>
 
-    <!-- PIN Entry (shown if room has a PIN) -->
-    <div id="pinSection" class="pin-section" style="display:none;">
-      <h3>This room is protected</h3>
-      <p>Enter the room PIN to continue.</p>
-      <form id="pinForm" class="pin-form">
-        <input type="password" id="pinInput" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="Enter PIN" autocomplete="off" required />
-        <button type="submit">Unlock</button>
-        <div id="pinError" class="pin-error" style="display:none;">Incorrect PIN</div>
-      </form>
-    </div>
-
-    <!-- Room Settings toggles (shown after unlock or if no PIN) -->
+    <!-- Room Settings toggles — owner only (hidden for joiners without ownerToken) -->
     <div id="roomSettingsToggle" class="room-settings-toggle" style="display:none;">
       <button type="button" id="pinSettingsBtn" class="room-settings-btn">Room Security</button>
       <button type="button" id="ntfySettingsBtn" class="room-settings-btn">Push Notifications</button>
-      <button type="button" id="sleepSettingsBtn" class="room-settings-btn">Sleep Tracking</button>
       <button type="button" id="devicesSettingsBtn" class="room-settings-btn">Devices</button>
     </div>
     <div id="pinSettings" class="pin-settings" style="display:none;">
@@ -65,7 +105,17 @@
     <!-- Notification Settings -->
     <div id="ntfySettings" class="pin-settings" style="display:none;">
       <h3>Push Notifications</h3>
-      <p>Get alerts on your phone via <a href="https://ntfy.sh" target="_blank" class="link-primary">ntfy.sh</a> when baby cries or a device disconnects.</p>
+      <p>Get alerts on your phone via <a href="https://ntfy.sh" target="_blank" class="link-primary">ntfy</a> when baby cries or a device disconnects.</p>
+      <div class="info-box" style="background:var(--color-info-bg);color:var(--color-info-text);border-radius:var(--radius-sm);padding:0.65rem 0.9rem;margin-bottom:0.75rem;font-size:0.88rem;line-height:1.5;">
+        <strong>Setup:</strong> Install the <strong>ntfy</strong> app on your phone
+        (<a href="https://play.google.com/store/apps/details?id=io.heckel.ntfy" target="_blank">Android</a> /
+        <a href="https://apps.apple.com/app/ntfy/id1625396347" target="_blank">iOS</a>),
+        then subscribe to the topic name you enter below.<br>
+        <strong>Privacy note:</strong> Topics on ntfy.sh are public — anyone who knows your topic
+        name can read your alerts. For privacy, run a
+        <a href="https://docs.ntfy.sh/install/" target="_blank">self-hosted ntfy server</a>
+        and enter its URL in the Server field.
+      </div>
       <form id="ntfyForm" class="pin-form">
         <label for="ntfyServer">Server URL (leave empty for ntfy.sh):</label>
         <input type="text" id="ntfyServer" placeholder="https://ntfy.sh" autocomplete="off" />
@@ -97,30 +147,6 @@
         </div>
         <button type="submit">Save Settings</button>
         <div id="ntfyResult" class="pin-result" style="display:none;"></div>
-      </form>
-    </div>
-
-    <!-- Sleep Tracking Settings -->
-    <div id="sleepSettings" class="pin-settings" style="display:none;">
-      <h3>Sleep Tracking</h3>
-      <p>Track baby's sleep patterns based on audio activity. Data is stored locally on the baby device.</p>
-      <form id="sleepForm" class="pin-form">
-        <div class="form-section">
-          <label class="checkbox-row">
-            <input type="checkbox" id="sleepEnabled" checked class="checkbox-lg">
-            <span>Enable sleep tracking</span>
-          </label>
-        </div>
-        <label for="sleepRetention">Keep data for:</label>
-        <select id="sleepRetention" class="styled-select">
-          <option value="1">1 day</option>
-          <option value="3">3 days</option>
-          <option value="7" selected>7 days</option>
-          <option value="14">14 days</option>
-          <option value="30">30 days</option>
-        </select>
-        <button type="submit">Save Settings</button>
-        <div id="sleepResult" class="pin-result" style="display:none;"></div>
       </form>
     </div>
 
@@ -202,45 +228,6 @@
       </div>
     </div>
 
-    <!-- Role Selection -->
-    <div class="role-selection" id="roleSelection">
-      <div class="role-card">
-        <h3>Baby Device</h3>
-        <p>Place this device near the baby to stream audio</p>
-        <form id="babyForm">
-          <label for="babyName">Baby's Name:</label>
-          <input
-            type="text"
-            id="babyName"
-            name="userName"
-            placeholder="e.g. Emma, Room 1, etc."
-            maxlength="50"
-            required
-          />
-          <button type="submit" class="role-btn baby-btn">
-            Join as Baby Device
-          </button>
-        </form>
-      </div>
-
-      <div class="role-card">
-        <h3>Parent Device</h3>
-        <p>Listen and monitor your babies from this device</p>
-        <form id="parentForm">
-          <label for="parentName">Your Name (optional):</label>
-          <input
-            type="text"
-            id="parentName"
-            name="userName"
-            placeholder="e.g. Mom, Dad, etc."
-            maxlength="50"
-          />
-          <button type="submit" class="role-btn parent-btn">
-            Join as Parent Device
-          </button>
-        </form>
-      </div>
-    </div>
   </main>
 
   <script src="/js/utils.js"></script>
@@ -271,7 +258,6 @@
 
     // Initialize page
     function initializePage() {
-      const roomId = window.location.pathname.slice(1);
       const currentUrl = window.location.origin + window.location.pathname;
 
       // Set room link
@@ -324,29 +310,83 @@
       });
     }
 
-    // PIN handling
+    // ========================
+    // Room auth / PIN handling
+    // ========================
+
+    const roomId = window.location.pathname.slice(1);
     let roomHasPin = false;
     let verifiedPin = null; // Store verified PIN to pass to Socket.IO join
 
-    async function checkRoomPin() {
-      const roomId = window.location.pathname.slice(1);
+    /**
+     * Return the ownerToken for this room, or null if this device is a joiner.
+     * The canonical key is babylink-owner-<roomId>; the saved-rooms record
+     * carries a backup copy that we also accept.
+     */
+    function getOwnerToken() {
+      const direct = localStorage.getItem('babylink-owner-' + roomId);
+      if (direct) return direct;
+      // Fallback: check saved-rooms record (populated by index.html createRoom)
       try {
-        const res = await fetch('/api/rooms/' + encodeURIComponent(roomId) + '/pin');
+        var rooms = JSON.parse(localStorage.getItem('babylink-rooms') || '[]');
+        var entry = rooms.find(function(r) { return r.id === roomId; });
+        if (entry && entry.ownerToken) return entry.ownerToken;
+      } catch (e) {}
+      return null;
+    }
+
+    /**
+     * Build a fetch options object that includes the Authorization header when
+     * this device has an ownerToken. Falls back gracefully if no token exists.
+     */
+    function ownerFetchOptions(method, body) {
+      var opts = { method: method || 'GET', headers: {} };
+      var token = getOwnerToken();
+      if (token) opts.headers['Authorization'] = 'Bearer ' + token;
+      if (body !== undefined) {
+        opts.headers['Content-Type'] = 'application/json';
+        opts.body = JSON.stringify(body);
+      }
+      return opts;
+    }
+
+    /**
+     * Show a friendly inline message for 401/403/429 instead of a raw error.
+     */
+    function handleAuthError(status, resultEl) {
+      if (!resultEl) return;
+      resultEl.style.display = 'block';
+      resultEl.className = 'pin-result error';
+      if (status === 401 || status === 403) {
+        resultEl.textContent = 'Only the room owner can do this. Create the room from this device to gain management access.';
+      } else if (status === 429) {
+        resultEl.textContent = 'Too many requests — please wait a moment and try again.';
+      } else {
+        resultEl.textContent = 'Server error (' + status + '). Please try again.';
+      }
+    }
+
+    async function checkRoomConfig() {
+      try {
+        const res = await fetch('/api/rooms/' + encodeURIComponent(roomId) + '/config');
         const data = await res.json();
-        roomHasPin = data.hasPin;
+        roomHasPin = data.hasPin || false;
 
         if (roomHasPin) {
           document.getElementById('pinSection').style.display = 'block';
           document.getElementById('roleSelection').style.display = 'none';
-          document.getElementById('roomSettingsToggle').style.display = 'none';
         } else {
           document.getElementById('pinSection').style.display = 'none';
           document.getElementById('roleSelection').style.display = '';
+        }
+
+        // Settings buttons are owner-only — never show to joiners
+        if (getOwnerToken()) {
           document.getElementById('roomSettingsToggle').style.display = 'flex';
         }
       } catch (err) {
         // If check fails, show role selection anyway
-        console.error('PIN check failed:', err);
+        console.error('Room config check failed:', err);
       }
     }
 
@@ -354,7 +394,6 @@
     document.getElementById('pinForm').addEventListener('submit', async function(e) {
       e.preventDefault();
       var pin = document.getElementById('pinInput').value;
-      var roomId = window.location.pathname.slice(1);
 
       try {
         var res = await fetch('/api/rooms/' + encodeURIComponent(roomId) + '/pin/verify', {
@@ -368,8 +407,11 @@
           verifiedPin = pin;
           document.getElementById('pinSection').style.display = 'none';
           document.getElementById('roleSelection').style.display = '';
-          document.getElementById('roomSettingsToggle').style.display = 'flex';
           document.getElementById('pinError').style.display = 'none';
+          // Only show settings if this device is the owner
+          if (getOwnerToken()) {
+            document.getElementById('roomSettingsToggle').style.display = 'flex';
+          }
         } else {
           document.getElementById('pinError').style.display = 'block';
           document.getElementById('pinInput').value = '';
@@ -387,7 +429,6 @@
       settings.style.display = visible ? 'none' : 'block';
       if (!visible) {
         document.getElementById('ntfySettings').style.display = 'none';
-        document.getElementById('sleepSettings').style.display = 'none';
         document.getElementById('devicesSettings').style.display = 'none';
       }
 
@@ -405,17 +446,23 @@
       settings.style.display = visible ? 'none' : 'block';
       if (!visible) {
         document.getElementById('pinSettings').style.display = 'none';
-        document.getElementById('sleepSettings').style.display = 'none';
         document.getElementById('devicesSettings').style.display = 'none';
         loadNtfyConfig();
       }
     });
 
-    // Load ntfy config from server
+    // Load ntfy config from server (owner-auth'd)
     async function loadNtfyConfig() {
-      var roomId = window.location.pathname.slice(1);
       try {
-        var res = await fetch('/api/rooms/' + encodeURIComponent(roomId) + '/config');
+        // Use the owner-authenticated endpoint to retrieve full ntfy settings.
+        // GET /api/rooms/:id/config returns only { hasPin, ntfyEnabled } (public);
+        // detailed settings come from the owner-auth'd ntfy endpoint.
+        var res = await fetch('/api/rooms/' + encodeURIComponent(roomId) + '/ntfy',
+                              ownerFetchOptions('GET'));
+        if (res.status === 401 || res.status === 403 || res.status === 404) {
+          // Not an owner or endpoint not available yet — leave form blank.
+          return;
+        }
         if (!res.ok) return;
         var config = await res.json();
 
@@ -429,7 +476,7 @@
 
         if (serverEl) serverEl.value = config.ntfyServer || '';
         if (topicEl) topicEl.value = config.ntfyTopic || '';
-        if (enabledEl) enabledEl.checked = config.ntfyEnabled || false;
+        if (enabledEl) enabledEl.checked = config.ntfyEnabled !== false;
         if (cryingEl) cryingEl.checked = config.notifyOnCrying !== false;
         if (disconnectEl) disconnectEl.checked = config.notifyOnDisconnect !== false;
         if (activityEl) activityEl.checked = config.notifyOnActivity || false;
@@ -439,9 +486,8 @@
       }
     }
 
-    // Save ntfy config
+    // Save ntfy config (owner-auth'd)
     async function saveNtfyConfig(silent) {
-      var roomId = window.location.pathname.slice(1);
       var topic = (document.getElementById('ntfyTopic')?.value || '').trim();
       var resultEl = document.getElementById('ntfyResult');
 
@@ -456,10 +502,8 @@
 
       var ntfyServer = (document.getElementById('ntfyServer')?.value || '').trim() || null;
       try {
-        var res = await fetch('/api/rooms/' + encodeURIComponent(roomId) + '/ntfy', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
+        var res = await fetch('/api/rooms/' + encodeURIComponent(roomId) + '/ntfy',
+          ownerFetchOptions('POST', {
             topic: topic,
             ntfyServer: ntfyServer,
             enabled: document.getElementById('ntfyEnabled')?.checked !== false,
@@ -467,7 +511,11 @@
             notifyOnDisconnect: document.getElementById('notifyOnDisconnect')?.checked !== false,
             notifyOnActivity: document.getElementById('notifyOnActivity')?.checked || false,
           })
-        });
+        );
+        if (res.status === 401 || res.status === 403 || res.status === 429) {
+          handleAuthError(res.status, resultEl);
+          return;
+        }
         if (!res.ok) throw new Error('Failed to save');
 
         var testBtn = document.getElementById('testNotificationBtn');
@@ -500,7 +548,7 @@
       document.getElementById('testNotificationBtn').disabled = !this.value.trim();
     });
 
-    // Test notification — auto-saves first
+    // Test notification — auto-saves first (owner-auth'd)
     document.getElementById('testNotificationBtn').addEventListener('click', async function() {
       var btn = this;
       var resultEl = document.getElementById('ntfyResult');
@@ -509,8 +557,12 @@
 
       try {
         await saveNtfyConfig(true);
-        var roomId = window.location.pathname.slice(1);
-        var res = await fetch('/api/rooms/' + encodeURIComponent(roomId) + '/ntfy/test', { method: 'POST' });
+        var res = await fetch('/api/rooms/' + encodeURIComponent(roomId) + '/ntfy/test',
+                              ownerFetchOptions('POST'));
+        if (res.status === 401 || res.status === 403 || res.status === 429) {
+          handleAuthError(res.status, resultEl);
+          return;
+        }
         if (!res.ok) {
           var data = await res.json().catch(function() { return {}; });
           throw new Error(data.error || 'Failed');
@@ -534,20 +586,20 @@
       }
     });
 
-    // PIN set form
+    // PIN set form (owner-auth'd)
     document.getElementById('pinSetForm').addEventListener('submit', async function(e) {
       e.preventDefault();
-      var roomId = window.location.pathname.slice(1);
       var newPin = document.getElementById('newPinInput').value;
       var currentPin = document.getElementById('currentPinInput').value || verifiedPin;
       var resultEl = document.getElementById('pinSetResult');
 
       try {
-        var res = await fetch('/api/rooms/' + encodeURIComponent(roomId) + '/pin', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ pin: newPin || null, currentPin: currentPin })
-        });
+        var res = await fetch('/api/rooms/' + encodeURIComponent(roomId) + '/pin',
+          ownerFetchOptions('POST', { pin: newPin || null, currentPin: currentPin }));
+        if (res.status === 401 || res.status === 403 || res.status === 429) {
+          handleAuthError(res.status, resultEl);
+          return;
+        }
         var data = await res.json();
 
         resultEl.style.display = 'block';
@@ -570,44 +622,6 @@
       }
     });
 
-    // Sleep tracking settings toggle
-    document.getElementById('sleepSettingsBtn').addEventListener('click', function() {
-      var settings = document.getElementById('sleepSettings');
-      var visible = settings.style.display !== 'none';
-      settings.style.display = visible ? 'none' : 'block';
-      if (!visible) {
-        document.getElementById('pinSettings').style.display = 'none';
-        document.getElementById('ntfySettings').style.display = 'none';
-        document.getElementById('devicesSettings').style.display = 'none';
-        loadSleepConfig();
-      }
-    });
-
-    function loadSleepConfig() {
-      var roomId = window.location.pathname.slice(1);
-      try {
-        var cfg = JSON.parse(localStorage.getItem('babylink-sleep-config-' + roomId) || '{}');
-        document.getElementById('sleepEnabled').checked = cfg.enabled !== false;
-        if (cfg.retentionDays) document.getElementById('sleepRetention').value = String(cfg.retentionDays);
-      } catch (e) {}
-    }
-
-    document.getElementById('sleepForm').addEventListener('submit', function(e) {
-      e.preventDefault();
-      var roomId = window.location.pathname.slice(1);
-      var cfg = {
-        enabled: document.getElementById('sleepEnabled').checked,
-        retentionDays: parseInt(document.getElementById('sleepRetention').value, 10)
-      };
-      localStorage.setItem('babylink-sleep-config-' + roomId, JSON.stringify(cfg));
-
-      var resultEl = document.getElementById('sleepResult');
-      resultEl.style.display = 'block';
-      resultEl.className = 'pin-result success';
-      resultEl.textContent = 'Settings saved';
-      setTimeout(function() { resultEl.style.display = 'none'; }, 3000);
-    });
-
     // ========================
     // Devices panel
     // ========================
@@ -621,7 +635,6 @@
       if (!visible) {
         document.getElementById('pinSettings').style.display = 'none';
         document.getElementById('ntfySettings').style.display = 'none';
-        document.getElementById('sleepSettings').style.display = 'none';
         loadDevices();
         startDevicePolling();
         // Pre-fill server info — same LAN-aware hint the BLE wizard
@@ -664,9 +677,9 @@
     }
 
     async function loadDevices() {
-      var roomId = window.location.pathname.slice(1);
       try {
-        var res = await fetch('/api/rooms/' + encodeURIComponent(roomId) + '/esp32/devices');
+        var res = await fetch('/api/rooms/' + encodeURIComponent(roomId) + '/esp32/devices',
+                              ownerFetchOptions('GET'));
         if (!res.ok) return;
         var data = await res.json();
         renderDevices(data.devices || []);
@@ -753,13 +766,13 @@
     window.renameDevice = async function(esp32Id, currentName) {
       var newName = prompt('Device name:', currentName);
       if (!newName || newName === currentName) return;
-      var roomId = window.location.pathname.slice(1);
       try {
-        await fetch('/api/rooms/' + encodeURIComponent(roomId) + '/esp32/' + encodeURIComponent(esp32Id), {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: newName })
-        });
+        var res = await fetch('/api/rooms/' + encodeURIComponent(roomId) + '/esp32/' + encodeURIComponent(esp32Id),
+          ownerFetchOptions('PATCH', { name: newName }));
+        if (res.status === 401 || res.status === 403 || res.status === 429) {
+          alert('Only the room owner can rename devices.');
+          return;
+        }
         loadDevices();
       } catch (err) {
         console.error('Rename failed:', err);
@@ -768,11 +781,13 @@
 
     window.disconnectDevice = async function(esp32Id) {
       if (!confirm('Disconnect this device?\n\nThe device will keep its WiFi + room config and reconnect on next power cycle.')) return;
-      var roomId = window.location.pathname.slice(1);
       try {
-        await fetch('/api/rooms/' + encodeURIComponent(roomId) + '/esp32/' + encodeURIComponent(esp32Id), {
-          method: 'DELETE'
-        });
+        var res = await fetch('/api/rooms/' + encodeURIComponent(roomId) + '/esp32/' + encodeURIComponent(esp32Id),
+          ownerFetchOptions('DELETE'));
+        if (res.status === 401 || res.status === 403) {
+          alert('Only the room owner can disconnect devices.');
+          return;
+        }
         loadDevices();
       } catch (err) {
         console.error('Disconnect failed:', err);
@@ -781,11 +796,13 @@
 
     window.resetDevice = async function(esp32Id) {
       if (!confirm('Reset this device to factory defaults?\n\nClears WiFi credentials, server, and room. The device will reboot into provisioning mode (BLE + setup network).')) return;
-      var roomId = window.location.pathname.slice(1);
       try {
-        var res = await fetch('/api/rooms/' + encodeURIComponent(roomId) + '/esp32/' + encodeURIComponent(esp32Id) + '/reset', {
-          method: 'POST'
-        });
+        var res = await fetch('/api/rooms/' + encodeURIComponent(roomId) + '/esp32/' + encodeURIComponent(esp32Id) + '/reset',
+          ownerFetchOptions('POST'));
+        if (res.status === 401 || res.status === 403) {
+          alert('Only the room owner can reset devices.');
+          return;
+        }
         if (!res.ok) {
           var body = await res.json().catch(function() { return {}; });
           alert('Reset failed: ' + (body.error || res.statusText));
@@ -1223,7 +1240,7 @@
     // Initialize when page loads
     document.addEventListener('DOMContentLoaded', function() {
       initializePage();
-      checkRoomPin();
+      checkRoomConfig();
     });
   </script>
 </body>
