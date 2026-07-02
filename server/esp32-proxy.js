@@ -121,7 +121,20 @@ class ESP32AudioProxy {
       let esp32Info = null;
 
       ws.on('message', (data) => {
-        // Per-connection message rate limiting
+        // Control frames are JSON; the PCM audio stream is raw binary. Parse
+        // as JSON first — success means a control message (register/signal/
+        // ping), which is rate limited. A parse failure means an audio frame,
+        // which we relay and deliberately exempt from the control-message
+        // rate limiter: ~15 frames/s would trip it instantly. maxPayload on
+        // the server still caps per-frame size.
+        let message = null;
+        try { message = JSON.parse(data.toString()); } catch { /* audio frame */ }
+
+        if (message === null || typeof message !== 'object') {
+          if (esp32Info) this.handleAudioData(esp32Info.id, data);
+          return;
+        }
+
         const now = Date.now();
         if (now - msgWindowStart > this._msgRateWindowMs) {
           msgCount = 0;
@@ -135,22 +148,8 @@ class ESP32AudioProxy {
         }
 
         try {
-          // All S3 control messages are JSON. Binary frames are ignored (no
-          // classic audio path — S3 audio travels via WebRTC, not here).
-          if (data instanceof Buffer) {
-            try {
-              const message = JSON.parse(data.toString());
-              const handled = this.handleJsonMessage(ws, message, () => esp32Info);
-              if (handled.registered) esp32Info = handled.registered;
-            } catch {
-              // Non-JSON binary frame — silently drop (no classic audio path)
-              logger.debug('Ignoring non-JSON binary frame from ESP32');
-            }
-          } else {
-            const message = JSON.parse(data.toString());
-            const handled = this.handleJsonMessage(ws, message, () => esp32Info);
-            if (handled.registered) esp32Info = handled.registered;
-          }
+          const handled = this.handleJsonMessage(ws, message, () => esp32Info);
+          if (handled.registered) esp32Info = handled.registered;
         } catch (error) {
           logger.error('Error processing ESP32 message:', error);
         }
@@ -252,6 +251,8 @@ class ESP32AudioProxy {
       deviceType,
       connectedAt: new Date(),
       connectedAtMs: Date.now(),
+      audioPacketsReceived: 0,
+      lastAudioPacket: null,
     };
 
     this.esp32Clients.set(esp32Id, esp32Info);
@@ -276,6 +277,27 @@ class ESP32AudioProxy {
 
     logger.info(`ESP32 ${existing ? 'reconnected' : 'registered'}: ${esp32Id} (${esp32Info.name}) in room ${roomId}`);
     return esp32Info;
+  }
+
+  /**
+   * Relay a raw PCM audio frame from an ESP32 to every parent in its room.
+   * S3 crying/level detection runs browser-side on the decoded stream, so the
+   * server no longer inspects the audio — it only forwards it as `esp32-audio`.
+   */
+  handleAudioData(esp32Id, audioData) {
+    const client = this.esp32Clients.get(esp32Id);
+    if (!client) return;
+    client.audioPacketsReceived = (client.audioPacketsReceived || 0) + 1;
+    client.lastAudioPacket = new Date();
+    this.io.to(client.roomId).emit('esp32-audio', {
+      fromId: esp32Id,
+      fromName: client.name,
+      audio: audioData,
+      timestamp: Date.now(),
+      sampleRate: client.sampleRate,
+      channels: client.channels,
+      deviceType: client.deviceType,
+    });
   }
 
   /**
