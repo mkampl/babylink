@@ -1,7 +1,7 @@
 // BabyLink — XIAO ESP32-S3 firmware (ESP-IDF + Arduino-as-component).
 //
 // BLE GATT provisioning, WiFi STA + SoftAP captive-portal fallback,
-// PDM mic capture, audio over WSS-PCM and WebRTC (esp_peer / Opus),
+// PDM mic capture, audio over WebRTC (esp_peer / Opus, peer-to-peer),
 // OV3660 camera software-standby, BOOT-button long-press factory reset.
 
 #include <Arduino.h>
@@ -93,7 +93,6 @@ String deviceId;
 unsigned long lastLedToggle = 0;
 bool ledState = false;
 unsigned long lastStatusReport = 0;
-unsigned long audioPacketsSent = 0;
 
 I2SClass I2S;
 int16_t audioBuffer[BUFFER_SIZE];
@@ -393,10 +392,13 @@ void processAudio() {
 
   const int chunkBytes = sampleCount * sizeof(int16_t);
 
-  // WebRTC path: ship to esp_peer if the tunnel is up. esp_peer takes
-  // raw PCM at the codec's sample rate and Opus-encodes internally.
-  // PTS is monotonic samples-since-tunnel-open — esp_peer uses it to
-  // drive the RTP timestamp.
+  // Audio leaves the device only over the WebRTC tunnel: esp_peer takes
+  // raw PCM at the codec's sample rate and Opus-encodes internally. PTS is
+  // monotonic samples-since-tunnel-open, which esp_peer maps onto the RTP
+  // timestamp. When no parent is connected there is nowhere to send, so the
+  // captured frame is dropped. The signalling socket carries only JSON
+  // control frames — it must never see audio, or the server's per-connection
+  // message rate limit would drop the device.
   if (webrtcConnected && webrtcPeer) {
     esp_peer_audio_frame_t frame = {};
     frame.pts  = webrtcAudioPts;
@@ -408,18 +410,11 @@ void processAudio() {
     webrtcAudioPts += sampleCount;
   }
 
-  // Also stream raw PCM over WSS — the server runs crying detection on
-  // this stream, and parents fall back to it when WebRTC hasn't come up.
-  if (isConnected && isRegistered && webSocket) {
-    esp_websocket_client_send_bin(webSocket, (const char*)audioBuffer,
-                                  chunkBytes, portMAX_DELAY);
-    audioPacketsSent++;
-  }
-
-  if (audioPacketsSent % 156 == 0) {
+  static unsigned long framesProcessed = 0;
+  if (++framesProcessed % 156 == 0) {
     int avgLevel = sumAbs / sampleCount;
-    Serial.printf("[stats] wss=%lu wrtc=%lu avgLevel=%d rssi=%ddBm heap=%lu\n",
-                  audioPacketsSent, webrtcPacketsSent, avgLevel, WiFi.RSSI(),
+    Serial.printf("[stats] frames=%lu wrtc=%lu avgLevel=%d rssi=%ddBm heap=%lu\n",
+                  framesProcessed, webrtcPacketsSent, avgLevel, WiFi.RSSI(),
                   (unsigned long)ESP.getFreeHeap());
   }
 }
