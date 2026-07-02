@@ -89,7 +89,9 @@ class MultiBabyUI {
     card.innerHTML = `
       <div class="baby-header">
         <h3 class="baby-name">👶 ${this.escapeHtml(babyName)}</h3>
-        <span class="baby-status-dot status-ok" id="status-${babyId}" title="Connected"></span>
+        <span class="baby-status-dot status-ok" id="status-${babyId}" title="Connected" role="status">
+          <span class="visually-hidden" id="status-text-${babyId}">Connected</span>
+        </span>
         <div class="volume-meter-container">
           <div class="volume-meter" id="meter-${babyId}" style="width: 0%"></div>
         </div>
@@ -107,19 +109,24 @@ class MultiBabyUI {
         </button>
         <details class="baby-controls-advanced">
           <summary class="btn btn-settings" title="Volume &amp; sensitivity" aria-label="Volume and sensitivity">⚙</summary>
+          <!-- Panel is inside <details> for native show/hide on all browsers.
+               Firefox <121 and Safari <15.4 do not support :has(), so the
+               old sibling-reveal pattern broke on those browsers. -->
+          <div class="advanced-panel">
+            <div class="volume-control">
+              <label for="volume-${babyId}">Volume:</label>
+              <input type="range" id="volume-${babyId}" min="0" max="100" value="100"
+                     aria-label="Volume for ${this.escapeHtml(babyName)}" />
+              <span id="volume-value-${babyId}" aria-live="polite">100%</span>
+            </div>
+            <div class="sensitivity-control">
+              <label for="sensitivity-${babyId}" title="Adjust sensitivity for different microphones and room noise levels">Sensitivity:</label>
+              <input type="range" id="sensitivity-${babyId}" min="50" max="300" value="100" step="10"
+                     aria-label="Sensitivity for ${this.escapeHtml(babyName)}" />
+              <span id="sensitivity-value-${babyId}" aria-live="polite">1.0x</span>
+            </div>
+          </div>
         </details>
-      </div>
-      <div class="advanced-panel">
-        <div class="volume-control">
-          <label>Volume:</label>
-          <input type="range" id="volume-${babyId}" min="0" max="100" value="100" />
-          <span id="volume-value-${babyId}">100%</span>
-        </div>
-        <div class="sensitivity-control">
-          <label title="Adjust sensitivity for different microphones and room noise levels">Sensitivity:</label>
-          <input type="range" id="sensitivity-${babyId}" min="50" max="300" value="100" step="10" />
-          <span id="sensitivity-value-${babyId}">1.0x</span>
-        </div>
       </div>
 
       <details class="baby-sleep-timeline" id="sleep-${babyId}" open>
@@ -326,15 +333,17 @@ class MultiBabyUI {
     }
 
     // Status indicator is a small coloured dot now (compact header
-     // layout); pulse it red on crying, otherwise leave it green. The
-     // dot's title attribute carries the screen-reader-friendly state.
+    // layout); pulse it red on crying, otherwise leave it green.
     const status = document.getElementById(`status-${babyId}`);
+    const statusText = document.getElementById(`status-text-${babyId}`);
     if (status && level === 'RED') {
       status.className = 'baby-status-dot status-alert pulsing';
       status.title = 'Crying';
+      if (statusText) statusText.textContent = 'Crying';
     } else if (status) {
       status.className = 'baby-status-dot status-ok';
       status.title = 'Connected';
+      if (statusText) statusText.textContent = 'Connected';
     }
 
     // Auto-mute/unmute logic
@@ -473,13 +482,17 @@ class MultiBabyUI {
    */
   updateBabyStatus(babyId, connected, reason = '') {
     const status = document.getElementById(`status-${babyId}`);
+    const statusText = document.getElementById(`status-text-${babyId}`);
     if (!status) return;
     if (connected) {
       status.className = 'baby-status-dot status-ok';
       status.title = 'Connected';
+      if (statusText) statusText.textContent = 'Connected';
     } else {
       status.className = 'baby-status-dot status-error';
-      status.title = reason ? `Disconnected: ${reason}` : 'Disconnected';
+      const label = reason ? `Disconnected: ${reason}` : 'Disconnected';
+      status.title = label;
+      if (statusText) statusText.textContent = label;
       this.logActivity(babyId, `Disconnected: ${reason}`, 'error');
     }
   }
