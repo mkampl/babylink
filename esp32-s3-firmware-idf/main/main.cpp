@@ -1065,6 +1065,12 @@ static void onWsEvent(void* /*arg*/, esp_event_base_t /*base*/,
       break;
     case WEBSOCKET_EVENT_ERROR:
       Serial.println("[WS] error");
+      // Clear registered/connected on error too, not just on a clean
+      // disconnect. A server restart can leave a half-open connection that
+      // only surfaces as an error — without this, isRegistered stays stale
+      // true and the reconnect watchdog never starts its timer.
+      isConnected = false;
+      isRegistered = false;
       break;
     default:
       break;
@@ -1332,16 +1338,13 @@ void loop() {
   // (server down at startup) is also retried rather than stuck forever.
   if (isRegistered) lastWsOkMs = now;
   if (WiFi.status() == WL_CONNECTED && now - lastWsOkMs > WS_WATCHDOG_MS) {
-    Serial.println("[WS] watchdog: unregistered too long — recreating client");
-    if (webSocket) {
-      esp_websocket_client_stop(webSocket);
-      esp_websocket_client_destroy(webSocket);
-      webSocket = nullptr;
-    }
-    isConnected = false;
-    isRegistered = false;
-    connectWebSocket();
-    lastWsOkMs = now;   // give the fresh client a full window before retrying
+    // esp_websocket's own auto-reconnect wedges after a server restart, and
+    // recreating the client in place did not recover it either. Reboot — a
+    // fresh boot re-registers reliably every time. Worst case during a real
+    // outage is a reboot every WS_WATCHDOG_MS until the server returns.
+    Serial.println("[WS] watchdog: unregistered too long — rebooting");
+    delay(100);
+    ESP.restart();
   }
 
   if (now - lastStatusReport >= 5000) {
