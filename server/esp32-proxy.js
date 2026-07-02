@@ -1,14 +1,37 @@
 // server/esp32-proxy.js
-// WebSocket proxy for ESP32 baby devices
-// Bridges ESP32 WebSocket connections to Socket.IO WebRTC signaling
+// WebSocket proxy for ESP32-S3 baby devices
+//
+// The proxy handles JSON control messages (register / ping / signal) only.
+// Raw PCM audio is no longer forwarded by the server — the S3 firmware
+// uses WebRTC directly for audio, and crying detection runs in the browser.
+//
+// Device-side authentication (token per device) is future work; today the
+// server trusts the registration payload at face value. The mitigations in
+// place are:
+//   – per-IP connection cap (maxSocketsPerIp)
+//   – per-IP message rate limit
+//   – maxPayload on the WebSocket.Server
+//   – all device management (rename/delete/reset) is gated behind owner auth
+//     so a spoofed registration cannot be weaponised by a third party
 
 const WebSocket = require('ws');
 const logger = require('../utils/logger');
 const roomConfig = require('./room-config');
 const notificationService = require('./notification-service');
 
+// Maximum WebSocket frame payload (64 KB). Control messages are tiny;
+// a larger limit would let a single ESP32 frame exhaust server heap.
+const MAX_PAYLOAD_BYTES = 64 * 1024;
+
+// Per-IP connection cap. All WS connections from one IP count together.
+const MAX_CONNECTIONS_PER_IP = 10;
+
+// Per-connection message rate limit: max N messages per window (ms)
+const MSG_RATE_MAX = 60;
+const MSG_RATE_WINDOW_MS = 10_000; // 10 seconds
+
 class ESP32AudioProxy {
-  constructor(io) {
+  constructor(io, opts = {}) {
     this.io = io;
     this.esp32Clients = new Map(); // esp32Id -> client info
     // User-applied renames keyed by ESP32 ID. Lives beyond the client's
@@ -16,110 +39,115 @@ class ESP32AudioProxy {
     this.deviceNames = new Map(); // esp32Id -> name
     this.wss = null;
 
-    // Crying detection configuration
-    this.cryingThreshold = parseInt(process.env.CRYING_THRESHOLD) || 3000; // RMS amplitude threshold
-    this.cryingDuration = parseInt(process.env.CRYING_DURATION) || 3000;   // ms of sustained crying needed
-    this.cryingState = new Map(); // esp32Id -> { isCrying, cryingStart, lastCheck }
+    // Per-IP connection tracking
+    this._ipConnections = new Map(); // ip -> count
 
-    logger.info('ESP32AudioProxy initialized');
-    logger.info(`Crying detection: threshold=${this.cryingThreshold}, duration=${this.cryingDuration}ms`);
+    // Allow overriding limits in tests
+    this._maxConnectionsPerIp = opts.maxConnectionsPerIp ?? MAX_CONNECTIONS_PER_IP;
+    this._msgRateMax = opts.msgRateMax ?? MSG_RATE_MAX;
+    this._msgRateWindowMs = opts.msgRateWindowMs ?? MSG_RATE_WINDOW_MS;
+
+    logger.info('ESP32AudioProxy initialized (S3/WebRTC mode)');
   }
 
   /**
    * Create and configure WebSocket server for ESP32 devices
    */
   createWebSocketServer() {
-    this.wss = new WebSocket.Server({ noServer: true });
+    this.wss = new WebSocket.Server({
+      noServer: true,
+      maxPayload: MAX_PAYLOAD_BYTES,
+    });
 
-    // Periodic cleanup of dead connections with faster detection
+    // Periodic cleanup: ping/pong liveness check
     const cleanupInterval = setInterval(() => {
-      const now = Date.now();
-
-      // Check for stale ESP32 connections (no audio packets in last 10 seconds)
-      this.esp32Clients.forEach((client, esp32Id) => {
-        if (client.lastAudioPacket) {
-          const timeSinceLastPacket = now - client.lastAudioPacket.getTime();
-          if (timeSinceLastPacket > 10000) { // 10 seconds without audio = dead
-            logger.warn(`ESP32 ${esp32Id} (${client.name}) - no audio for ${Math.round(timeSinceLastPacket/1000)}s, removing`);
-            this.unregisterESP32(esp32Id);
-            if (client.ws && client.ws.readyState === WebSocket.OPEN) {
-              client.ws.terminate();
-            }
-          }
-        }
-      });
-
-      // Also check WebSocket ping/pong
       this.wss.clients.forEach((ws) => {
         if (ws.isAlive === false) {
           logger.warn('Terminating unresponsive ESP32 WebSocket (no pong received)');
-
-          // Find and unregister this ESP32
-          if (ws.esp32Id) {
-            this.unregisterESP32(ws.esp32Id);
-          }
-
+          if (ws.esp32Id) this.unregisterESP32(ws.esp32Id);
           return ws.terminate();
         }
         ws.isAlive = false;
         ws.ping();
       });
-    }, 5000); // Check every 5 seconds for faster disconnection detection
+    }, 5000);
 
-    this.wss.on('close', () => {
-      clearInterval(cleanupInterval);
-    });
+    this.wss.on('close', () => clearInterval(cleanupInterval));
 
     this.wss.on('connection', (ws, request) => {
-      const clientIp = request.socket.remoteAddress;
+      const clientIp = request.socket.remoteAddress || 'unknown';
       ws._clientIp = clientIp;
-      logger.info(`ESP32 WebSocket connection from ${clientIp}`);
 
-      // Enable TCP keepalive for faster disconnection detection
+      // Per-IP connection cap
+      const ipCount = (this._ipConnections.get(clientIp) || 0) + 1;
+      if (ipCount > this._maxConnectionsPerIp) {
+        logger.warn(`ESP32 connection rejected: IP ${clientIp} at cap (${ipCount})`);
+        ws.close(1008, 'Connection limit reached');
+        return;
+      }
+      this._ipConnections.set(clientIp, ipCount);
+
+      logger.info(`ESP32 WebSocket connection from ${clientIp} (${ipCount}/${this._maxConnectionsPerIp})`);
+
+      // TCP keepalive for faster disconnection detection
       const socket = request.socket;
-      socket.setKeepAlive(true, 10000); // Send keepalive probes every 10 seconds
-      socket.setTimeout(15000); // Timeout after 15 seconds of inactivity
+      socket.setKeepAlive(true, 10000);
+      socket.setTimeout(15000);
 
       ws.isAlive = true;
-      ws.esp32Id = null; // Will be set during registration
+      ws.esp32Id = null;
 
-      ws.on('pong', () => {
-        ws.isAlive = true;
-      });
+      // Per-connection message rate state
+      let msgCount = 0;
+      let msgWindowStart = Date.now();
 
-      // Handle socket timeout
+      ws.on('pong', () => { ws.isAlive = true; });
+
       socket.on('timeout', () => {
         logger.warn(`ESP32 socket timeout from ${clientIp}`);
-        if (ws.esp32Id) {
-          this.unregisterESP32(ws.esp32Id);
-        }
+        if (ws.esp32Id) this.unregisterESP32(ws.esp32Id);
         ws.terminate();
+      });
+
+      ws.on('close', () => {
+        const remaining = (this._ipConnections.get(clientIp) || 1) - 1;
+        if (remaining <= 0) {
+          this._ipConnections.delete(clientIp);
+        } else {
+          this._ipConnections.set(clientIp, remaining);
+        }
       });
 
       let esp32Info = null;
 
       ws.on('message', (data) => {
+        // Per-connection message rate limiting
+        const now = Date.now();
+        if (now - msgWindowStart > this._msgRateWindowMs) {
+          msgCount = 0;
+          msgWindowStart = now;
+        }
+        msgCount++;
+        if (msgCount > this._msgRateMax) {
+          logger.warn(`ESP32 message rate limit exceeded from ${clientIp}`);
+          ws.close(1008, 'Rate limit exceeded');
+          return;
+        }
+
         try {
+          // All S3 control messages are JSON. Binary frames are ignored (no
+          // classic audio path — S3 audio travels via WebRTC, not here).
           if (data instanceof Buffer) {
-            // Try to parse as JSON first
             try {
               const message = JSON.parse(data.toString());
-              logger.debug('ESP32 JSON message received:', message);
               const handled = this.handleJsonMessage(ws, message, () => esp32Info);
               if (handled.registered) esp32Info = handled.registered;
-              return;
-            } catch (parseError) {
-              // Not JSON, treat as audio data
-              if (esp32Info) {
-                this.handleAudioData(esp32Info.id, data);
-              } else {
-                logger.warn('Received audio data before registration');
-              }
+            } catch {
+              // Non-JSON binary frame — silently drop (no classic audio path)
+              logger.debug('Ignoring non-JSON binary frame from ESP32');
             }
           } else {
-            // String message
             const message = JSON.parse(data.toString());
-            logger.debug('ESP32 text message received:', message);
             const handled = this.handleJsonMessage(ws, message, () => esp32Info);
             if (handled.registered) esp32Info = handled.registered;
           }
@@ -146,8 +174,6 @@ class ESP32AudioProxy {
 
   /**
    * Route an incoming JSON message from an ESP32 WS to its handler.
-   * Returns { registered: esp32Info } if a registration just happened
-   * so the caller can capture it.
    */
   handleJsonMessage(ws, message, getEsp32Info) {
     if (message.type === 'register') {
@@ -163,8 +189,6 @@ class ESP32AudioProxy {
         logger.warn('signal from ESP before register, ignored');
         return {};
       }
-      // Forward to the target browser via Socket.IO. Strip the type
-      // field; relay the rest verbatim (offer/answer/ice/to/etc.).
       const { type, fromSocketId: _ignored, ...payload } = message;
       if (!payload.to) {
         logger.warn(`signal from ${info.id} missing 'to', dropping`);
@@ -187,10 +211,9 @@ class ESP32AudioProxy {
    */
   registerESP32(ws, registrationData, clientIp) {
     const { roomId, name, mac, sampleRate = 16000, channels = 1 } = registrationData;
-    // Older firmware without device_type registers as esp32-classic.
     const deviceType = (typeof registrationData.device_type === 'string' && registrationData.device_type)
       ? registrationData.device_type
-      : 'esp32-classic';
+      : null;
 
     if (!roomId) {
       logger.error('ESP32 registration missing roomId');
@@ -200,8 +223,6 @@ class ESP32AudioProxy {
     }
 
     // MAC-derived ID so the device reuses the same slot across reboots
-    // (UI bindings stay valid, renames persist). Falls back to a random
-    // ID when the firmware doesn't ship a MAC.
     const macClean = typeof mac === 'string' ? mac.toLowerCase().replace(/[^0-9a-f]/g, '') : '';
     const esp32Id = macClean.length === 12
       ? `esp32_${macClean}`
@@ -209,13 +230,11 @@ class ESP32AudioProxy {
 
     const existing = this.esp32Clients.get(esp32Id);
     if (existing) {
-      // Same physical device reconnecting. Drop the stale socket without
-      // firing the usual participant-left/-joined churn.
+      // Same physical device reconnecting — drop the stale socket silently
       if (existing.ws && existing.ws !== ws) {
-        existing.ws.esp32Id = null; // prevent close handler from unregistering
-        try { existing.ws.terminate(); } catch (_) { /* ignore */ }
+        existing.ws.esp32Id = null;
+        try { existing.ws.terminate(); } catch { /* ignore */ }
       }
-      this.cryingState.delete(esp32Id);
       this.esp32Clients.delete(esp32Id);
     }
 
@@ -232,24 +251,18 @@ class ESP32AudioProxy {
       channels,
       deviceType,
       connectedAt: new Date(),
-      audioPacketsReceived: 0,
-      lastAudioPacket: null
+      connectedAtMs: Date.now(),
     };
 
     this.esp32Clients.set(esp32Id, esp32Info);
-
-    // Store ESP32 ID on WebSocket for cleanup
     ws.esp32Id = esp32Id;
 
-    // Send registration confirmation
     ws.send(JSON.stringify({
       type: 'registered',
       id: esp32Id,
       message: 'Successfully registered as baby device'
     }));
 
-    // Only announce a new participant on first registration; reconnects of
-    // the same MAC are transparent to listeners.
     if (!existing) {
       this.io.to(roomId).emit('participant-joined', {
         socketId: esp32Id,
@@ -261,131 +274,8 @@ class ESP32AudioProxy {
       });
     }
 
-    logger.info(`✅ ESP32 ${existing ? 'reconnected' : 'registered'}: ${esp32Id} (${esp32Info.name}) in room ${roomId}`);
-
+    logger.info(`ESP32 ${existing ? 'reconnected' : 'registered'}: ${esp32Id} (${esp32Info.name}) in room ${roomId}`);
     return esp32Info;
-  }
-
-  /**
-   * Handle incoming audio data from ESP32
-   */
-  /**
-   * Calculate RMS (Root Mean Square) amplitude from audio buffer
-   * @param {Buffer} audioData - 16-bit PCM audio data
-   * @returns {number} RMS amplitude
-   */
-  calculateRMS(audioData) {
-    if (audioData.length < 2) return 0;
-
-    let sum = 0;
-    const sampleCount = audioData.length / 2; // 2 bytes per 16-bit sample
-
-    for (let i = 0; i < audioData.length; i += 2) {
-      const sample = audioData.readInt16LE(i);
-      sum += sample * sample;
-    }
-
-    return Math.sqrt(sum / sampleCount);
-  }
-
-  /**
-   * Detect crying in audio data and trigger notifications
-   * @param {string} esp32Id - ESP32 device ID
-   * @param {Buffer} audioData - Audio data buffer
-   * @param {object} client - Client info
-   */
-  async detectCrying(esp32Id, audioData, client) {
-    // Calculate RMS amplitude
-    const rms = this.calculateRMS(audioData);
-
-    // Get or initialize crying state
-    let state = this.cryingState.get(esp32Id);
-    if (!state) {
-      state = { isCrying: false, cryingStart: null, lastCheck: Date.now() };
-      this.cryingState.set(esp32Id, state);
-    }
-
-    const now = Date.now();
-    const isCryingNow = rms > this.cryingThreshold;
-
-    if (isCryingNow) {
-      if (!state.cryingStart) {
-        // Crying just started
-        state.cryingStart = now;
-        logger.debug(`ESP32 ${esp32Id}: Crying detected (RMS: ${Math.round(rms)})`);
-      } else {
-        // Crying continues
-        const cryingDuration = now - state.cryingStart;
-
-        // If crying for long enough and not already notified
-        if (cryingDuration >= this.cryingDuration && !state.isCrying) {
-          state.isCrying = true;
-
-          // Check if room has notifications enabled
-          const config = roomConfig.getConfig(client.roomId);
-          if (config.ntfyEnabled && config.ntfyTopic && config.notifyOnCrying) {
-            logger.info(`Sending crying alert for ${client.name} in room ${client.roomId}`);
-
-            // Get server URL for click action
-            const serverUrl = process.env.SERVER_URL || `http://localhost:${process.env.PORT || 3001}`;
-
-            await notificationService.sendCryingAlert(
-              config.ntfyTopic,
-              client.roomId,
-              client.name,
-              serverUrl
-            );
-          }
-        }
-      }
-    } else {
-      // Not crying or below threshold
-      if (state.cryingStart) {
-        const cryingDuration = now - state.cryingStart;
-        if (cryingDuration < this.cryingDuration) {
-          logger.debug(`ESP32 ${esp32Id}: Crying stopped (duration: ${cryingDuration}ms, too short to notify)`);
-        }
-      }
-
-      // Reset crying state
-      state.isCrying = false;
-      state.cryingStart = null;
-    }
-
-    state.lastCheck = now;
-  }
-
-  handleAudioData(esp32Id, audioData) {
-    const client = this.esp32Clients.get(esp32Id);
-    if (!client) {
-      logger.warn(`Audio data from unknown ESP32: ${esp32Id}`);
-      return;
-    }
-
-    client.audioPacketsReceived++;
-    client.lastAudioPacket = new Date();
-
-    // Detect crying in audio data
-    this.detectCrying(esp32Id, audioData, client).catch(err => {
-      logger.error(`Error detecting crying for ESP32 ${esp32Id}:`, err);
-    });
-
-    // Forward audio data to all parents in the room via Socket.IO
-    // deviceType picks the browser meter path (RMS vs AnalyserNode).
-    this.io.to(client.roomId).emit('esp32-audio', {
-      fromId: esp32Id,
-      fromName: client.name,
-      audio: audioData,
-      timestamp: Date.now(),
-      sampleRate: client.sampleRate,
-      channels: client.channels,
-      deviceType: client.deviceType || 'esp32-classic'
-    });
-
-    // Log every 100 packets to avoid spam
-    if (client.audioPacketsReceived % 100 === 0) {
-      logger.debug(`ESP32 ${esp32Id}: ${client.audioPacketsReceived} audio packets received`);
-    }
   }
 
   /**
@@ -395,19 +285,18 @@ class ESP32AudioProxy {
     const client = this.esp32Clients.get(esp32Id);
     if (!client) return;
 
-    // Send disconnect notification if configured
-    const config = roomConfig.getConfig(client.roomId);
-    if (config.ntfyEnabled && config.ntfyTopic && config.notifyOnDisconnect) {
+    const cfg = roomConfig.getConfig(client.roomId);
+    if (cfg.ntfyEnabled && cfg.ntfyTopic && cfg.notifyOnDisconnect) {
       notificationService.sendDisconnectAlert(
-        config.ntfyTopic,
+        cfg.ntfyTopic,
         client.roomId,
-        client.name
+        client.name,
+        cfg.ntfyServer || null
       ).catch(err => {
         logger.error(`Failed to send disconnect notification for ${client.name}:`, err);
       });
     }
 
-    // Notify Socket.IO room that baby left
     this.io.to(client.roomId).emit('participant-left', {
       socketId: esp32Id,
       role: 'baby',
@@ -415,21 +304,16 @@ class ESP32AudioProxy {
       source: 'esp32'
     });
 
-    // Clean up crying state
-    this.cryingState.delete(esp32Id);
-
     this.esp32Clients.delete(esp32Id);
-
-    logger.info(`❌ ESP32 unregistered: ${esp32Id} (${client.name})`);
+    logger.info(`ESP32 unregistered: ${esp32Id} (${client.name})`);
   }
 
   /**
-   * Get all participants in a room (including Socket.IO and ESP32)
+   * Get all participants in a room (Socket.IO + ESP32)
    */
   getRoomParticipants(roomId) {
     const participants = [];
 
-    // Add Socket.IO participants
     const room = this.io.sockets.adapter.rooms.get(roomId);
     if (room) {
       room.forEach(socketId => {
@@ -445,7 +329,6 @@ class ESP32AudioProxy {
       });
     }
 
-    // Add ESP32 participants
     this.esp32Clients.forEach((client, esp32Id) => {
       if (client.roomId === roomId) {
         participants.push({
@@ -453,7 +336,7 @@ class ESP32AudioProxy {
           role: 'baby',
           userName: client.name,
           source: 'esp32',
-          deviceType: client.deviceType || 'esp32-classic'
+          deviceType: client.deviceType
         });
       }
     });
@@ -462,32 +345,18 @@ class ESP32AudioProxy {
   }
 
   /**
-   * Get statistics about ESP32 connections
+   * Public statistics — aggregate only, no per-device PII.
+   * Detailed per-device info is available via GET /api/rooms/:id/esp32/devices
+   * (owner-authenticated).
    */
   getStatistics() {
-    const stats = {
+    return {
       totalClients: this.esp32Clients.size,
-      clients: []
     };
-
-    this.esp32Clients.forEach((client, id) => {
-      stats.clients.push({
-        id,
-        name: client.name,
-        roomId: client.roomId,
-        clientIp: client.clientIp,
-        connectedAt: client.connectedAt,
-        audioPacketsReceived: client.audioPacketsReceived,
-        lastAudioPacket: client.lastAudioPacket,
-        uptime: Date.now() - client.connectedAt.getTime()
-      });
-    });
-
-    return stats;
   }
 
   /**
-   * Get ESP32 devices for a specific room
+   * Get ESP32 devices for a specific room (owner-authenticated path)
    */
   getDevicesForRoom(roomId) {
     const devices = [];
@@ -498,12 +367,10 @@ class ESP32AudioProxy {
           name: client.name,
           clientIp: client.clientIp,
           connectedAt: client.connectedAt,
-          audioPacketsReceived: client.audioPacketsReceived,
-          lastAudioPacket: client.lastAudioPacket,
-          uptime: Date.now() - client.connectedAt.getTime(),
+          uptime: Date.now() - client.connectedAtMs,
           sampleRate: client.sampleRate,
           channels: client.channels,
-          deviceType: client.deviceType || 'esp32-classic'
+          deviceType: client.deviceType
         });
       }
     });
@@ -518,11 +385,7 @@ class ESP32AudioProxy {
     if (!client) return null;
     client.name = newName;
     this.deviceNames.set(esp32Id, newName);
-    return {
-      id: esp32Id,
-      name: client.name,
-      roomId: client.roomId
-    };
+    return { id: esp32Id, name: client.name, roomId: client.roomId };
   }
 
   /**
@@ -531,20 +394,14 @@ class ESP32AudioProxy {
   forceDisconnect(esp32Id) {
     const client = this.esp32Clients.get(esp32Id);
     if (!client) return false;
-    if (client.ws) {
-      client.ws.terminate();
-    }
+    if (client.ws) client.ws.terminate();
     this.unregisterESP32(esp32Id);
     return true;
   }
 
   /**
-   * Forward a WebRTC signaling message from a browser to an ESP32
-   * peer. The server is a pure relay — does not look at SDP/ICE
-   * content. signalData is the {offer/answer/ice, to, ...} blob from
-   * the browser's 'signal' Socket.IO event; we wrap it in a
-   * {type:"signal", ...} JSON frame and ship over the device's WS.
-   * Returns true on success, false if the device isn't connected.
+   * Forward a WebRTC signaling message from a browser to an ESP32 peer.
+   * The server is a pure relay — it does not inspect SDP/ICE content.
    */
   relaySignalToESP(esp32Id, signalData, fromSocketId, fromUserName) {
     const client = this.esp32Clients.get(esp32Id);
@@ -554,8 +411,6 @@ class ESP32AudioProxy {
         type: 'signal',
         fromSocketId,
         fromUserName,
-        // Pass offer/answer/ice/to/etc. through verbatim. Server never
-        // inspects WebRTC payload contents.
         ...signalData,
       };
       client.ws.send(JSON.stringify(frame));
@@ -580,9 +435,6 @@ class ESP32AudioProxy {
       logger.warn(`Failed to send factory-reset to ${esp32Id}: ${err.message}`);
       return false;
     }
-    // Factory reset wipes the device back to defaults — drop any persisted
-    // rename so the device shows up under its firmware-supplied name when
-    // it (or a different device) reuses the same MAC.
     this.deviceNames.delete(esp32Id);
     this.unregisterESP32(esp32Id);
     return true;
@@ -597,7 +449,6 @@ class ESP32AudioProxy {
       socket.destroy();
       return;
     }
-
     this.wss.handleUpgrade(request, socket, head, (ws) => {
       this.wss.emit('connection', ws, request);
     });

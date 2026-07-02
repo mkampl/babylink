@@ -120,16 +120,15 @@ describe('Smoke tests — critical path', () => {
     expect(response.id).toMatch(/^esp32_/);
   });
 
-  it('14. ESP32 audio forwarded to room', async () => {
-    // Join a parent to the room
+  it('14. ESP32 ping-pong works and parent can receive events', async () => {
+    // S3 firmware uses WebRTC for audio — server only relays control messages.
+    // Also join a parent so test 15 can receive participant-left.
     const parent = makeClient();
     await joinRoom(parent, VALID_ROOM_ID, 'parent', 'Mom');
-    await new Promise(r => setTimeout(r, 100));
 
-    const audioPromise = waitForEvent(parent, 'esp32-audio');
-    esp32Clients[0].sendAudio();
-    const audio = await audioPromise;
-    expect(audio.fromName).toBe('ESP32 Baby');
+    const pong = await esp32Clients[0].sendPing();
+    expect(pong.type).toBe('pong');
+    expect(pong.timestamp).toBeDefined();
   });
 
   it('15. ESP32 disconnect cleans up', async () => {
