@@ -1,7 +1,8 @@
 // BabyLink — XIAO ESP32-S3 firmware (ESP-IDF + Arduino-as-component).
 //
 // BLE GATT provisioning, WiFi STA + SoftAP captive-portal fallback,
-// PDM mic capture, audio over WebRTC (esp_peer / Opus, peer-to-peer),
+// PDM mic capture, audio over WSS-PCM (relayed by the server) plus a
+// best-effort WebRTC tunnel (esp_peer / Opus, peer-to-peer),
 // OV3660 camera software-standby, BOOT-button long-press factory reset.
 
 #include <Arduino.h>
@@ -101,6 +102,7 @@ esp_peer_handle_t webrtcPeer = nullptr;
 volatile bool webrtcPeerRunning = false;
 volatile bool webrtcConnected = false;     // set/cleared by onPeerState
 unsigned long webrtcPacketsSent = 0;
+unsigned long wssPacketsSent = 0;
 uint32_t webrtcAudioPts = 0;
 TaskHandle_t webrtcLoopTaskHandle = nullptr;
 
@@ -392,13 +394,21 @@ void processAudio() {
 
   const int chunkBytes = sampleCount * sizeof(int16_t);
 
-  // Audio leaves the device only over the WebRTC tunnel: esp_peer takes
-  // raw PCM at the codec's sample rate and Opus-encodes internally. PTS is
-  // monotonic samples-since-tunnel-open, which esp_peer maps onto the RTP
-  // timestamp. When no parent is connected there is nowhere to send, so the
-  // captured frame is dropped. The signalling socket carries only JSON
-  // control frames — it must never see audio, or the server's per-connection
-  // message rate limit would drop the device.
+  // Primary audio path: raw PCM over the WSS control socket. The server
+  // relays it to parents as `esp32-audio` and exempts these binary frames
+  // from its control-message rate limit. This is the path browsers play
+  // today. The WebRTC tunnel below is best-effort — used only once esp_peer
+  // reaches CONNECTED, at which point the browser mutes the WSS copy to
+  // avoid an echo.
+  if (isConnected && isRegistered && webSocket) {
+    esp_websocket_client_send_bin(webSocket, (const char*)audioBuffer,
+                                  chunkBytes, portMAX_DELAY);
+    wssPacketsSent++;
+  }
+
+  // WebRTC path: Opus-encoded peer-to-peer, no server round-trip. esp_peer
+  // takes raw PCM at the codec's sample rate; PTS is monotonic samples-since-
+  // tunnel-open, which it maps onto the RTP timestamp.
   if (webrtcConnected && webrtcPeer) {
     esp_peer_audio_frame_t frame = {};
     frame.pts  = webrtcAudioPts;
@@ -413,8 +423,8 @@ void processAudio() {
   static unsigned long framesProcessed = 0;
   if (++framesProcessed % 156 == 0) {
     int avgLevel = sumAbs / sampleCount;
-    Serial.printf("[stats] frames=%lu wrtc=%lu avgLevel=%d rssi=%ddBm heap=%lu\n",
-                  framesProcessed, webrtcPacketsSent, avgLevel, WiFi.RSSI(),
+    Serial.printf("[stats] wss=%lu wrtc=%lu avgLevel=%d rssi=%ddBm heap=%lu\n",
+                  wssPacketsSent, webrtcPacketsSent, avgLevel, WiFi.RSSI(),
                   (unsigned long)ESP.getFreeHeap());
   }
 }
