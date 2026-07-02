@@ -98,7 +98,7 @@
 
     const alert = document.getElementById('alert');
     if (alert) alert.hidden = true;
-    console.log('Audio enabled');
+    // audio unlocked
   }
 
   window._enableAllAudio = enableAllAudio;
@@ -149,7 +149,6 @@
   // ========================
 
   async function initialize() {
-    console.log(`Initializing BabyLink as ${role} (${userName}) in room ${roomId}`);
 
     // Parent must tap "Start Monitoring" to unlock audio (browser requirement).
     // Dev shortcut: `?autostart=1` skips the gesture — works only when the
@@ -174,7 +173,6 @@
 
     // Process any signals that arrived during initialization
     if (multiStreamManager && pendingSignals.length > 0) {
-      console.log(`Processing ${pendingSignals.length} queued signal(s)`);
       pendingSignals.forEach(sig => multiStreamManager.handleSignal(sig));
       pendingSignals.length = 0;
     }
@@ -191,7 +189,6 @@
 
   function joinRoom() {
     if (hasJoinedRoom) return;
-    console.log('Joining room:', roomId);
     var joinData = { roomId, role, userName };
     if (roomPin) joinData.pin = roomPin;
     socket.emit('join', joinData);
@@ -207,7 +204,7 @@
     container.innerHTML = `
       <div class="baby-device-container">
         <div class="baby-header-strip">
-          <h2 class="baby-name-display">👶 ${escapeHtml(userName)}</h2>
+          <h2 class="baby-name-display">${escapeHtml(userName)}</h2>
           <div class="baby-listeners" id="parentCountSection" title="Parents currently monitoring">
             <span class="baby-listeners-num" id="parentCountNum">0</span>
             <span class="baby-listeners-label" id="parentCountLabel">listening</span>
@@ -218,7 +215,7 @@
           <div class="baby-mic-status" id="micStatus">Requesting microphone…</div>
         </div>
         <div class="baby-footer">
-          <button class="baby-test-btn" id="testAudioBtn" disabled title="Play a short tone so parents can verify they hear this device">🔊 Test</button>
+          <button class="baby-test-btn" id="testAudioBtn" disabled title="Play a short tone so parents can verify they hear this device">Test</button>
           <div class="baby-battery" id="batterySection" style="display:none;">
             <div class="battery-indicator">
               <div class="battery-level" id="batteryLevel"></div>
@@ -270,7 +267,6 @@
 
       // Connect to any parents that joined while we were waiting for mic permission
       if (pendingParents.length > 0) {
-        console.log(`Connecting to ${pendingParents.length} parent(s) that joined during mic setup`);
         pendingParents.forEach(p => createPeerConnectionToParent(p));
         pendingParents.length = 0;
       }
@@ -646,7 +642,6 @@
   // ========================
 
   socket.on('connect', () => {
-    console.log('Connected to server');
     document.getElementById('status').textContent = 'Connected - Rejoining room...';
     document.getElementById('alert').hidden = true;
     alarmMgr.stop();
@@ -673,7 +668,6 @@
   });
 
   socket.on('disconnect', (reason) => {
-    console.log('Disconnected from server:', reason);
     document.getElementById('status').textContent = 'Disconnected - Reconnecting...';
     wasDisconnected = true;
 
@@ -713,14 +707,8 @@
         if (!multiBabyUI.babyCards.has(baby.socketId)) {
           multiBabyUI.addBaby(baby.socketId, baby);
         }
-        // All baby types (PWA, classic ESP32, XIAO S3) take the same
-        // dispatch now: ask the baby to send us an offer. The signal
-        // handler routes the inbound offer to multiStreamManager which
-        // creates the peer + audio element. S3 babies generate their
-        // own offer from esp_peer; PWA babies create one from
-        // RTCPeerConnection.createOffer(); classic ESP32 stays on the
-        // legacy WSS-PCM path because it doesn't speak WebRTC and the
-        // requestOffer goes nowhere.
+        // Ask each baby to send us a WebRTC offer. PWA babies respond
+        // with RTCPeerConnection.createOffer(); S3 firmware uses esp_peer.
         if (!multiStreamManager.peerConnections.has(baby.socketId)) {
           socket.emit('signal', { requestOffer: true, to: baby.socketId });
         }
@@ -775,7 +763,6 @@
   socket.on('signal', (data) => {
     // Handle request from parent asking baby to (re)send an offer
     if (data.requestOffer && role === 'baby' && multiStreamManager && localStream) {
-      console.log('Parent requested offer, creating peer connection to', data.fromSocketId);
       createPeerConnectionToParent({ socketId: data.fromSocketId, role: 'parent', userName: data.fromUserName || 'Parent' });
       return;
     }

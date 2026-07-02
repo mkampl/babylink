@@ -24,11 +24,8 @@ class MultiStreamManager {
    */
   createPeerConnection(participantId, participantInfo) {
     if (this.peerConnections.has(participantId)) {
-      console.log(`Peer connection already exists for ${participantId}`);
       return this.peerConnections.get(participantId);
     }
-
-    console.log(`Creating peer connection for ${participantInfo.userName} (${participantId})`);
 
     const peer = new RTCPeerConnection(this.config);
     this.peerConnections.set(participantId, peer);
@@ -46,64 +43,31 @@ class MultiStreamManager {
 
     // Handle incoming tracks
     peer.ontrack = (event) => {
-      console.log(`🟣 [STREAM-MGR] ontrack event from ${participantInfo.userName}:`, {
-        participantId,
-        track: {
-          kind: event.track.kind,
-          id: event.track.id,
-          enabled: event.track.enabled,
-          muted: event.track.muted,
-          readyState: event.track.readyState
-        },
-        streams: event.streams.length,
-        streamIds: event.streams.map(s => s.id)
-      });
       const [stream] = event.streams;
-
       if (stream) {
-        console.log(`🟣 [STREAM-MGR] ✅ Stream received:`, {
-          id: stream.id,
-          active: stream.active,
-          tracks: stream.getTracks().map(t => ({
-            kind: t.kind,
-            enabled: t.enabled,
-            readyState: t.readyState
-          }))
-        });
-
         this.audioStreams.set(participantId, stream);
         this.createAudioElement(participantId, stream, participantInfo);
         this.offerRetries.delete(participantId);   // success — clear breaker
-
         if (this.onStreamAdded) {
           this.onStreamAdded(participantId, stream, participantInfo);
         }
-      } else {
-        console.error(`🟣 [STREAM-MGR] ❌ No stream in ontrack event!`);
       }
     };
 
     // Handle connection state changes
     peer.onconnectionstatechange = () => {
       const state = peer.connectionState;
-      console.log(`Connection state for ${participantInfo.userName}: ${state}`);
-
-      if (state === 'disconnected') {
-        console.warn(`Connection disconnected for ${participantInfo.userName}`);
-      } else if (state === 'failed') {
+      if (state === 'failed') {
         // Tear down the silently-dead peer and re-request a fresh offer
         // (reuses the same retry breaker already in handleSignal).
         const retries = this.offerRetries.get(participantId) || 0;
         if (retries < 3) {
-          console.warn(`ICE failed for ${participantInfo.userName} — tearing down and re-requesting offer (attempt ${retries + 1}/3)`);
           this.offerRetries.set(participantId, retries + 1);
           if (this.peerConnections.has(participantId)) {
             try { peer.close(); } catch (e) {}
             this.peerConnections.delete(participantId);
           }
           this.socket.emit('signal', { requestOffer: true, to: participantId });
-        } else {
-          console.error(`ICE repeatedly failed for ${participantInfo.userName} — giving up`);
         }
         // Update status dot so the card turns red instead of showing green
         if (this.onConnectionFailed) this.onConnectionFailed(participantId);
@@ -245,21 +209,10 @@ class MultiStreamManager {
     const { from, fromSocketId, offer, answer, ice, to } = data;
 
     try {
-      console.log(`🟢 [STREAM-MGR] handleSignal called:`, {
-        from,
-        fromSocketId,
-        hasOffer: !!offer,
-        hasAnswer: !!answer,
-        hasIce: !!ice,
-        to
-      });
-
-      // Get the peer connection for this participant
       let peer = this.peerConnections.get(fromSocketId);
 
       // If we receive an offer and don't have a peer connection, create one
       if (!peer && offer) {
-        console.log(`🟢 [STREAM-MGR] No peer exists for ${fromSocketId}, creating new peer (PARENT side)`);
         const participantInfo = {
           socketId: fromSocketId,
           role: from,
@@ -267,95 +220,46 @@ class MultiStreamManager {
         };
         peer = this.createPeerConnection(fromSocketId, participantInfo);
 
-        // If we have a local stream (we're a baby), add tracks to this peer
+        // If we have a local stream (we're a baby), add our tracks to this peer
         if (this.localStream) {
-          console.log(`🟢 [STREAM-MGR] Have localStream, adding tracks to peer`);
           this.localStream.getTracks().forEach(track => {
             peer.addTrack(track, this.localStream);
-            console.log(`🟢 [STREAM-MGR] Added local ${track.kind} track to peer for ${fromSocketId}`);
           });
-        } else {
-          console.log(`🟢 [STREAM-MGR] No localStream (this is expected for parent receiving offer)`);
         }
       }
 
-      if (!peer) {
-        console.warn('🟢 [STREAM-MGR] ⚠️ No peer connection for signal', fromSocketId);
-        return;
-      }
+      if (!peer) return;
 
-      // Handle offer (typically received by parent from baby)
       if (offer) {
-        console.log(`🟢 [STREAM-MGR] Processing offer from ${fromSocketId}`);
         await peer.setRemoteDescription(new RTCSessionDescription(offer));
         const answer = await peer.createAnswer();
         await peer.setLocalDescription(answer);
-
-        console.log(`🟢 [STREAM-MGR] Created answer:`, {
-          type: answer.type,
-          sdpLength: answer.sdp.length
-        });
-
-        this.socket.emit('signal', {
-          answer: answer,
-          to: fromSocketId
-        });
-
-        console.log(`🟢 [STREAM-MGR] ✅ Sent answer to ${fromSocketId}`);
+        this.socket.emit('signal', { answer, to: fromSocketId });
       }
 
-      // Handle answer (received by baby from parent)
       if (answer) {
-        console.log(`🟢 [STREAM-MGR] Processing answer from ${fromSocketId}`);
         await peer.setRemoteDescription(new RTCSessionDescription(answer));
-        console.log(`🟢 [STREAM-MGR] ✅ Set remote description (answer) for ${fromSocketId}`);
       }
 
-      // Handle ICE candidate
       if (ice) {
         await peer.addIceCandidate(new RTCIceCandidate(ice));
-        console.log(`🟢 [STREAM-MGR] ✅ Added ICE candidate from ${fromSocketId}`);
       }
 
     } catch (error) {
-      console.error('🟢 [STREAM-MGR] ❌ Error handling signal:', error, data);
+      console.error('Error handling signal:', error);
       // esp_peer occasionally emits a malformed SDP offer on reconnect
       // (`a=group:BUNDLE 0` references a mid with no matching `m=audio`).
       // Drop the peer and ask for a fresh offer — usually parses cleanly.
       const broken = data && data.fromSocketId;
       const retries = this.offerRetries.get(broken) || 0;
       if (broken && data.offer && this.peerConnections.has(broken) && retries < 3) {
-        console.warn(`🟢 [STREAM-MGR] Dropping broken peer ${broken} and re-requesting offer (attempt ${retries + 1}/3)`);
         // Peer-only teardown — keep audio elements + analyser so the
         // baby card survives the retry.
         const peer = this.peerConnections.get(broken);
         if (peer) { try { peer.close(); } catch (e) {} this.peerConnections.delete(broken); }
         this.offerRetries.set(broken, retries + 1);
         this.socket.emit('signal', { requestOffer: true, to: broken });
-      } else if (broken && retries >= 3) {
-        console.error(`🟢 [STREAM-MGR] Giving up on ${broken} after ${retries} bad offers`);
       }
-    }
-  }
-
-  /**
-   * Add local stream (for baby device)
-   */
-  async addLocalStream(stream) {
-    // Add tracks to all peer connections
-    for (const [participantId, peer] of this.peerConnections.entries()) {
-      stream.getTracks().forEach(track => {
-        peer.addTrack(track, stream);
-      });
-
-      // Create and send offer
-      const offer = await peer.createOffer();
-      await peer.setLocalDescription(offer);
-
-      this.socket.emit('signal', {
-        offer: offer,
-        to: participantId
-      });
     }
   }
 
@@ -366,7 +270,6 @@ class MultiStreamManager {
     const audio = this.audioElements.get(participantId);
     if (audio) {
       audio.muted = mute;
-      console.log(`${mute ? 'Muted' : 'Unmuted'} ${participantId}`);
       return true;
     }
     return false;
@@ -391,10 +294,8 @@ class MultiStreamManager {
    *   Higher = more sensitive (lower thresholds), Lower = less sensitive (higher thresholds)
    */
   setSensitivity(participantId, sensitivity) {
-    // Clamp sensitivity to reasonable range
     const clampedSensitivity = Math.max(0.5, Math.min(3.0, sensitivity));
     this.sensitivity.set(participantId, clampedSensitivity);
-    console.log(`Set sensitivity for ${participantId} to ${clampedSensitivity.toFixed(1)}x`);
     return true;
   }
 
@@ -402,7 +303,6 @@ class MultiStreamManager {
    * Remove a participant's connection
    */
   removeParticipant(participantId) {
-    console.log(`Removing participant ${participantId}`);
 
     // Close peer connection
     const peer = this.peerConnections.get(participantId);
@@ -438,30 +338,8 @@ class MultiStreamManager {
     }
   }
 
-  /**
-   * Clean up all connections
-   */
-  cleanup() {
-    for (const participantId of this.peerConnections.keys()) {
-      this.removeParticipant(participantId);
-    }
-  }
-
-  /**
-   * Get all current participants
-   */
-  getParticipants() {
-    return Array.from(this.participants.values());
-  }
-
-  /**
-   * Get audio level for a specific participant
-   */
-  getAudioLevel(participantId) {
-    const analyser = this.analysers.get(participantId);
-    return analyser ? analyser.currentLevel : 'UNKNOWN';
-  }
 }
+
 
 // Export for use in other modules
 if (typeof module !== 'undefined' && module.exports) {

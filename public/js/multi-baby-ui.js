@@ -617,12 +617,6 @@ class MultiBabyUI {
     barEl.innerHTML = html;
   }
 
-  /**
-   * Styles are now loaded via external CSS files
-   */
-  injectStyles() {
-    // No-op: CSS is loaded from /css/components.css
-  }
 }
 
 // Export for use in other modules

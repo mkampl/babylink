@@ -1,7 +1,5 @@
-// Plays binary PCM chunks from ESP32 babies and produces a per-device
-// level for the UI meter. Two meter paths picked by `deviceType`:
-// 'esp32-classic' uses RMS-per-chunk with tuned 100/180 thresholds;
-// 'esp32-s3' uses an AnalyserNode in dBFS with 60/130 thresholds.
+// Plays binary PCM chunks from ESP32-S3 babies and produces a per-device
+// level for the UI meter via an AnalyserNode (dBFS, 60/130 thresholds).
 class ESP32AudioHandler {
   constructor(esp32AudioContexts) {
     this.contexts = esp32AudioContexts;
@@ -60,9 +58,8 @@ class ESP32AudioHandler {
   }
 
   handleAudioData(data, multiBabyUI) {
-    const { fromId, fromName, audio, sampleRate, channels, deviceType } = data;
+    const { fromId, audio, sampleRate, channels } = data;
     this.multiBabyUI = multiBabyUI;
-    const isS3 = deviceType === 'esp32-s3';
 
     try {
       if (!this.contexts.has(fromId)) {
@@ -70,30 +67,24 @@ class ESP32AudioHandler {
         const gainNode = audioContext.createGain();
         gainNode.gain.value = 1.0;
 
+        // Analyser branches from the source in parallel to gainNode
+        // so muting the audible output doesn't kill the meter.
+        const analyser = audioContext.createAnalyser();
+        analyser.fftSize = 256;
+        analyser.smoothingTimeConstant = 0.6;
+        analyser.minDecibels = -40;
+        analyser.maxDecibels = -5;
+
         const ctxRecord = {
-          audioContext, gainNode,
+          audioContext, gainNode, analyser,
+          levelData: new Uint8Array(analyser.frequencyBinCount),
           sampleRate: sampleRate || 16000,
           channels: channels || 1,
           volume: 1.0,
-          buffer: [],
-          deviceType: deviceType || 'esp32-classic'
         };
 
         // gainNode is the mute point — connects to destination only.
         gainNode.connect(audioContext.destination);
-
-        if (isS3) {
-          // Analyser branches from the source in parallel to gainNode
-          // so muting the audible output doesn't kill the meter.
-          const analyser = audioContext.createAnalyser();
-          analyser.fftSize = 256;
-          analyser.smoothingTimeConstant = 0.6; // more responsive to taps
-          analyser.minDecibels = -40;
-          analyser.maxDecibels = -5;
-
-          ctxRecord.analyser = analyser;
-          ctxRecord.levelData = new Uint8Array(analyser.frequencyBinCount);
-        }
 
         this.contexts.set(fromId, ctxRecord);
 
@@ -102,13 +93,13 @@ class ESP32AudioHandler {
           if (audioContext.state === 'suspended') {
             const alert = document.getElementById('alert');
             if (alert) {
-              alert.innerHTML = 'Tap anywhere to enable audio';
+              alert.textContent = 'Tap anywhere to enable audio';
               alert.hidden = false;
             }
           }
         }
 
-        if (isS3) this._startLevelMonitor(fromId);
+        this._startLevelMonitor(fromId);
       }
 
       const ctx = this.contexts.get(fromId);
@@ -140,17 +131,14 @@ class ESP32AudioHandler {
       }
 
       // Schedule each chunk to start where the previous one ended,
-      // with ~50 ms of lead. start() with no argument inserts micro-
-      // gaps under jitter and produces a regular tick. Re-anchor with
-      // fresh lead if we drift too far ahead or fall into the past.
+      // with ~50 ms of lead. Re-anchor if we drift too far ahead or
+      // fall into the past.
       const audioBuffer = ctx.audioContext.createBuffer(ctx.channels, amplifiedData.length, ctx.sampleRate);
       audioBuffer.getChannelData(0).set(amplifiedData);
       const source = ctx.audioContext.createBufferSource();
       source.buffer = audioBuffer;
       // Skip WSS playback when WebRTC is actively delivering this
       // baby's audio — both paths overlap into an echo otherwise.
-      // Fall back to WSS if the WebRTC track is muted (SRTP failures,
-      // ICE renegotiating) so we don't sit on silence.
       const webrtcActive = (function() {
         if (!window._multiStreamManager) return false;
         const stream = window._multiStreamManager.audioStreams.get(fromId);
@@ -160,13 +148,13 @@ class ESP32AudioHandler {
                tracks[0].readyState === 'live';
       })();
       if (!webrtcActive) source.connect(ctx.gainNode);
-      // Metering branch (always processed, independent of audible mute
-      // or WebRTC takeover — keeps the baby-card level meter alive).
-      if (ctx.analyser) source.connect(ctx.analyser);
+      // Metering branch — always processed regardless of audible mute
+      // or WebRTC takeover so the baby-card level meter stays live.
+      source.connect(ctx.analyser);
 
       const now = ctx.audioContext.currentTime;
-      const MIN_LEAD = 0.05;   // 50ms cushion against jitter
-      const MAX_LEAD = 0.30;   // re-anchor if scheduling falls > 300ms ahead
+      const MIN_LEAD = 0.05;
+      const MAX_LEAD = 0.30;
 
       if (!ctx.nextStartTime || ctx.nextStartTime < now + 0.001) {
         ctx.nextStartTime = now + MIN_LEAD;
@@ -175,25 +163,6 @@ class ESP32AudioHandler {
       }
       source.start(ctx.nextStartTime);
       ctx.nextStartTime += audioBuffer.duration;
-
-      // Classic ESP32 meter: per-chunk RMS ×500, color thresholds 40/120.
-      // The classic + INMP441 pipeline is calibrated against these
-      // exact constants — leave them alone.
-      if (!isS3 && multiBabyUI && multiBabyUI.babyCards.has(fromId)) {
-        let sumSquares = 0;
-        for (let i = 0; i < amplifiedData.length; i++) {
-          sumSquares += amplifiedData[i] * amplifiedData[i];
-        }
-        const rms = Math.sqrt(sumSquares / amplifiedData.length);
-        const numericLevel = Math.min(255, Math.floor(rms * 500));
-
-        let levelColor;
-        if (numericLevel > 120) levelColor = 'RED';
-        else if (numericLevel > 40) levelColor = 'YELLOW';
-        else levelColor = 'GREEN';
-
-        multiBabyUI.updateAudioLevel(fromId, levelColor, numericLevel);
-      }
     } catch (error) {
       console.error('Error playing ESP32 audio:', error);
     }
