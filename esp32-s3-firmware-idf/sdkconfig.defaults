@@ -2,6 +2,11 @@
 # `idf.py menuconfig` overrides. Pinned values that the XIAO S3 + Arduino
 # component need.
 
+# Target chip. Pinned here so a clean build (no pre-existing sdkconfig)
+# doesn't silently fall back to the default esp32 target — which builds the
+# wrong Arduino variant and fails on HWCDCSerial.
+CONFIG_IDF_TARGET="esp32s3"
+
 # Arduino requires the FreeRTOS tick rate at 1000 Hz (10 ms in PIO is
 # 1 Hz here — the docs are explicit about this).
 CONFIG_FREERTOS_HZ=1000
@@ -84,7 +89,5 @@ CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
 # DTLS + SRTP — required by espressif/esp_peer for WebRTC media
 # encryption. Without these the component fails to compile with
 # implicit-function-declaration errors for mbedtls_ssl_conf_dtls_*.
-# Branch 5.1c only link-verifies; the symbols stay unused until 5.2
-# wires them through PeerConnection.
 CONFIG_MBEDTLS_SSL_PROTO_DTLS=y
 CONFIG_MBEDTLS_SSL_DTLS_SRTP=y

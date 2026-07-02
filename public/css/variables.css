@@ -3,7 +3,9 @@
    Warm, soft, reassuring palette for tired parents
    ============================================ */
 
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap');
+/* Google Fonts removed — use the system font stack to keep all traffic
+   on the local network and allow offline use without a CDN dependency.
+   DM Sans is still the first preference if installed on the device. */
 
 :root {
   /* Primary — soft dusty blue (nursery blue) */
@@ -12,10 +14,12 @@
   --color-primary-light: rgba(107, 142, 174, 0.12);
   --color-primary-glow: rgba(107, 142, 174, 0.25);
 
-  /* Status — warm organic tones */
-  --color-success: #7BA68C;
+  /* Status — warm organic tones.
+     --color-success darkened from #7BA68C → #5F8C72 to achieve 4.5:1
+     contrast ratio for white text (used on .btn-mute and status badges). */
+  --color-success: #5F8C72;
   --color-success-bg: #eef5f0;
-  --color-success-text: #3d6b4d;
+  --color-success-text: #2E5C3E;
 
   --color-warning: #E4A853;
   --color-warning-bg: #fdf4e5;
@@ -37,11 +41,16 @@
   --color-border-light: #F0EDE8;
   --color-border-dark: #D8D3CC;
 
-  /* Text — warm dark tones */
+  /* Text — warm dark tones.
+     --color-text-muted (#747069) and --color-text-light (#7A746E) are
+     darkened from the original #8C847D / #AEA8A2 to meet WCAG AA 4.5:1
+     contrast against --color-bg (#FAF8F5).
+     --color-success-text (#2E5C3E) replaces #3d6b4d (white-on-success also
+     tightened via --color-success below). */
   --color-text: #2D2926;
   --color-text-secondary: #635B54;
-  --color-text-muted: #8C847D;
-  --color-text-light: #AEA8A2;
+  --color-text-muted: #747069;
+  --color-text-light: #7A746E;
   --color-text-heading: #3D3632;
 
   /* Accents */

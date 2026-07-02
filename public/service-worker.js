@@ -72,14 +72,21 @@ function shellRespond(request) {
 }
 
 // Network-first for HTML so role/PIN flows never see a stale page;
-// fall back to cache (we pre-cached '/' so the home page works
-// offline).
+// fall back to cache (we pre-cached '/' so the home page works offline).
+// Only cache the root path — room URLs like /<roomId>?role=…&userName=…
+// would fill the cache with every room ID the user visits and persist
+// them to disk indefinitely (privacy + quota leak).
 function htmlRespond(request) {
+  const url = new URL(request.url);
   return fetch(request)
     .then((response) => {
-      if (response.ok) {
+      if (response.ok && url.pathname === '/') {
         const clone = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(request, clone));
+        caches.open(CACHE_NAME).then((cache) => {
+          // background-revalidate: keep the cached copy fresh without
+          // blocking the response the caller already received.
+          cache.put(request, clone);
+        });
       }
       return response;
     })

@@ -122,7 +122,7 @@ describe('GET /api/esp32/status', () => {
   it('totalClients is 0 on fresh server', async () => {
     const res = await request(server.app).get('/api/esp32/status');
     expect(res.body.totalClients).toBe(0);
-    expect(res.body.clients).toEqual([]);
+    // clients array is not returned (public endpoint — no PII)
   });
 });
 

@@ -1,3 +1,9 @@
+// ESP32 WebSocket proxy integration tests.
+//
+// The classic raw-PCM audio path has been removed; the server no longer
+// processes binary audio frames. Audio reaches parents via WebRTC (S3 path).
+// These tests cover the JSON control-message path and lifecycle events.
+
 const { startServer } = require('../helpers/server-factory');
 const { createESP32Client } = require('../helpers/esp32-client');
 const { createSocketClient, waitForEvent, joinRoom, disconnectClient } = require('../helpers/socket-client');
@@ -13,10 +19,8 @@ beforeAll(async () => {
 });
 
 afterEach(async () => {
-  // Close ESP32 clients
   await Promise.all(esp32Clients.map(c => c.close()));
   esp32Clients = [];
-  // Disconnect socket clients
   await Promise.all(socketClients.map(c => disconnectClient(c)));
   socketClients = [];
 });
@@ -69,38 +73,6 @@ describe('ESP32 WebSocket proxy', () => {
     expect(joined.source).toBe('esp32');
   });
 
-  it('binary audio data forwarded as esp32-audio event', async () => {
-    const parent = makeSocket();
-    await joinRoom(parent, VALID_ROOM_ID, 'parent', 'Mom');
-
-    const esp32 = makeESP32();
-    await esp32.register(VALID_ROOM_ID, 'ESP32 Baby');
-    // Small wait for registration to propagate
-    await new Promise(r => setTimeout(r, 100));
-
-    const audioPromise = waitForEvent(parent, 'esp32-audio');
-    esp32.sendAudio();
-    const audioData = await audioPromise;
-    expect(audioData.fromName).toBe('ESP32 Baby');
-    expect(audioData.sampleRate).toBe(16000);
-    expect(audioData.timestamp).toBeDefined();
-  });
-
-  it('audio packet increments counter', async () => {
-    const esp32 = makeESP32();
-    await esp32.register(VALID_ROOM_ID, 'ESP32 Baby');
-    await new Promise(r => setTimeout(r, 100));
-
-    // Send a few audio packets
-    esp32.sendAudio();
-    esp32.sendAudio();
-    esp32.sendAudio();
-    await new Promise(r => setTimeout(r, 200));
-
-    const res = await request(server.app).get('/api/esp32/status');
-    expect(res.body.clients[0].audioPacketsReceived).toBeGreaterThanOrEqual(3);
-  });
-
   it('ping receives pong response', async () => {
     const esp32 = makeESP32();
     await esp32.register(VALID_ROOM_ID, 'ESP32 Baby');
@@ -116,7 +88,6 @@ describe('ESP32 WebSocket proxy', () => {
 
     const esp32 = makeESP32();
     await esp32.register(VALID_ROOM_ID, 'ESP32 Baby');
-    // Wait for registration to propagate
     await new Promise(r => setTimeout(r, 100));
 
     const leftPromise = waitForEvent(parent, 'participant-left');
@@ -128,15 +99,15 @@ describe('ESP32 WebSocket proxy', () => {
     expect(leftData.source).toBe('esp32');
   });
 
-  it('status endpoint shows connected device', async () => {
+  it('aggregate status reflects connected device count', async () => {
     const esp32 = makeESP32();
     await esp32.register(VALID_ROOM_ID, 'ESP32 Baby');
     await new Promise(r => setTimeout(r, 100));
 
     const res = await request(server.app).get('/api/esp32/status');
     expect(res.body.totalClients).toBe(1);
-    expect(res.body.clients[0].name).toBe('ESP32 Baby');
-    expect(res.body.clients[0].roomId).toBe(VALID_ROOM_ID);
+    // Public endpoint does not expose roomId, clientIp, or device details
+    expect(res.body.clients).toBeUndefined();
   });
 
   it('status shows 0 after disconnect', async () => {

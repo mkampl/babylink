@@ -11,7 +11,7 @@
     "docker:stop": "docker-compose down",
     "docker:logs": "docker-compose logs -f",
     "docker:restart": "docker-compose restart",
-    "simulate:esp32": "node tools/esp32-simulator.js",
+    "simulate:esp32": "node tools/esp32-s3-simulator.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:smoke": "vitest run tests/e2e-server/smoke.test.js",
@@ -31,7 +31,6 @@
   "license": "BSD-3-Clause",
   "dependencies": {
     "axios": "^1.6.0",
-    "body-parser": "^1.20.2",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
@@ -48,6 +47,6 @@
     "vitest": "^4.1.6"
   },
   "engines": {
-    "node": ">=16.0.0"
+    "node": ">=18.0.0"
   }
 }

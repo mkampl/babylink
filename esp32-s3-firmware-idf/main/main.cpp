@@ -1,7 +1,8 @@
 // BabyLink — XIAO ESP32-S3 firmware (ESP-IDF + Arduino-as-component).
 //
 // BLE GATT provisioning, WiFi STA + SoftAP captive-portal fallback,
-// PDM mic capture, audio over WSS-PCM and WebRTC (esp_peer / Opus),
+// PDM mic capture, audio over WSS-PCM (relayed by the server) plus a
+// best-effort WebRTC tunnel (esp_peer / Opus, peer-to-peer),
 // OV3660 camera software-standby, BOOT-button long-press factory reset.
 
 #include <Arduino.h>
@@ -93,7 +94,6 @@ String deviceId;
 unsigned long lastLedToggle = 0;
 bool ledState = false;
 unsigned long lastStatusReport = 0;
-unsigned long audioPacketsSent = 0;
 
 I2SClass I2S;
 int16_t audioBuffer[BUFFER_SIZE];
@@ -102,6 +102,7 @@ esp_peer_handle_t webrtcPeer = nullptr;
 volatile bool webrtcPeerRunning = false;
 volatile bool webrtcConnected = false;     // set/cleared by onPeerState
 unsigned long webrtcPacketsSent = 0;
+unsigned long wssPacketsSent = 0;
 uint32_t webrtcAudioPts = 0;
 TaskHandle_t webrtcLoopTaskHandle = nullptr;
 
@@ -109,6 +110,10 @@ TaskHandle_t webrtcLoopTaskHandle = nullptr;
 // the server routes them. Single-parent — multi-parent rooms need one
 // peer per parent and aren't supported yet.
 String parentSocketId;
+// A parent's requestOffer can arrive while esp_peer is still generating its
+// DTLS cert. Queue it here and fire it from loop() once the peer is ready,
+// rather than dropping it (which left WebRTC permanently unconnected).
+volatile bool pendingOfferRequest = false;
 WebServer  webServer(80);
 DNSServer  dnsServer;
 
@@ -393,10 +398,21 @@ void processAudio() {
 
   const int chunkBytes = sampleCount * sizeof(int16_t);
 
-  // WebRTC path: ship to esp_peer if the tunnel is up. esp_peer takes
-  // raw PCM at the codec's sample rate and Opus-encodes internally.
-  // PTS is monotonic samples-since-tunnel-open — esp_peer uses it to
-  // drive the RTP timestamp.
+  // Send BOTH paths, always. WebRTC is the preferred one (Opus, encrypted
+  // DTLS-SRTP, peer-to-peer) but esp_peer does not reliably re-establish after
+  // a parent reloads, and a stuck tunnel does not always report itself
+  // disconnected — so if the device sent only WebRTC the audio would go silent
+  // on reconnect. Keeping the raw-PCM stream flowing over the WSS socket as a
+  // constant safety net means the parent never loses audio: the browser plays
+  // WebRTC when its track is live and mutes this PCM copy (the webrtcActive
+  // guard in esp32-audio-handler.js), and falls straight back to PCM the
+  // instant WebRTC drops. The server relays the PCM frames to parents as
+  // `esp32-audio` and exempts them from its control-message rate limit.
+  if (isConnected && isRegistered && webSocket) {
+    esp_websocket_client_send_bin(webSocket, (const char*)audioBuffer,
+                                  chunkBytes, portMAX_DELAY);
+    wssPacketsSent++;
+  }
   if (webrtcConnected && webrtcPeer) {
     esp_peer_audio_frame_t frame = {};
     frame.pts  = webrtcAudioPts;
@@ -408,18 +424,11 @@ void processAudio() {
     webrtcAudioPts += sampleCount;
   }
 
-  // Also stream raw PCM over WSS — the server runs crying detection on
-  // this stream, and parents fall back to it when WebRTC hasn't come up.
-  if (isConnected && isRegistered && webSocket) {
-    esp_websocket_client_send_bin(webSocket, (const char*)audioBuffer,
-                                  chunkBytes, portMAX_DELAY);
-    audioPacketsSent++;
-  }
-
-  if (audioPacketsSent % 156 == 0) {
+  static unsigned long framesProcessed = 0;
+  if (++framesProcessed % 156 == 0) {
     int avgLevel = sumAbs / sampleCount;
     Serial.printf("[stats] wss=%lu wrtc=%lu avgLevel=%d rssi=%ddBm heap=%lu\n",
-                  audioPacketsSent, webrtcPacketsSent, avgLevel, WiFi.RSSI(),
+                  wssPacketsSent, webrtcPacketsSent, avgLevel, WiFi.RSSI(),
                   (unsigned long)ESP.getFreeHeap());
   }
 }
@@ -978,7 +987,14 @@ static void handleWsTextFrame(const char* data, size_t len) {
     if (from[0]) parentSocketId = from;
 
     if (!webrtcPeer) {
-      Serial.println("[peer] inbound signal but esp_peer not initialised");
+      if (doc["requestOffer"] | false) {
+        // Peer still initialising — remember the request so loop() can fire
+        // it the moment esp_peer is ready.
+        pendingOfferRequest = true;
+        Serial.println("[peer] requestOffer before peer ready — queued");
+      } else {
+        Serial.println("[peer] inbound signal but esp_peer not initialised");
+      }
       return;
     }
     if (doc["requestOffer"] | false) {
@@ -1013,7 +1029,9 @@ static void handleWsTextFrame(const char* data, size_t len) {
       pmsg.data = (uint8_t*)cand.c_str();
       pmsg.size = cand.length();
       esp_peer_send_msg(webrtcPeer, &pmsg);
-      Serial.printf("[peer] <- ICE (%u B)\n", (unsigned)cand.length());
+      // Log the full candidate: a browser without mic/cam permission hides
+      // its LAN IP behind an mDNS `.local` name the device can't resolve.
+      Serial.printf("[peer] <- ICE: %s\n", cand.c_str());
     }
   }
 }
@@ -1194,7 +1212,20 @@ void setupWebRTC() {
   defaults.rtp_cfg.send_pool_size = 1024;
   defaults.rtp_cfg.send_queue_num = 10;
 
+  // STUN so the device advertises a server-reflexive candidate, not just a
+  // bare host one. Note: WebRTC media does not currently complete on this
+  // stack — the browser's DTLS ClientHello arrives fragmented (large modern
+  // ClientHello) and ESP-IDF's mbedtls DTLS server cannot reassemble a
+  // fragmented ClientHello (ssl_tls12_server.c: "ClientHello fragmentation
+  // not supported" → MBEDTLS_ERR_SSL_FEATURE_UNAVAILABLE). Until that upstream
+  // limitation is resolved, audio rides the WSS-PCM path. Kept wired so the
+  // moment mbedtls/esp_peer gains fragmented-ClientHello support this works.
+  static esp_peer_ice_server_cfg_t iceServers[1] = {};
+  iceServers[0].stun_url = (char*)"stun:stun.l.google.com:19302";
+
   esp_peer_cfg_t cfg = {};
+  cfg.server_lists     = iceServers;
+  cfg.server_num       = 1;
   cfg.role             = ESP_PEER_ROLE_CONTROLLING;     // baby initiates the offer
   cfg.ice_trans_policy = ESP_PEER_ICE_TRANS_POLICY_ALL;
   cfg.audio_info.codec       = ESP_PEER_AUDIO_CODEC_OPUS;
@@ -1275,6 +1306,15 @@ void loop() {
   }
   updateLED();
   pollBleScanComplete();
+
+  // A requestOffer that raced esp_peer init is honoured here, once the peer
+  // exists and we know which parent to answer.
+  if (pendingOfferRequest && webrtcPeer && parentSocketId.length() > 0) {
+    pendingOfferRequest = false;
+    Serial.println("[peer] firing queued requestOffer");
+    esp_peer_new_connection(webrtcPeer);
+  }
+
   processAudio();
 
   unsigned long now = millis();

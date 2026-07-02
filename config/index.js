@@ -37,32 +37,22 @@ const config = {
     maxRooms: parseInt(process.env.MAX_ROOMS, 10) || 1000,
     maxBabiesPerRoom: parseInt(process.env.MAX_BABIES_PER_ROOM, 10) || 5,
     maxParentsPerRoom: parseInt(process.env.MAX_PARENTS_PER_ROOM, 10) || 10,
+    // Per-IP cap on simultaneous socket connections (anti-DoS)
+    maxSocketsPerIp: parseInt(process.env.MAX_SOCKETS_PER_IP, 10) || 20,
     cleanupInterval: parseInt(process.env.ROOM_CLEANUP_INTERVAL, 10) || 3600000, // 1 hour
     roomIdLength: 32, // 32 hex characters
     roomIdPattern: /^[a-f0-9]{32}$/i, // Hex string validator
-  },
-
-  // Audio Level Thresholds (0-255) - Using peak values
-  audio: {
-    levels: {
-      quiet: { min: 0, max: 100, name: 'Quiet', color: '#4CAF50' },
-      movement: { min: 101, max: 180, name: 'Movement', color: '#FFC107' },
-      crying: { min: 181, max: 255, name: 'Crying', color: '#F44336' }
-    },
-    timers: {
-      yellowToMute: 5000,  // 5 seconds
-      redToMute: 10000,    // 10 seconds
-      manualListenTimeout: 30000, // 30 seconds
-    }
   },
 
   // Security Configuration
   security: {
     rateLimitWindow: parseInt(process.env.RATE_LIMIT_WINDOW, 10) || 900000, // 15 minutes
     rateLimitMaxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS, 10) || 100,
-    sessionSecret: process.env.SESSION_SECRET || 'change-this-in-production',
-    corsOrigin: process.env.CORS_ORIGIN || '*',
+    // CORS: default to same-origin; set CORS_ORIGIN=* only in dev if cross-origin is needed
+    corsOrigin: process.env.CORS_ORIGIN || false,
     corsCredentials: process.env.CORS_CREDENTIALS === 'true',
+    // ntfy allowlist: default ntfy.sh; extras via comma-separated NTFY_ALLOWED_HOSTS
+    ntfyAllowedHosts: ['ntfy.sh'],
   },
 
   // Logging Configuration
@@ -72,18 +62,9 @@ const config = {
     filePath: process.env.LOG_FILE_PATH || './logs/babylink.log',
   },
 
-  // Redis Configuration (optional)
-  redis: {
-    enabled: !!process.env.REDIS_URL,
-    url: process.env.REDIS_URL,
-    password: process.env.REDIS_PASSWORD,
-  },
-
   // Feature Flags
   features: {
     multiBaby: process.env.ENABLE_MULTI_BABY !== 'false', // Enabled by default
-    recording: process.env.ENABLE_RECORDING === 'true',
-    notifications: process.env.ENABLE_NOTIFICATIONS === 'true',
   },
 
   // Validation helpers
@@ -99,12 +80,5 @@ const config = {
     }
   }
 };
-
-// Validate critical configuration
-if (config.server.isProduction) {
-  if (config.security.sessionSecret === 'change-this-in-production') {
-    console.warn('⚠️  WARNING: Using default SESSION_SECRET in production! Please set a secure secret.');
-  }
-}
 
 module.exports = config;
