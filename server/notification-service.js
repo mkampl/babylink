@@ -1,27 +1,99 @@
 /**
  * Notification Service
  *
- * Sends push notifications via ntfy.sh for baby monitor events
- * Supports per-room notification topics with cooldown logic
+ * Sends push notifications via ntfy.sh for baby monitor events.
+ * Supports per-room notification topics with cooldown logic.
+ *
+ * SSRF hardening: all caller-supplied ntfy server URLs are validated
+ * against an explicit allowlist before any outbound request is made.
  */
 
 const axios = require('axios');
 const logger = require('../utils/logger');
 
+/**
+ * Validate a caller-supplied ntfy server URL.
+ *
+ * Rules:
+ *  1. Must be https://
+ *  2. Host must appear in the provided allowlist
+ *
+ * Returns null on success, or an error string on failure.
+ *
+ * @param {string} ntfyServer - URL to validate (e.g. 'https://ntfy.sh')
+ * @param {string[]} allowedHosts - allowed hostnames
+ * @returns {string|null}
+ */
+function validateNtfyServer(ntfyServer, allowedHosts) {
+  if (!ntfyServer) return null; // null → use default, always allowed
+
+  let parsed;
+  try {
+    parsed = new URL(ntfyServer);
+  } catch {
+    return 'Invalid ntfy server URL';
+  }
+
+  if (parsed.protocol !== 'https:') {
+    return 'ntfy server must use HTTPS';
+  }
+
+  const extraHosts = (process.env.NTFY_ALLOWED_HOSTS || '')
+    .split(',')
+    .map(h => h.trim())
+    .filter(Boolean);
+  const all = [...allowedHosts, ...extraHosts];
+
+  if (!all.includes(parsed.hostname)) {
+    return `ntfy server host '${parsed.hostname}' is not allowed. Allowed: ${all.join(', ')}`;
+  }
+
+  return null;
+}
+
+/**
+ * Validate an ntfy topic name.
+ * Must be 1–64 characters: alphanumeric, underscore, or hyphen.
+ *
+ * @param {string} topic
+ * @returns {string|null} error string or null on success
+ */
+function validateNtfyTopic(topic) {
+  if (!topic || typeof topic !== 'string') return 'Topic is required';
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(topic)) {
+    return 'Topic must be 1–64 characters: letters, digits, underscore, or hyphen';
+  }
+  return null;
+}
+
 class NotificationService {
   constructor() {
     this.ntfyServer = process.env.NTFY_SERVER || 'https://ntfy.sh';
+    this.allowedHosts = ['ntfy.sh'];
 
     // Track last notification time per room to prevent spam
     this.lastNotificationTime = new Map();
 
     // Default cooldown periods (in milliseconds)
     this.cooldowns = {
-      crying: 10 * 1000,            // 10 seconds for crying alerts
-      disconnect: 2 * 60 * 1000,   // 2 minutes for device disconnects
-      reconnect: 1 * 60 * 1000,    // 1 minute for reconnect events
-      activity: 10 * 60 * 1000     // 10 minutes for general activity
+      crying: 10 * 1000,           // 10 seconds for crying alerts
+      disconnect: 2 * 60 * 1000,  // 2 minutes for device disconnects
+      activity: 10 * 60 * 1000    // 10 minutes for general activity
     };
+  }
+
+  /**
+   * Validate a topic + optional custom server URL.
+   * Returns null on success or an error string.
+   */
+  validateConfig(topic, ntfyServer) {
+    const topicErr = validateNtfyTopic(topic);
+    if (topicErr) return topicErr;
+
+    const serverErr = validateNtfyServer(ntfyServer, this.allowedHosts);
+    if (serverErr) return serverErr;
+
+    return null;
   }
 
   /**
@@ -31,17 +103,20 @@ class NotificationService {
    * @param {string} title - Notification title
    * @param {string} message - Notification message
    * @param {object} options - Additional options (priority, tags, etc.)
+   * @param {string} [serverOverride] - Per-request server URL override
    * @returns {Promise<boolean>} - Success status
    */
-  async sendNotification(topic, title, message, options = {}) {
+  async sendNotification(topic, title, message, options = {}, serverOverride = null) {
     if (!topic) {
       logger.warn('Cannot send notification: no topic specified');
       return false;
     }
 
+    const server = serverOverride || this.ntfyServer;
+
     try {
       const {
-        priority = 'default',  // min, low, default, high, urgent
+        priority = 'default',
         tags = [],
         click = null,
         actions = []
@@ -53,19 +128,13 @@ class NotificationService {
         'Tags': tags.join(',')
       };
 
-      if (click) {
-        headers['Click'] = click;
-      }
+      if (click) headers['Click'] = click;
 
       if (actions.length > 0) {
         headers['Actions'] = actions.map(a => `${a.action}, ${a.label}, ${a.url || ''}`).join('; ');
       }
 
-      await axios.post(
-        `${this.ntfyServer}/${topic}`,
-        message,
-        { headers }
-      );
+      await axios.post(`${server}/${topic}`, message, { headers });
 
       logger.info(`Notification sent to topic "${topic}": ${title}`);
       return true;
@@ -78,29 +147,19 @@ class NotificationService {
 
   /**
    * Check if notification should be sent based on cooldown period
-   *
-   * @param {string} roomId - Room ID
-   * @param {string} eventType - Event type (crying, disconnect, etc.)
-   * @returns {boolean} - True if notification should be sent
    */
   shouldSendNotification(roomId, eventType) {
     const key = `${roomId}:${eventType}`;
     const lastTime = this.lastNotificationTime.get(key);
     const cooldown = this.cooldowns[eventType] || this.cooldowns.activity;
 
-    if (!lastTime) {
-      return true;
-    }
+    if (!lastTime) return true;
 
-    const timeSinceLastNotification = Date.now() - lastTime;
-    return timeSinceLastNotification >= cooldown;
+    return (Date.now() - lastTime) >= cooldown;
   }
 
   /**
    * Record that a notification was sent
-   *
-   * @param {string} roomId - Room ID
-   * @param {string} eventType - Event type
    */
   recordNotification(roomId, eventType) {
     const key = `${roomId}:${eventType}`;
@@ -109,14 +168,8 @@ class NotificationService {
 
   /**
    * Send crying alert notification
-   *
-   * @param {string} topic - ntfy.sh topic
-   * @param {string} roomId - Room ID
-   * @param {string} babyName - Baby device name
-   * @param {string} serverUrl - BabyLink server URL for click action
-   * @returns {Promise<boolean>}
    */
-  async sendCryingAlert(topic, roomId, babyName, serverUrl) {
+  async sendCryingAlert(topic, roomId, babyName, serverUrl, serverOverride = null) {
     if (!this.shouldSendNotification(roomId, 'crying')) {
       const status = this.getCooldownStatus(roomId, 'crying');
       logger.info(`Skipping crying alert for room ${roomId} (cooldown: ${status.timeRemaining}s remaining)`);
@@ -131,25 +184,18 @@ class NotificationService {
         priority: 'high',
         tags: ['baby', 'crying', 'alert'],
         click: serverUrl ? `${serverUrl}/${roomId}?role=parent` : null
-      }
+      },
+      serverOverride
     );
 
-    if (success) {
-      this.recordNotification(roomId, 'crying');
-    }
-
+    if (success) this.recordNotification(roomId, 'crying');
     return success;
   }
 
   /**
    * Send device disconnect notification
-   *
-   * @param {string} topic - ntfy.sh topic
-   * @param {string} roomId - Room ID
-   * @param {string} babyName - Baby device name
-   * @returns {Promise<boolean>}
    */
-  async sendDisconnectAlert(topic, roomId, babyName) {
+  async sendDisconnectAlert(topic, roomId, babyName, serverOverride = null) {
     if (!this.shouldSendNotification(roomId, 'disconnect')) {
       logger.debug(`Skipping disconnect alert for room ${roomId} (cooldown active)`);
       return false;
@@ -162,117 +208,41 @@ class NotificationService {
       {
         priority: 'default',
         tags: ['baby', 'warning', 'disconnect']
-      }
+      },
+      serverOverride
     );
 
-    if (success) {
-      this.recordNotification(roomId, 'disconnect');
-    }
-
+    if (success) this.recordNotification(roomId, 'disconnect');
     return success;
   }
 
   /**
-   * Send device reconnect notification
-   *
-   * @param {string} topic - ntfy.sh topic
-   * @param {string} roomId - Room ID
-   * @param {string} babyName - Baby device name
-   * @returns {Promise<boolean>}
-   */
-  async sendReconnectAlert(topic, roomId, babyName) {
-    if (!this.shouldSendNotification(roomId, 'reconnect')) {
-      logger.debug(`Skipping reconnect alert for room ${roomId} (cooldown active)`);
-      return false;
-    }
-
-    const success = await this.sendNotification(
-      topic,
-      '✅ Baby monitor reconnected',
-      `${babyName} has reconnected to the room`,
-      {
-        priority: 'low',
-        tags: ['baby', 'info', 'connected']
-      }
-    );
-
-    if (success) {
-      this.recordNotification(roomId, 'reconnect');
-    }
-
-    return success;
-  }
-
-  /**
-   * Send activity log notification
-   *
-   * @param {string} topic - ntfy.sh topic
-   * @param {string} roomId - Room ID
-   * @param {string} activity - Activity description
-   * @returns {Promise<boolean>}
-   */
-  async sendActivityNotification(topic, roomId, activity) {
-    if (!this.shouldSendNotification(roomId, 'activity')) {
-      logger.debug(`Skipping activity notification for room ${roomId} (cooldown active)`);
-      return false;
-    }
-
-    const success = await this.sendNotification(
-      topic,
-      '📝 Baby Monitor Activity',
-      activity,
-      {
-        priority: 'low',
-        tags: ['baby', 'activity', 'log']
-      }
-    );
-
-    if (success) {
-      this.recordNotification(roomId, 'activity');
-    }
-
-    return success;
-  }
-
-  /**
-   * Clear cooldown for a specific room and event type
-   * Useful for testing or manual override
-   *
-   * @param {string} roomId - Room ID
-   * @param {string} eventType - Event type
+   * Clear cooldown for a specific room and event type (useful for testing)
    */
   clearCooldown(roomId, eventType) {
     const key = `${roomId}:${eventType}`;
     this.lastNotificationTime.delete(key);
-    logger.debug(`Cleared cooldown for ${key}`);
   }
 
   /**
    * Get cooldown status for debugging
-   *
-   * @param {string} roomId - Room ID
-   * @param {string} eventType - Event type
-   * @returns {object} - Cooldown info
    */
   getCooldownStatus(roomId, eventType) {
     const key = `${roomId}:${eventType}`;
     const lastTime = this.lastNotificationTime.get(key);
     const cooldown = this.cooldowns[eventType] || this.cooldowns.activity;
 
-    if (!lastTime) {
-      return { active: false, timeRemaining: 0 };
-    }
+    if (!lastTime) return { active: false, timeRemaining: 0 };
 
-    const timeSinceLastNotification = Date.now() - lastTime;
-    const timeRemaining = Math.max(0, cooldown - timeSinceLastNotification);
-
+    const timeRemaining = Math.max(0, cooldown - (Date.now() - lastTime));
     return {
       active: timeRemaining > 0,
-      timeRemaining: Math.ceil(timeRemaining / 1000), // in seconds
+      timeRemaining: Math.ceil(timeRemaining / 1000),
       nextAvailable: new Date(lastTime + cooldown)
     };
   }
 }
 
-// Export singleton instance
 module.exports = new NotificationService();
+module.exports.validateNtfyServer = validateNtfyServer;
+module.exports.validateNtfyTopic = validateNtfyTopic;
