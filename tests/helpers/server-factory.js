@@ -1,5 +1,6 @@
 // Test helper: creates isolated server instances
 
+const request = require('supertest');
 const { createServer } = require('../../server');
 
 /**
@@ -40,4 +41,19 @@ function startServer() {
   });
 }
 
-module.exports = { startServer };
+/**
+ * Create a room via POST /api/rooms and return { roomId, ownerToken }.
+ * Throws if the server does not respond with 201.
+ *
+ * @param {object} app - Express app (from startServer().app)
+ * @param {object} [body] - Optional request body (e.g. { name: 'Nursery' })
+ */
+async function createRoom(app, body = {}) {
+  const res = await request(app).post('/api/rooms').send(body);
+  if (res.status !== 201) {
+    throw new Error(`createRoom failed: HTTP ${res.status} – ${JSON.stringify(res.body)}`);
+  }
+  return { roomId: res.body.roomId, ownerToken: res.body.ownerToken };
+}
+
+module.exports = { startServer, createRoom };
