@@ -398,13 +398,21 @@ void processAudio() {
 
   const int chunkBytes = sampleCount * sizeof(int16_t);
 
-  // WebRTC is the primary path once its tunnel is up: Opus-encoded, encrypted
-  // (DTLS-SRTP), peer-to-peer, no server round-trip. esp_peer takes raw PCM at
-  // the codec's sample rate; PTS is monotonic samples-since-tunnel-open, which
-  // it maps onto the RTP timestamp. Fall back to raw PCM over the WSS control
-  // socket only while WebRTC isn't connected — sending both at once would play
-  // twice on the parent and echo. The server relays the PCM frames to parents
-  // as `esp32-audio` and exempts them from its control-message rate limit.
+  // Send BOTH paths, always. WebRTC is the preferred one (Opus, encrypted
+  // DTLS-SRTP, peer-to-peer) but esp_peer does not reliably re-establish after
+  // a parent reloads, and a stuck tunnel does not always report itself
+  // disconnected — so if the device sent only WebRTC the audio would go silent
+  // on reconnect. Keeping the raw-PCM stream flowing over the WSS socket as a
+  // constant safety net means the parent never loses audio: the browser plays
+  // WebRTC when its track is live and mutes this PCM copy (the webrtcActive
+  // guard in esp32-audio-handler.js), and falls straight back to PCM the
+  // instant WebRTC drops. The server relays the PCM frames to parents as
+  // `esp32-audio` and exempts them from its control-message rate limit.
+  if (isConnected && isRegistered && webSocket) {
+    esp_websocket_client_send_bin(webSocket, (const char*)audioBuffer,
+                                  chunkBytes, portMAX_DELAY);
+    wssPacketsSent++;
+  }
   if (webrtcConnected && webrtcPeer) {
     esp_peer_audio_frame_t frame = {};
     frame.pts  = webrtcAudioPts;
@@ -414,10 +422,6 @@ void processAudio() {
       webrtcPacketsSent++;
     }
     webrtcAudioPts += sampleCount;
-  } else if (isConnected && isRegistered && webSocket) {
-    esp_websocket_client_send_bin(webSocket, (const char*)audioBuffer,
-                                  chunkBytes, portMAX_DELAY);
-    wssPacketsSent++;
   }
 
   static unsigned long framesProcessed = 0;
