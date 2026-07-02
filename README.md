@@ -1,26 +1,38 @@
 # BabyLink
 
 A self-hosted baby monitor. WebRTC audio between phones, optional
-ESP32 hardware as a baby device, no cloud, no accounts. Multiple
+ESP32-S3 hardware as a baby device, no cloud, no accounts. Multiple
 babies and multiple parents in the same room work side by side.
 
 [![License](https://img.shields.io/badge/license-BSD--3--Clause-blue)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A516.0.0-brightgreen)](https://nodejs.org/)
+
+**Audio only — video is out of scope.**
 
 ## Quick start
 
 Docker (recommended):
 
 ```sh
-LAN_IP=192.168.x.y docker compose up -d --build
+PUBLIC_HOST=192.168.x.y docker compose up -d --build
 ```
 
-Open `http://<LAN_IP>:3001` on a phone. Create a room, then open the
-same link on a second device and pick *Baby* or *Parent*.
-
-`LAN_IP` is the address the BLE provisioning wizard hands to ESP32
-devices. Skip it if you only use browser babies; the rest of the
+`PUBLIC_HOST` is the address advertised to ESP32-S3 devices during BLE
+provisioning. Omit it if you only use browser babies; the rest of the
 PWA works either way.
+
+Open `http://192.168.x.y:3001` on a phone. Create a room, then open
+the same URL on a second device and pick *Baby* or *Parent*.
+
+> **Microphone requires HTTPS on LAN IPs.**  
+> `getUserMedia` only works on `localhost` over plain HTTP. On a LAN IP
+> you need a secure context. Options:
+> - Run Caddy with the bundled `Caddyfile.local` for self-signed local
+>   TLS (`caddy run --config Caddyfile.local`).
+> - In Chrome for LAN testing only: add the IP to
+>   `chrome://flags/#unsafely-treat-insecure-origin-as-secure`.
+> - On a public server, Caddy handles Let's Encrypt automatically (see
+>   `DEPLOYMENT.md`).
 
 Without Docker:
 
@@ -30,6 +42,12 @@ npm start
 ```
 
 `npm test` runs the vitest suite.
+
+## Screenshots
+
+<!-- TODO: add screenshots -->
+
+_Screenshots coming soon._
 
 ## What it does
 
@@ -44,6 +62,24 @@ npm start
 - **PIN-locked rooms** for shared spaces.
 - **PWA**: installable, works offline for the shell, screen wake lock
   while monitoring, dark mode.
+
+## Security model
+
+Rooms are identified by 128-bit unguessable IDs that act as bearer
+tokens. An **owner token** (returned once at room creation) is required
+for management operations — rename, delete, change PIN, set ntfy.
+**PINs** are hashed with a salted KDF before storage. See
+[SECURITY.md](SECURITY.md) for the full threat model and known gaps.
+
+## Browser support
+
+Evergreen browsers from 2020 onwards. Specific notes:
+
+- **Web Bluetooth** (BLE provisioning wizard): Android Chrome only.
+  A SoftAP captive-portal fallback is available for other devices.
+- **iOS Safari**: background audio and screen wake lock have
+  known limitations — the monitor may pause when the screen locks.
+  Use Android or desktop for unattended parent monitoring.
 
 ## Architecture
 
@@ -62,9 +98,8 @@ phone (parent) ──WebRTC──┤                             │
 ```
 
 The server is a thin signaling broker. Audio never traverses it
-between two browsers; the ESP32 path is the one exception (it
-streams raw PCM to the server when WebRTC isn't up yet, so older
-clients still get audio).
+between two browsers; the ESP32-S3 path is the one exception (it
+proxies Opus frames to the server for WebRTC re-signaling).
 
 ## Routes
 
@@ -73,15 +108,16 @@ clients still get audio).
 | `/` | Home — create / join / list saved rooms |
 | `/<roomId>` | Role picker for that room |
 | `/<roomId>?role=baby\|parent` | The monitor view |
+| `/api/rooms` | `POST` — create room, returns ID + owner token |
 | `/api/config/webrtc` | ICE servers (STUN + optional TURN) |
 | `/api/config/server-hint` | LAN address for the BLE wizard |
 | `/api/rooms/:roomId/...` | PIN, ntfy, sleep, devices APIs |
-| `/health` | uptime + room count |
+| `/health` | uptime, room count, connected ESP32 devices |
 
 Static paths (`/css/`, `/js/`, `/icons/`, `/manifest.json`,
 `/service-worker.js`, `/health`) bypass the rate limiter.
 
-## ESP32 hardware
+## ESP32-S3 hardware
 
 Source: `esp32-s3-firmware-idf/`. Target: Seeed XIAO ESP32-S3 Sense
 with the onboard PDM mic (MSM261D3526H1CPM).
@@ -119,7 +155,7 @@ in WiFi + server. The file is `.gitignore`d.
 
 TURN, ntfy, and reverse-proxy config live in `config/` and
 `docker-compose.yaml`. See `DEPLOYMENT.md` for the production setup
-notes (Caddy / nginx, certs, system service).
+notes (Caddy, certs, system service).
 
 ## Repository layout
 
@@ -130,10 +166,12 @@ server.js              entry, routes, middleware
 server/                socket.io handlers, ESP32 proxy, room state
 config/                env-driven config
 tests/                 vitest suite (unit, integration, e2e-server, manual)
-tools/                 dev tools (simulators, BLE provisioning CLI)
+tools/                 dev tools (S3 simulator, BLE provisioning CLI)
 esp32-s3-firmware-idf/ firmware source (ESP-IDF + Arduino-as-component)
 ```
 
 ## License
 
 BSD-3-Clause — see `LICENSE`.
+
+Third-party components: see `THIRD_PARTY.md`.
