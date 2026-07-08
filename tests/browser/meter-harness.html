@@ -1,0 +1,158 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>meter harness</title>
+<body>
+<pre id="log">running…</pre>
+<!-- level-meter.js is injected by the runner via addScriptTag -->
+<script>
+// End-to-end, input-free validation of the meter dynamics in a REAL browser
+// audio engine. We synthesise the "baby" with an OscillatorNode (no mic, no
+// human) and split it into two real AnalyserNodes fed the identical signal:
+//
+//   OLD:  smoothingTimeConstant = 0.8  +  naive per-frame threshold compare
+//   NEW:  smoothingTimeConstant = 0.2  +  LevelMeter (attack/release+hysteresis)
+//
+// Both see the same sound at the same instant, so any difference in
+// latency-to-RED or flicker-count is attributable purely to the fix — which
+// makes the result machine-independent (a relative A/B, not absolute numbers).
+
+const YELLOW = 100, RED = 180;                 // multi-stream (WebRTC) thresholds
+const FRAME_MS = 100;
+const naive = (v) => (v > RED ? 'RED' : v > YELLOW ? 'YELLOW' : 'GREEN');
+
+function peakOf(analyser, buf) {
+  analyser.getByteFrequencyData(buf);
+  let p = 0;
+  for (let i = 0; i < buf.length; i++) if (buf[i] > p) p = buf[i];
+  return p;
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+async function run() {
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  if (ctx.state === 'suspended') await ctx.resume();
+
+  const osc = ctx.createOscillator();
+  osc.type = 'sawtooth';
+  osc.frequency.value = 300;
+  const gain = ctx.createGain();
+  gain.gain.value = 0;
+  osc.connect(gain);
+
+  // Two real analysers fed the identical signal — only smoothing differs.
+  // A wide dB window (default is a narrow -100..-30 that a synth saturates
+  // instantly) gives a controllable gain→byte range so we can park the peak
+  // right on a threshold. Smoothing dynamics — the thing under test — are
+  // independent of this window.
+  function mkAnalyser(smoothing) {
+    const a = ctx.createAnalyser();
+    a.fftSize = 256;
+    a.smoothingTimeConstant = smoothing;
+    a.minDecibels = -100;
+    a.maxDecibels = 0;
+    return a;
+  }
+  const aOld = mkAnalyser(0.8);   // the old lag
+  const aNew = mkAnalyser(0.2);   // the fix
+  gain.connect(aOld);
+  gain.connect(aNew);
+  // Not connected to destination — silent run, no speaker needed.
+
+  const bufOld = new Uint8Array(aOld.frequencyBinCount);
+  const bufNew = new Uint8Array(aNew.frequencyBinCount);
+  osc.start();
+
+  async function steadyPeak(g, frames = 4) {
+    gain.gain.value = g;
+    let p = 0;
+    for (let i = 0; i < frames; i++) { await sleep(FRAME_MS); p = peakOf(aNew, bufNew); }
+    return p;
+  }
+
+  // ---- Calibrate: find a gain whose NEW-analyser steady peak ≈ RED ------
+  // Grow until we exceed RED, then binary-search the boundary.
+  let hi = 0.0005;
+  while ((await steadyPeak(hi, 2)) < RED && hi < 4) hi *= 2;
+  let lo = 0;
+  for (let i = 0; i < 12; i++) {
+    const mid = (lo + hi) / 2;
+    if ((await steadyPeak(mid, 2)) < RED) lo = mid; else hi = mid;
+  }
+  const gBoundary = (lo + hi) / 2;
+
+  // ---- Phase A: latency crossing a threshold ---------------------------
+  // Park the steady level *just above* RED (×1.05). Crossing then happens in
+  // the slow tail of each analyser's exponential — where high smoothing (0.8)
+  // costs ~1s and low smoothing (0.2) crosses in a couple of frames. This is
+  // exactly the "bar doesn't react for a second on a moderate noise" report.
+  gain.gain.value = 0; await sleep(500);           // silent floor
+  const gStep = gBoundary * 1.05;
+  let oldCross = null, newCross = null;
+  gain.gain.value = gStep;
+  for (let f = 0; f < 25; f++) {
+    await sleep(FRAME_MS);
+    if (oldCross === null && peakOf(aOld, bufOld) >= RED) oldCross = f;
+    if (newCross === null && peakOf(aNew, bufNew) >= RED) newCross = f;
+    if (oldCross !== null && newCross !== null) break;
+  }
+
+  // ---- Phase B: flicker at the threshold -------------------------------
+  // Real white noise summed onto the tone so the peak jitters frame-to-frame
+  // right at RED — the pendling case. Same real feed (aNew) drives BOTH a
+  // naive per-frame classifier and the LevelMeter; only the meter should stay
+  // calm. Math.random is fine here (this is page JS, not the sandbox).
+  const noiseBuf = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
+  const nd = noiseBuf.getChannelData(0);
+  for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+  const noise = ctx.createBufferSource();
+  noise.buffer = noiseBuf; noise.loop = true;
+  const noiseGain = ctx.createGain();
+  noiseGain.gain.value = gBoundary * 0.6;   // enough to straddle the threshold
+  noise.connect(noiseGain); noiseGain.connect(aNew); noiseGain.connect(aOld);
+  noise.start();
+
+  const meter = new LevelMeter();
+  let prevNaive = 'GREEN', prevMeter = 'GREEN';
+  let naiveFlips = 0, meterFlips = 0;
+  gain.gain.value = gBoundary;               // tone parked at RED, noise jitters it
+  await sleep(300);
+  for (let f = 0; f < 50; f++) {
+    await sleep(FRAME_MS);
+    const p = peakOf(aNew, bufNew);
+    const lvlNaive = naive(p);
+    const lvlMeter = meter.push(p, YELLOW, RED, f * FRAME_MS).level;
+    if (lvlNaive !== prevNaive) naiveFlips++;
+    if (lvlMeter !== prevMeter) meterFlips++;
+    prevNaive = lvlNaive; prevMeter = lvlMeter;
+  }
+
+  osc.stop(); noise.stop();
+  await ctx.close();
+
+  return {
+    gBoundary: Number(gBoundary.toFixed(5)),
+    latencyMs: {
+      old: oldCross === null ? null : oldCross * FRAME_MS,
+      new: newCross === null ? null : newCross * FRAME_MS,
+    },
+    flicks: { naive: naiveFlips, meter: meterFlips },
+  };
+}
+
+// Do NOT auto-run: level-meter.js is injected by the runner AFTER load, so
+// the runner calls this once LevelMeter is defined.
+window.__run__ = async function () {
+  try {
+    const res = await run();
+    window.__result = res;
+    document.getElementById('log').textContent = JSON.stringify(res, null, 2);
+    return res;
+  } catch (e) {
+    const err = { error: String((e && e.stack) || e) };
+    window.__result = err;
+    document.getElementById('log').textContent = 'ERROR: ' + String(e);
+    return err;
+  }
+};
+</script>

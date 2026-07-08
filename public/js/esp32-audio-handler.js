@@ -48,13 +48,12 @@ class ESP32AudioHandler {
       // too so RED stays reachable. (Amplifying the samples instead would make
       // sensitivity double as a volume control and clip — the old bug.)
       const sensitivity = ctx.sensitivity || 1.0;
-      const volume = Math.min(255, peak * sensitivity);
+      const adjusted = peak * sensitivity;
       let yellow = 60, red = 130;
       if (sensitivity < 0.71) { yellow = 60 * sensitivity; red = 130 * sensitivity; }
 
-      let level = 'GREEN';
-      if (volume > red)         level = 'RED';
-      else if (volume > yellow) level = 'YELLOW';
+      // Shared LevelMeter: fast attack (no lag) + hysteresis/hold (no flicker).
+      const { level, volume } = ctx.meter.push(adjusted, yellow, red, Date.now());
 
       if (this.multiBabyUI && this.multiBabyUI.babyCards.has(fromId)) {
         this.multiBabyUI.updateAudioLevel(fromId, level, volume);
@@ -98,12 +97,15 @@ class ESP32AudioHandler {
         // so muting the audible output doesn't kill the meter.
         const analyser = audioContext.createAnalyser();
         analyser.fftSize = 256;
-        analyser.smoothingTimeConstant = 0.6;
+        // Low analyser smoothing — LevelMeter does the envelope smoothing so
+        // the meter reacts on the first loud frame (was 0.6 → ~1s lag).
+        analyser.smoothingTimeConstant = 0.2;
         analyser.minDecibels = -40;
         analyser.maxDecibels = -5;
 
         const ctxRecord = {
           audioContext, gainNode, analyser,
+          meter: new LevelMeter(),
           levelData: new Uint8Array(analyser.frequencyBinCount),
           sampleRate: sampleRate || 16000,
           channels: channels || 1,

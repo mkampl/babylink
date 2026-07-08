@@ -121,7 +121,10 @@ class MultiStreamManager {
     const source = audioContext.createMediaStreamSource(stream);
 
     analyser.fftSize = 256;
-    analyser.smoothingTimeConstant = 0.8;
+    // Keep the analyser feed responsive; the envelope smoothing (fast attack,
+    // slow release) lives in LevelMeter so the meter reacts immediately to
+    // sound but doesn't flicker. High smoothing here was the ~1s meter lag.
+    analyser.smoothingTimeConstant = 0.2;
     source.connect(analyser);
 
     const dataArray = new Uint8Array(analyser.frequencyBinCount);
@@ -131,6 +134,7 @@ class MultiStreamManager {
       analyser,
       source,
       dataArray,
+      meter: new LevelMeter(),
       currentLevel: 'GREEN',
       lastUpdate: Date.now()
     };
@@ -163,7 +167,6 @@ class MultiStreamManager {
       // Get sensitivity for this participant (default 1.0 if not set)
       const sensitivity = this.sensitivity.get(participantId) || 1.0;
       const adjustedVolume = peak * sensitivity;
-      const volume = Math.min(255, adjustedVolume);
 
       // Scale thresholds at low sensitivity so RED stays reachable.
       let yellowThreshold = 100;
@@ -174,22 +177,19 @@ class MultiStreamManager {
         redThreshold = 180 * sensitivity;
       }
 
-      let level = 'GREEN';
-      if (adjustedVolume > redThreshold) {
-        level = 'RED';
-      } else if (adjustedVolume > yellowThreshold) {
-        level = 'YELLOW';
-      }
+      // LevelMeter applies fast-attack/slow-release smoothing + hysteresis +
+      // a minimum hold, so the badge tracks sound instantly without flicker.
+      const { level, volume } = ad.meter.push(
+        adjustedVolume, yellowThreshold, redThreshold, Date.now()
+      );
 
       if (this.onAudioLevelUpdate) {
         this.onAudioLevelUpdate(participantId, level, volume);
       }
 
-      const analysisData = this.analysers.get(participantId);
-      if (analysisData) {
-        const levelChanged = analysisData.currentLevel !== level;
-        analysisData.currentLevel = level;
-        if (levelChanged) analysisData.lastUpdate = Date.now();
+      if (ad.currentLevel !== level) {
+        ad.currentLevel = level;
+        ad.lastUpdate = Date.now();
       }
     };
 

@@ -1,5 +1,5 @@
 // service-worker.js
-const CACHE_NAME = 'babylink-v2.3.0';
+const CACHE_NAME = 'babylink-v2.4.0';
 
 // Shell assets pre-cached on install. Everything here is fingerprintless
 // (no hashed filenames), so we rely on the CACHE_NAME bump to roll
@@ -13,6 +13,7 @@ const urlsToCache = [
   '/css/home.css',
   '/js/utils.js',
   '/js/qrcode-generator.js',
+  '/js/level-meter.js',
   '/js/multi-baby-ui.js',
   '/js/multi-stream-manager.js',
   '/js/wake-lock-manager.js',
