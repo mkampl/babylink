@@ -15,6 +15,7 @@ class MultiBabyUI {
     this.isManuallyMuted = new Map(); // babyId → manual mute override
     this.lastLevelChangeTime = new Map(); // babyId → timestamp
     this.sensitivity = new Map(); // babyId → sensitivity multiplier (0.5-3.0, default 1.0)
+    this.connectionState = new Map(); // babyId → 'ok' | 'stalled' (set by the audio-health watchdog)
 
     this.onMuteToggle = null;
     this.onSoloToggle = null;
@@ -298,6 +299,15 @@ class MultiBabyUI {
   }
 
   /**
+   * Set the audio-health connection state for a baby ('ok' | 'stalled').
+   * Called by the 1 s watchdog in app.js; rendered by updateAudioLevel so the
+   * status dot has a single writer. 'stalled' surfaces "No audio — reconnecting".
+   */
+  setConnectionState(babyId, state) {
+    this.connectionState.set(babyId, state);
+  }
+
+  /**
    * Update audio level for a specific baby
    */
   updateAudioLevel(babyId, level, volume) {
@@ -344,11 +354,19 @@ class MultiBabyUI {
       levelIndicator.innerHTML = `<span class="level-badge ${levelClass}">${levelText}</span>`;
     }
 
-    // Status indicator is a small coloured dot now (compact header
-    // layout); pulse it red on crying, otherwise leave it green.
+    // Status indicator is a small coloured dot now (compact header layout).
+    // Honesty first: if the audio-health watchdog flagged this baby as stalled
+    // (no audio arriving on either path), show that instead of a falsely-green
+    // "Connected" — a wedged tunnel must never look like a calm baby. This is
+    // the single writer of the status dot, so the 100 ms level updates and the
+    // 1 s watchdog never fight.
     const status = document.getElementById(`status-${babyId}`);
     const statusText = document.getElementById(`status-text-${babyId}`);
-    if (status && level === 'RED') {
+    if (status && this.connectionState.get(babyId) === 'stalled') {
+      status.className = 'baby-status-dot status-error pulsing';
+      status.title = 'No audio';
+      if (statusText) statusText.textContent = 'No audio — reconnecting…';
+    } else if (status && level === 'RED') {
       status.className = 'baby-status-dot status-alert pulsing';
       status.title = 'Crying';
       if (statusText) statusText.textContent = 'Crying';

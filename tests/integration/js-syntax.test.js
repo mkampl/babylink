@@ -26,6 +26,7 @@ const JS_FILES = [
   '/js/home.js',
   '/js/select-role.js',
   '/js/level-meter.js',
+  '/js/audio-health.js',
   '/js/multi-baby-ui.js',
   '/js/multi-stream-manager.js',
   '/js/wake-lock-manager.js',

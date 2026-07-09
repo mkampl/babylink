@@ -177,14 +177,14 @@ class MultiStreamManager {
       const ad = this.analysers.get(participantId);
       if (!ad) return; // removeParticipant already cleared the interval
 
-      // Drive the badge only while THIS WebRTC audio is actually live. When
-      // the track is muted/silent the PCM path (esp32-audio-handler) owns the
-      // meter — its analyser still has real audio. If we also pushed here
-      // (reading our now-silent analyser as GREEN) the two independent meters
-      // would fight and flip the badge red/green several times a second.
-      // This is the exact complement of esp32-audio-handler's _webrtcActive
-      // guard, so exactly one path drives the meter at any instant.
-      if (!this._audioLive(participantId)) return;
+      // Drive the badge only while WebRTC is actually DELIVERING audio (recent
+      // energy) — not merely "track live". A wedged live-but-silent tunnel has
+      // no energy, so the PCM path (esp32-audio-handler) owns the meter and
+      // speaker instead and the parent keeps hearing/seeing the baby. Both
+      // paths gate on the same shared webrtcDelivering() flag, so exactly one
+      // drives the badge at any instant (no red/green flicker).
+      if (typeof getAudioHealth === 'function' &&
+          !getAudioHealth(participantId).webrtcDelivering(Date.now())) return;
 
       const { analyser, dataArray } = ad;
       analyser.getByteFrequencyData(dataArray);
@@ -193,6 +193,14 @@ class MultiStreamManager {
       let peak = 0;
       for (let i = 0; i < dataArray.length; i++) {
         if (dataArray[i] > peak) peak = dataArray[i];
+      }
+
+      // Feed the shared audio-health tracker with the RAW WebRTC energy every
+      // frame (before any gating) so both paths agree on whether WebRTC is
+      // actually delivering audio — a wedged "live but silent" tunnel produces
+      // no energy here and the PCM backup takes over. See audio-health.js.
+      if (typeof getAudioHealth === 'function') {
+        getAudioHealth(participantId).markWebrtcLevel(Date.now(), peak);
       }
 
       // Get sensitivity for this participant (default 1.0 if not set)

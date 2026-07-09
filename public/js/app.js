@@ -33,6 +33,7 @@
   // have different sensitivities and want their own view.
   const sleepTrackers = new Map();  // babyId → SleepTracker
   let sleepRenderInterval = null;
+  let audioHealthInterval = null;
 
   // ========================
   // Disconnect alarm banner (parent role)
@@ -523,6 +524,7 @@
     // whether to mute the WSS-PCM playback for a baby that's already
     // playing via WebRTC).
     window._multiStreamManager = multiStreamManager;
+    window._multiBabyUI = multiBabyUI;
 
     // Wire up UI callbacks to stream manager + ESP32
     multiBabyUI.onMuteToggle = (babyId, mute) => {
@@ -604,6 +606,19 @@
       }
     }, 5000);
 
+    // Audio-health watchdog: every second, ask the shared tracker whether each
+    // baby is still delivering audio and reflect an honest state on its card.
+    // 'stalled' (no audio on EITHER path) shows "No audio — reconnecting" so a
+    // wedged tunnel can't masquerade as a calm baby. See audio-health.js.
+    audioHealthInterval = setInterval(() => {
+      if (typeof getAudioHealth !== 'function') return;
+      const now = Date.now();
+      for (const [babyId] of multiBabyUI.babyCards) {
+        const st = getAudioHealth(babyId).status(now);
+        multiBabyUI.setConnectionState(babyId, st === 'stalled' ? 'stalled' : 'ok');
+      }
+    }, 1000);
+
     // Track crying state per baby to avoid spamming socket events
     const cryingState = new Map(); // babyId → { isCrying, lastEmit }
     const CRYING_EMIT_COOLDOWN = 10000; // Emit every 10s while baby is crying
@@ -675,6 +690,7 @@
           multiBabyUI.removeBaby(id);
           multiStreamManager.removeParticipant(id);
           esp32Handler.removeContext(id);
+          if (typeof dropAudioHealth === 'function') dropAudioHealth(id);
         });
       } else if (role === 'baby' && multiStreamManager) {
         // Close all parent peer connections so we get fresh offers on rejoin
@@ -771,6 +787,7 @@
       multiBabyUI.removeBaby(socketId);
       multiStreamManager.removeParticipant(socketId);
       esp32Handler.removeContext(socketId);
+      if (typeof dropAudioHealth === 'function') dropAudioHealth(socketId);
       const tracker = sleepTrackers.get(socketId);
       if (tracker) { tracker.destroy(); sleepTrackers.delete(socketId); }
       if (multiBabyUI.babyCards.size === 0) {

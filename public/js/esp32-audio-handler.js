@@ -34,14 +34,24 @@ class ESP32AudioHandler {
         return;
       }
 
-      // WebRTC path owns the meter when it's live — don't fight it.
-      if (this._webrtcActive(fromId)) return;
-
+      // Always read the PCM level and feed the shared health tracker, even
+      // when WebRTC is driving — so a wedged (live-but-silent) WebRTC tunnel is
+      // detected (WebRTC energy stops, PCM energy continues) and this path can
+      // take back over the meter/speaker.
       ctx.analyser.getByteFrequencyData(ctx.levelData);
       let peak = 0;
       for (let i = 0; i < ctx.levelData.length; i++) {
         if (ctx.levelData[i] > peak) peak = ctx.levelData[i];
       }
+      const now = Date.now();
+      if (typeof getAudioHealth === 'function') {
+        getAudioHealth(fromId).markPcmLevel(now, peak);
+      }
+
+      // WebRTC owns the meter only while it's actually DELIVERING audio; a
+      // wedged silent tunnel yields it back to this PCM path.
+      if (typeof getAudioHealth === 'function' &&
+          getAudioHealth(fromId).webrtcDelivering(now)) return;
 
       // Sensitivity scales DETECTION, never the audio: a higher setting lets a
       // quieter sound reach YELLOW/RED. Below 1.0x the thresholds scale down
@@ -79,6 +89,11 @@ class ESP32AudioHandler {
   handleAudioData(data, multiBabyUI) {
     const { fromId, audio, sampleRate, channels } = data;
     this.multiBabyUI = multiBabyUI;
+
+    // Record that a PCM frame arrived (device is alive, even if this frame is
+    // silent). The stall watchdog uses this to surface an honest "no audio"
+    // warning when frames stop, instead of a falsely-green "Connected".
+    if (typeof getAudioHealth === 'function') getAudioHealth(fromId).markPcmFrame(Date.now());
 
     try {
       if (!this.contexts.has(fromId)) {
@@ -162,9 +177,14 @@ class ESP32AudioHandler {
       audioBuffer.getChannelData(0).set(floatData);
       const source = ctx.audioContext.createBufferSource();
       source.buffer = audioBuffer;
-      // Skip WSS playback when WebRTC is actively delivering this
-      // baby's audio — both paths overlap into an echo otherwise.
-      if (!this._webrtcActive(fromId)) source.connect(ctx.gainNode);
+      // Play the PCM backup unless WebRTC is actively DELIVERING audio (recent
+      // energy) — so a wedged live-but-silent tunnel can never mute us into
+      // silence. When WebRTC is really delivering, stay muted to avoid echo.
+      // Defaults to audible if the health module is somehow absent.
+      const playPcm = (typeof getAudioHealth === 'function')
+        ? getAudioHealth(fromId).shouldPlayPcm(Date.now())
+        : true;
+      if (playPcm) source.connect(ctx.gainNode);
       // Metering branch — always processed regardless of audible mute
       // or WebRTC takeover so the baby-card level meter stays live.
       source.connect(ctx.analyser);
