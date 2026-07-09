@@ -126,6 +126,22 @@ function isPinLocked(roomId, ip) {
  * Create and configure the BabyLink server.
  * Returns all server components without starting the listener.
  */
+// Real client IP for a socket. socket.handshake.address is the DIRECT peer,
+// which behind the deployed Caddy reverse proxy is the loopback/proxy address
+// — identical for every client, so the per-IP socket cap would act globally
+// and a room's PIN lockout would lock out everyone. Caddy sets
+// `X-Forwarded-For {remote_host}` (a single, trusted entry it overwrites, so
+// it can't be spoofed by the client), matching Express's `trust proxy 1`.
+// Fall back to the direct address for direct/LAN/dev access with no proxy.
+function socketClientIp(socket) {
+  const xff = socket.handshake.headers && socket.handshake.headers['x-forwarded-for'];
+  if (xff) {
+    const first = String(xff).split(',')[0].trim();
+    if (first) return first;
+  }
+  return socket.handshake.address || 'unknown';
+}
+
 function createServer() {
 
 const app = express();
@@ -596,8 +612,9 @@ app.use((err, req, res, next) => {
 io.on('connection', (socket) => {
   logger.info(`Client connected: ${socket.id}`);
 
-  // Per-IP socket connection cap
-  const clientIp = socket.handshake.address || 'unknown';
+  // Per-IP socket connection cap (real client IP, not the proxy's — see
+  // socketClientIp). Used for both the cap and the room PIN lockout below.
+  const clientIp = socketClientIp(socket);
   const ipSockCount = (socketIpCount.get(clientIp) || 0) + 1;
   if (ipSockCount > config.room.maxSocketsPerIp) {
     logger.warn(`Socket rejected: IP ${clientIp} at connection cap`);
@@ -918,4 +935,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { createServer };
+module.exports = { createServer, socketClientIp };

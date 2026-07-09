@@ -38,17 +38,49 @@ function validateNtfyServer(ntfyServer, allowedHosts) {
     return 'ntfy server must use HTTPS';
   }
 
+  // The UI explicitly invites users to run their OWN ntfy server, and these
+  // endpoints are owner-token authenticated — so a static ntfy.sh-only
+  // allowlist broke the advertised self-hosted flow (every other host → 400).
+  // Accept any public HTTPS host, but keep SSRF hygiene by rejecting
+  // loopback/private/link-local targets (which a cloud server can't reach
+  // anyway). NTFY_ALLOWED_HOSTS still force-allows a host if an operator
+  // really wants an internal one.
   const extraHosts = (process.env.NTFY_ALLOWED_HOSTS || '')
     .split(',')
     .map(h => h.trim())
     .filter(Boolean);
-  const all = [...allowedHosts, ...extraHosts];
+  const explicitlyAllowed = [...allowedHosts, ...extraHosts].includes(parsed.hostname);
 
-  if (!all.includes(parsed.hostname)) {
-    return `ntfy server host '${parsed.hostname}' is not allowed. Allowed: ${all.join(', ')}`;
+  if (!explicitlyAllowed && isPrivateOrLocalHost(parsed.hostname)) {
+    return `ntfy server host '${parsed.hostname}' is not allowed (loopback/private address).`;
   }
 
   return null;
+}
+
+// Block SSRF to internal targets: loopback, RFC-1918 / CGNAT, link-local, and
+// non-public names. Hostname/IP-literal based (no DNS lookup) — adequate here
+// given owner-auth and that a public cloud server can't reach these anyway.
+function isPrivateOrLocalHost(hostname) {
+  const h = String(hostname).toLowerCase().replace(/^\[|\]$/g, '');
+  if (h === 'localhost' || h.endsWith('.local') || h.endsWith('.localhost') || h.endsWith('.internal')) {
+    return true;
+  }
+  // IPv6 loopback / link-local (fe80::/10) / unique-local (fc00::/7)
+  if (h === '::1' || h.startsWith('fe8') || h.startsWith('fe9') || h.startsWith('fea') ||
+      h.startsWith('feb') || h.startsWith('fc') || h.startsWith('fd')) {
+    return true;
+  }
+  const m = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (m) {
+    const a = parseInt(m[1], 10), b = parseInt(m[2], 10);
+    if (a === 0 || a === 10 || a === 127) return true;
+    if (a === 169 && b === 254) return true;            // link-local
+    if (a === 172 && b >= 16 && b <= 31) return true;   // RFC-1918
+    if (a === 192 && b === 168) return true;            // RFC-1918
+    if (a === 100 && b >= 64 && b <= 127) return true;  // CGNAT
+  }
+  return false;
 }
 
 /**

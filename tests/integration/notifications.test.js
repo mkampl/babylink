@@ -101,14 +101,27 @@ describe('ntfy server URL configuration (owner-authenticated)', () => {
     expect(res.status).toBe(200);
   });
 
-  it('rejects custom ntfy server not in the allowlist', async () => {
+  it('accepts a public self-hosted HTTPS ntfy server (advertised flow)', async () => {
     const { roomId, ownerToken } = await createRoom(server.app);
     const res = await request(server.app)
       .post(`/api/rooms/${roomId}/ntfy`)
       .set('Authorization', `Bearer ${ownerToken}`)
       .send({
         topic: 'test-topic',
-        ntfyServer: 'https://evil.example.com',
+        ntfyServer: 'https://ntfy.myhome.example.com',
+        enabled: true,
+      });
+    expect(res.status).toBe(200);
+  });
+
+  it('rejects a private/loopback ntfy server (SSRF guard)', async () => {
+    const { roomId, ownerToken } = await createRoom(server.app);
+    const res = await request(server.app)
+      .post(`/api/rooms/${roomId}/ntfy`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({
+        topic: 'test-topic',
+        ntfyServer: 'https://192.168.1.10',
         enabled: true,
       });
     expect(res.status).toBe(400);
