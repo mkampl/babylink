@@ -29,6 +29,13 @@
     function initializePage() {
       const currentUrl = window.location.origin + window.location.pathname;
 
+      // Home control — nothing is streaming on the role page, so go straight
+      // home (where the user can create/join/switch rooms) with no confirm.
+      const homeBtn = document.getElementById('homeBtn');
+      if (homeBtn) {
+        homeBtn.addEventListener('click', () => { window.location.href = '/'; });
+      }
+
       // Set room link
       document.getElementById('roomLink').value = currentUrl;
 

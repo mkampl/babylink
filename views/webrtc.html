@@ -21,7 +21,13 @@
   <link rel="stylesheet" href="/css/monitor.css">
 </head>
 <body class="monitor-page">
-  <h1>BabyLink Monitor</h1>
+  <header class="app-bar">
+    <button type="button" id="homeBtn" class="app-bar__home btn" aria-label="Leave room and go to the home screen">
+      <span class="app-bar__home-icon" aria-hidden="true">←</span>
+      <span>Home</span>
+    </button>
+    <h1 class="app-bar__title">BabyLink Monitor</h1>
+  </header>
 
   <div id="status">Connecting...</div>
   <div id="alert" hidden></div>

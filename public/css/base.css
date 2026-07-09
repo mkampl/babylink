@@ -126,7 +126,10 @@ input[type="text"]::placeholder, input[type="url"]::placeholder {
   position: fixed;
   top: var(--space-md);
   right: var(--space-md);
-  z-index: 1000;
+  /* Above the sticky .app-bar (10000) and the #startOverlay (9999) so the
+     toggle stays visible/clickable in its top-right corner rather than being
+     covered by the app-bar's background. */
+  z-index: 10001;
   width: 44px;
   height: 44px;
   padding: 0;

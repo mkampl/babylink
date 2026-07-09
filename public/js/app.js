@@ -106,6 +106,26 @@
   // Dark mode toggle
   ThemeManager.createToggleButton(document.body);
 
+  // Home / leave-room control. Leaving cuts a live stream, so confirm with
+  // role-aware wording, then tear down explicitly (stop mic, release wake
+  // lock, disconnect) before navigating so the baby's mic indicator goes
+  // dark immediately instead of waiting on page unload.
+  const homeBtn = document.getElementById('homeBtn');
+  if (homeBtn) {
+    homeBtn.addEventListener('click', () => {
+      const msg = role === 'baby'
+        ? 'Stop this baby monitor? This device will stop streaming to parents.'
+        : 'Leave this room? You will stop monitoring.';
+      if (!window.confirm(msg)) return;
+      try {
+        if (localStream) localStream.getTracks().forEach((t) => t.stop());
+        wakeLockMgr.release();
+        socket.disconnect();
+      } catch (e) { /* best-effort cleanup — navigate regardless */ }
+      window.location.href = '/';
+    });
+  }
+
   // Wake lock setup
   wakeLockMgr.bindEvents(role);
 
