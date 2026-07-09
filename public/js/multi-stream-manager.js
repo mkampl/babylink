@@ -146,6 +146,18 @@ class MultiStreamManager {
   }
 
   /**
+   * Is this participant's WebRTC audio actually flowing right now? Mirrors
+   * ESP32AudioHandler._webrtcActive so the WebRTC and PCM meters partition
+   * cleanly: exactly one owns the badge at any instant.
+   */
+  _audioLive(participantId) {
+    const stream = this.audioStreams.get(participantId);
+    if (!stream) return false;
+    const tracks = stream.getAudioTracks();
+    return tracks.length > 0 && !tracks[0].muted && tracks[0].readyState === 'live';
+  }
+
+  /**
    * Monitor audio levels for a specific baby.
    * Uses setInterval instead of requestAnimationFrame so the loop keeps
    * running in background tabs (rAF is throttled/suspended when hidden).
@@ -154,6 +166,15 @@ class MultiStreamManager {
     const analyse = () => {
       const ad = this.analysers.get(participantId);
       if (!ad) return; // removeParticipant already cleared the interval
+
+      // Drive the badge only while THIS WebRTC audio is actually live. When
+      // the track is muted/silent the PCM path (esp32-audio-handler) owns the
+      // meter — its analyser still has real audio. If we also pushed here
+      // (reading our now-silent analyser as GREEN) the two independent meters
+      // would fight and flip the badge red/green several times a second.
+      // This is the exact complement of esp32-audio-handler's _webrtcActive
+      // guard, so exactly one path drives the meter at any instant.
+      if (!this._audioLive(participantId)) return;
 
       const { analyser, dataArray } = ad;
       analyser.getByteFrequencyData(dataArray);
