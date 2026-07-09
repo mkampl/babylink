@@ -67,8 +67,16 @@ const ThemeManager = {
       updateIcon();
     });
 
-    // Also listen for system preference changes
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', updateIcon);
+    // Also listen for system preference changes. Older Safari (iOS < 14)
+    // only has the legacy MediaQueryList.addListener — calling the modern
+    // addEventListener there throws a TypeError, which previously aborted the
+    // whole page script (breaking the Create Room button). Feature-detect.
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    if (mq.addEventListener) {
+      mq.addEventListener('change', updateIcon);
+    } else if (mq.addListener) {
+      mq.addListener(updateIcon);
+    }
 
     if (container) {
       container.appendChild(btn);

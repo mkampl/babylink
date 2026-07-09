@@ -152,8 +152,16 @@
   <script src="/js/utils.js"></script>
   <script src="/js/qrcode-generator.js"></script>
   <script>
-    // Dark mode toggle
-    ThemeManager.createToggleButton(document.body);
+    // Dark mode toggle. Guarded: if utils.js failed to load (flaky mobile
+    // network, stale service worker), a ReferenceError here must NOT abort the
+    // rest of the script — otherwise the create/join form handlers below never
+    // attach and clicking "Create Room" does a native form submit that just
+    // reloads the start page.
+    try {
+      ThemeManager.createToggleButton(document.body);
+    } catch (e) {
+      console.warn('Theme toggle init failed (non-fatal):', e);
+    }
 
     // ========================
     // Onboarding wizard
@@ -303,9 +311,15 @@
       }
     });
 
-    // Show onboarding or home
-    if (!isOnboardingComplete()) {
-      showOnboarding();
+    // Show onboarding or home. Guarded: a <dialog>.showModal() failure on some
+    // mobile browsers must not abort the script (same reason as above — the
+    // form handlers further down must still attach).
+    try {
+      if (!isOnboardingComplete()) {
+        showOnboarding();
+      }
+    } catch (e) {
+      console.warn('Onboarding init failed (non-fatal):', e);
     }
 
     // ========================
