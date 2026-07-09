@@ -1140,6 +1140,25 @@ body.role-page main {
   margin: 0 0 var(--space-sm);
 }
 
+.ble-gate-hint {
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: #8a6d00;
+  background: #fff7e0;
+  border: 1px solid #f0d478;
+  border-radius: var(--radius-md, 8px);
+  padding: var(--space-sm) var(--space-md);
+  margin-bottom: var(--space-md);
+}
+
+@media (prefers-color-scheme: dark) {
+  .ble-gate-hint {
+    color: #ffd867;
+    background: rgba(240, 212, 120, 0.12);
+    border-color: rgba(240, 212, 120, 0.4);
+  }
+}
+
 .ble-flex-grow {
   flex: 1;
   min-width: 0;

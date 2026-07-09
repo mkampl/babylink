@@ -84,6 +84,20 @@ async def run_set(args):
     client = await connect(device)
     if client is None:
         return 2
+    # Provisioning gate: a configured device rejects config/apply writes until
+    # its BLE window is opened by a physical BOOT-button tap. Warn early so the
+    # writes below don't silently no-op.
+    try:
+        info = json.loads((await client.read_gatt_char(CHAR_INFO)).decode("utf-8") or "{}")
+        if info.get("configured") and info.get("provOpen") is False:
+            print("[!] Device is configured and provisioning is LOCKED.")
+            print("    Tap the BOOT button on the device once (its LED blinks 3x),")
+            print("    then re-run this command within 3 minutes.")
+            await client.__aexit__(None, None, None)
+            return 3
+    except Exception:
+        pass  # older firmware without the gate — proceed
+
     try:
         existing = json.loads(
             (await client.read_gatt_char(CHAR_CONFIG)).decode("utf-8") or "{}"

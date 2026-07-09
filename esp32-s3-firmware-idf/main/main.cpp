@@ -100,6 +100,16 @@ unsigned long lastStatusReport = 0;
 unsigned long lastWsOkMs = 0;
 const unsigned long WS_WATCHDOG_MS = 60000;
 
+// BLE provisioning gate. Config/command writes are only accepted while a
+// provisioning window is open. A CONFIGURED device keeps it CLOSED so nobody
+// in BLE range can silently re-point the monitor (or factory-reset it); a
+// short BOOT-button press opens it for a few minutes as physical-presence
+// proof. An UNCONFIGURED device (out-of-box / post-factory-reset) is open so
+// first-time setup needs no button.
+unsigned long provisioningWindowUntil = 0;
+const unsigned long PROVISION_WINDOW_MS = 180000;  // 3 minutes
+void openProvisioningWindow();   // defined after the BLE publish helpers
+
 I2SClass I2S;
 int16_t audioBuffer[BUFFER_SIZE];
 esp_websocket_client_handle_t webSocket = nullptr;
@@ -130,6 +140,14 @@ bool hasActiveServer() {
   return !serverProfiles.empty()
       && activeServer >= 0
       && activeServer < (int)serverProfiles.size();
+}
+
+// True when BLE config/command writes may be accepted (see the gate note by
+// PROVISION_WINDOW_MS). Overflow-safe window compare.
+static bool provisioningAllowed() {
+  if (!hasActiveServer()) return true;   // unconfigured: open for first setup
+  return provisioningWindowUntil != 0 &&
+         (long)(provisioningWindowUntil - millis()) > 0;
 }
 
 String serializeConfig() {
@@ -353,6 +371,14 @@ static void checkResetButton() {
       performFactoryReset();
     }
   } else {
+    // Released. A short, deliberate tap (80–900 ms, below the 1 s that starts
+    // reset feedback) opens the BLE provisioning window as physical-presence
+    // proof — so a configured monitor can be re-provisioned only by someone
+    // who can physically press the button.
+    if (pressStart != 0 && !resetButtonHeld) {
+      unsigned long dur = millis() - pressStart;
+      if (dur >= 80 && dur < 900) openProvisioningWindow();
+    }
     pressStart = 0;
     resetButtonHeld = false;
   }
@@ -475,6 +501,10 @@ static String buildInfoJson() {
   doc["camera"]   = true;
   doc["channels"] = 1;
   doc["mac"]      = macHex();
+  // Gate state for the wizard: whether the device already has a server
+  // (needs the button to re-provision) and whether the window is open now.
+  doc["configured"] = hasActiveServer();
+  doc["provOpen"]   = provisioningAllowed();
   String out;
   serializeJson(doc, out);
   return out;
@@ -484,6 +514,19 @@ void publishInfoToBle() {
   if (!bleInfoChar) return;
   String json = buildInfoJson();
   bleInfoChar->setValue((const uint8_t*)json.c_str(), json.length());
+}
+
+// Open the provisioning window (short BOOT-button tap) and push the new state
+// to any connected wizard so it can drop its "press the button" prompt.
+void openProvisioningWindow() {
+  provisioningWindowUntil = millis() + PROVISION_WINDOW_MS;
+  Serial.printf("[BLE] provisioning window OPEN for %lus\n",
+                (unsigned long)(PROVISION_WINDOW_MS / 1000));
+  for (int i = 0; i < 3; i++) { setLED(true); delay(60); setLED(false); delay(60); }
+  if (bleInfoChar) {
+    publishInfoToBle();
+    bleInfoChar->notify();
+  }
 }
 
 static void publishScanResults(int n) {
@@ -555,6 +598,16 @@ class BLEProvisionCallbacks : public NimBLECharacteristicCallbacks {
                   uuid.c_str(), (unsigned)raw.length());
 
     if (uuid.indexOf("1001") > 0) {
+      // Gate: reject config writes on a configured device unless the button
+      // opened the provisioning window (physical-presence proof).
+      if (!provisioningAllowed()) {
+        Serial.println("[BLE] Config write REJECTED — provisioning closed (tap BOOT to enable)");
+        // NimBLE has already stored the raw written bytes in the char buffer.
+        // Overwrite them with the real config so a later read (e.g. a wizard
+        // prefilling its editor) can't surface attacker-supplied values.
+        publishConfigToBle();
+        return;
+      }
       Serial.printf("[BLE] Config write (%u bytes)\n", (unsigned)value.length());
       if (deserializeConfig(value)) {
         publishConfigToBle();
@@ -566,6 +619,12 @@ class BLEProvisionCallbacks : public NimBLECharacteristicCallbacks {
         publishScanToBle();
       }
     } else if (uuid.indexOf("1003") > 0) {
+      // Gate: apply/wifi-reset mutate the device — same physical-presence rule.
+      if (!provisioningAllowed()) {
+        Serial.printf("[BLE] Command '%s' REJECTED — provisioning closed (tap BOOT)\n",
+                      value.c_str());
+        return;
+      }
       if (value == "apply") {
         Serial.println("[BLE] Apply — persisting + restart");
         saveConfig();
@@ -612,7 +671,7 @@ void startBLE() {
   bleConfigChar = mkChar(BLE_CHAR_CONFIG,  NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE);
   bleScanChar   = mkChar(BLE_CHAR_SCAN,    NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::WRITE);
                   mkChar(BLE_CHAR_COMMAND, NIMBLE_PROPERTY::WRITE);
-  bleInfoChar   = mkChar(BLE_CHAR_INFO,    NIMBLE_PROPERTY::READ);
+  bleInfoChar   = mkChar(BLE_CHAR_INFO,    NIMBLE_PROPERTY::READ | NIMBLE_PROPERTY::NOTIFY);
 
   publishConfigToBle();
   publishScanToBle();
@@ -1354,6 +1413,15 @@ void loop() {
                   (WiFi.status() == WL_CONNECTED) ? "up" : "down",
                   isRegistered ? "registered" : (isConnected ? "open" : "down"),
                   (unsigned)ESP.getFreeHeap());
+    // Keep the BLE INFO characteristic's provOpen flag fresh (e.g. after the
+    // provisioning window expires) for any connected wizard.
+    static bool lastProvOpen = false;
+    bool provOpen = provisioningAllowed();
+    if (isBLEActive && provOpen != lastProvOpen) {
+      lastProvOpen = provOpen;
+      publishInfoToBle();
+      if (bleInfoChar) bleInfoChar->notify();
+    }
   }
 }
 

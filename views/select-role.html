@@ -171,6 +171,9 @@
         <!-- BLE Wizard (shown after clicking Add via Bluetooth) -->
         <div id="bleWizard" class="ble-wizard" style="display:none;">
           <div id="bleStatus" class="ble-status"></div>
+          <div id="bleGateHint" class="ble-gate-hint" style="display:none;">
+            🔒 This device is already set up. To change it, <strong>tap the button on the device once</strong> (its LED blinks 3×), then continue. This stops anyone nearby from re-configuring your monitor.
+          </div>
           <div id="bleEditor" style="display:none;">
             <div class="ble-progress" id="bleProgress">
               <span class="ble-dot active" data-step="0"></span>
@@ -838,11 +841,32 @@
     var bleDevice = null;
     var bleServer = null;
     var bleService = null;
+    var bleInfoChar = null;
+    // Provisioning gate: a configured device won't accept a config/apply until
+    // its BLE window is opened by a physical BOOT-button tap. provOpen tracks
+    // that (pushed live via INFO notifications). Older firmware has no gate →
+    // treat as always open so it keeps working.
+    var bleProvOpen = true;
+    var bleConfigured = false;
     var bleConfig = { wifi: [], servers: [], activeServer: 0, deviceName: '' };
     var BLE_MAX_WIFI = 6;
     var BLE_MAX_SERVERS = 4;
 
     function $(id) { return document.getElementById(id); }
+
+    // Show the "tap the button" prompt and disable Save while a configured
+    // device's provisioning window is closed. Called on connect and whenever
+    // the device pushes an INFO update (button tap opens the window).
+    function updateGateHint() {
+      var locked = bleConfigured && !bleProvOpen;
+      var hint = $('bleGateHint');
+      if (hint) hint.style.display = locked ? 'block' : 'none';
+      var save = $('bleSaveBtn');
+      if (save) {
+        save.disabled = locked;
+        save.title = locked ? 'Tap the button on the device to enable changes' : '';
+      }
+    }
 
     function renderBleWifi() {
       var host = $('bleWifiRows');
@@ -1050,14 +1074,32 @@
         // Classic firmware doesn't expose this; the catch handles that
         // gracefully (we just keep the BLE-advertised name).
         var deviceLabel = bleDevice.name;
+        bleProvOpen = true;      // assume open (older firmware has no gate)
+        bleConfigured = false;
+        bleInfoChar = null;
         try {
-          var infoChar = await bleService.getCharacteristic(BLE_CHAR_INFO);
-          var infoRaw = await infoChar.readValue();
+          bleInfoChar = await bleService.getCharacteristic(BLE_CHAR_INFO);
+          var infoRaw = await bleInfoChar.readValue();
           var info = JSON.parse(new TextDecoder().decode(infoRaw));
           if (info.model) {
             deviceLabel = bleDevice.name + ' (' + info.model +
                           (info.fw ? ' · ' + info.fw : '') + ')';
           }
+          // Gate fields exist only on gated firmware; absent → stay "open".
+          if (typeof info.provOpen === 'boolean') bleProvOpen = info.provOpen;
+          if (typeof info.configured === 'boolean') bleConfigured = info.configured;
+          // Live updates when the user taps the device button.
+          try {
+            await bleInfoChar.startNotifications();
+            bleInfoChar.addEventListener('characteristicvaluechanged', function(ev) {
+              try {
+                var u = JSON.parse(new TextDecoder().decode(ev.target.value));
+                if (typeof u.provOpen === 'boolean') bleProvOpen = u.provOpen;
+                if (typeof u.configured === 'boolean') bleConfigured = u.configured;
+                updateGateHint();
+              } catch (e) { /* ignore malformed */ }
+            });
+          } catch (e) { /* notifications unsupported — fall back to read */ }
         } catch (e) {
           /* older firmware without device_info — fall back to name */
         }
@@ -1109,6 +1151,7 @@
         $('bleEditor').style.display = 'block';
         goToBleStep(0);
         renderBleEditor();
+        updateGateHint();
       } catch (err) {
         if (err.name === 'NotFoundError') {
           status.textContent = 'No device selected.';
@@ -1193,6 +1236,15 @@
       }
       if (!bleConfig.servers.length || !bleConfig.servers[0].host || !bleConfig.servers[0].roomId) {
         alert('Add at least one server with host and room ID.');
+        return;
+      }
+      // Gate: a configured device rejects writes until its window is opened by
+      // a physical button tap. Surface that clearly instead of a silent failure.
+      if (bleConfigured && !bleProvOpen) {
+        updateGateHint();
+        result.style.display = 'block';
+        result.className = 'pin-result error';
+        result.textContent = 'Locked: tap the button on the device once (LED blinks 3×), then Save.';
         return;
       }
       // The config write must actually succeed — if it fails, no point
