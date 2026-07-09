@@ -38,11 +38,7 @@
   <div id="mainContainer"></div>
 
   <!-- Scripts -->
-  <script>
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/service-worker.js').catch(function() {});
-    }
-  </script>
+  <script src="/js/sw-register.js"></script>
   <script src="/socket.io/socket.io.js"></script>
   <script src="/js/utils.js"></script>
   <script src="/js/level-meter.js"></script>

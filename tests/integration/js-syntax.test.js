@@ -22,6 +22,9 @@ afterAll(async () => {
 const JS_FILES = [
   '/js/utils.js',
   '/js/qrcode-generator.js',
+  '/js/sw-register.js',
+  '/js/home.js',
+  '/js/select-role.js',
   '/js/level-meter.js',
   '/js/multi-baby-ui.js',
   '/js/multi-stream-manager.js',

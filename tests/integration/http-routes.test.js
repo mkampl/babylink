@@ -40,15 +40,20 @@ describe('GET /', () => {
     expect(res.text).toContain('data-step="2"');
   });
 
-  it('has help button to replay onboarding', async () => {
+  it('has help button and loads the (external, CSP-compliant) home script', async () => {
     const res = await request(server.app).get('/');
     expect(res.text).toContain('id="helpBtn"');
-    expect(res.text).toContain('replayOnboarding()');
+    // Onboarding logic now lives in /js/home.js (inline scripts are blocked by
+    // the strict CSP). The page must reference it, and must NOT ship inline JS.
+    expect(res.text).toContain('/js/home.js');
+    expect(res.text).not.toMatch(/onclick=/);
   });
 
-  it('checks localStorage for onboarding-complete', async () => {
-    const res = await request(server.app).get('/');
+  it('onboarding logic is served in home.js', async () => {
+    const res = await request(server.app).get('/js/home.js');
+    expect(res.status).toBe(200);
     expect(res.text).toContain('babylink-onboarding-complete');
+    expect(res.text).toContain('replayOnboarding');
   });
 
   it('still contains the main home page sections', async () => {
