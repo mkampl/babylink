@@ -18,6 +18,7 @@
 #include <ArduinoJson.h>
 #include <NimBLEDevice.h>
 #include <ESP_I2S.h>
+#include <ESPmDNS.h>
 #include "esp_websocket_client.h"
 #include "esp_crt_bundle.h"
 #include "esp_peer.h"
@@ -445,6 +446,9 @@ void processAudio() {
     wssPacketsSent++;
   }
   if (webrtcConnected && webrtcPeer) {
+    // NOTE: tried feeding esp_peer 20 ms (320-sample) frames to fix the faint
+    // "squeak" — it made the audio worse (garbled), so we send the full chunk
+    // as before. The squeak, if it matters, needs a different approach.
     esp_peer_audio_frame_t frame = {};
     frame.pts  = webrtcAudioPts;
     frame.data = (uint8_t*)audioBuffer;
@@ -752,6 +756,20 @@ void connectWiFi() {
     isConnected = true;
     Serial.printf("[WiFi] Connected. IP=%s RSSI=%d\n",
                   WiFi.localIP().toString().c_str(), WiFi.RSSI());
+    // mDNS: advertise babylink-<mac>.local and (via CONFIG_LWIP_DNS_SUPPORT_
+    // MDNS_QUERIES) let esp_peer resolve the browser's mDNS-obscured
+    // `<uuid>.local` ICE candidates — enabling a DIRECT LAN WebRTC path when
+    // parent and device share a network (lower latency, no STUN round-trip).
+    static bool mdnsUp = false;
+    if (!mdnsUp) {
+      String host = "babylink-" + macHex();
+      if (MDNS.begin(host.c_str())) {
+        mdnsUp = true;
+        Serial.printf("[mDNS] responder up: %s.local\n", host.c_str());
+      } else {
+        Serial.println("[mDNS] begin failed");
+      }
+    }
   } else {
     Serial.println("[WiFi] Failed to connect — entering provisioning portal.");
     startConfigPortal();
