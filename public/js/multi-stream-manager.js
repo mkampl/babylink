@@ -20,6 +20,25 @@ class MultiStreamManager {
   }
 
   /**
+   * Tear down a peer and ask the baby for a fresh offer, respecting the
+   * retry breaker (max 3) that stops esp_peer's occasional malformed-SDP
+   * reconnects from looping forever. Audio elements + analyser are kept so
+   * the baby card survives the retry. Returns true if a retry was fired.
+   */
+  _retryOffer(participantId) {
+    const retries = this.offerRetries.get(participantId) || 0;
+    if (retries >= 3) return false; // breaker tripped — give up
+    this.offerRetries.set(participantId, retries + 1);
+    const peer = this.peerConnections.get(participantId);
+    if (peer) {
+      try { peer.close(); } catch (e) {}
+      this.peerConnections.delete(participantId);
+    }
+    this.socket.emit('signal', { requestOffer: true, to: participantId });
+    return true;
+  }
+
+  /**
    * Create a peer connection for a specific participant
    */
   createPeerConnection(participantId, participantInfo) {
@@ -58,17 +77,8 @@ class MultiStreamManager {
     peer.onconnectionstatechange = () => {
       const state = peer.connectionState;
       if (state === 'failed') {
-        // Tear down the silently-dead peer and re-request a fresh offer
-        // (reuses the same retry breaker already in handleSignal).
-        const retries = this.offerRetries.get(participantId) || 0;
-        if (retries < 3) {
-          this.offerRetries.set(participantId, retries + 1);
-          if (this.peerConnections.has(participantId)) {
-            try { peer.close(); } catch (e) {}
-            this.peerConnections.delete(participantId);
-          }
-          this.socket.emit('signal', { requestOffer: true, to: participantId });
-        }
+        // Tear down the silently-dead peer and re-request a fresh offer.
+        this._retryOffer(participantId);
         // Update status dot so the card turns red instead of showing green
         if (this.onConnectionFailed) this.onConnectionFailed(participantId);
       }
@@ -271,14 +281,8 @@ class MultiStreamManager {
       // (`a=group:BUNDLE 0` references a mid with no matching `m=audio`).
       // Drop the peer and ask for a fresh offer — usually parses cleanly.
       const broken = data && data.fromSocketId;
-      const retries = this.offerRetries.get(broken) || 0;
-      if (broken && data.offer && this.peerConnections.has(broken) && retries < 3) {
-        // Peer-only teardown — keep audio elements + analyser so the
-        // baby card survives the retry.
-        const peer = this.peerConnections.get(broken);
-        if (peer) { try { peer.close(); } catch (e) {} this.peerConnections.delete(broken); }
-        this.offerRetries.set(broken, retries + 1);
-        this.socket.emit('signal', { requestOffer: true, to: broken });
+      if (broken && data.offer && this.peerConnections.has(broken)) {
+        this._retryOffer(broken);
       }
     }
   }
