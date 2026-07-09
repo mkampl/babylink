@@ -27,6 +27,7 @@ const JS_FILES = [
   '/js/select-role.js',
   '/js/level-meter.js',
   '/js/audio-health.js',
+  '/js/pcm-playout-processor.js',
   '/js/multi-baby-ui.js',
   '/js/multi-stream-manager.js',
   '/js/wake-lock-manager.js',

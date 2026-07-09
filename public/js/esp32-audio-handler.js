@@ -125,12 +125,41 @@ class ESP32AudioHandler {
           sampleRate: sampleRate || 16000,
           channels: channels || 1,
           volume: 1.0,
+          worklet: null,      // AudioWorkletNode once the module loads
+          arbGain: null,      // gates PCM audibility for the WebRTC arbitration
+          workletReady: false,
         };
 
         // gainNode is the mute point — connects to destination only.
         gainNode.connect(audioContext.destination);
 
         this.contexts.set(fromId, ctxRecord);
+
+        // Preferred playout: an AudioWorklet jitter buffer (smooth, drift-free)
+        // on the audio thread. addModule is async and only works in a secure
+        // context; until it's ready — or if it fails/unsupported — we fall back
+        // to the per-chunk scheduler below, so PCM always plays.
+        if (audioContext.audioWorklet && typeof AudioWorkletNode !== 'undefined') {
+          audioContext.audioWorklet.addModule('/js/pcm-playout-processor.js').then(() => {
+            const rec = this.contexts.get(fromId);
+            if (!rec) return; // participant left while loading
+            const node = new AudioWorkletNode(audioContext, 'pcm-playout', {
+              numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [1],
+              processorOptions: { inputRate: rec.sampleRate },
+            });
+            const arbGain = audioContext.createGain();
+            arbGain.gain.value = 1;
+            node.connect(arbGain);
+            arbGain.connect(rec.gainNode);   // → mute/volume → destination
+            node.connect(rec.analyser);      // meter reads the worklet output
+            rec.worklet = node;
+            rec.arbGain = arbGain;
+            rec.workletReady = true;
+          }).catch((e) => {
+            console.warn('PCM AudioWorklet unavailable — using scheduler fallback:',
+                         e && e.message);
+          });
+        }
 
         if (!this.enabled && audioContext.state === 'suspended') {
           if (window._enableAllAudio) window._enableAllAudio();
@@ -170,13 +199,6 @@ class ESP32AudioHandler {
         floatData[i] = pcmData[i] / 32768.0;
       }
 
-      // Schedule each chunk to start where the previous one ended,
-      // with ~50 ms of lead. Re-anchor if we drift too far ahead or
-      // fall into the past.
-      const audioBuffer = ctx.audioContext.createBuffer(ctx.channels, floatData.length, ctx.sampleRate);
-      audioBuffer.getChannelData(0).set(floatData);
-      const source = ctx.audioContext.createBufferSource();
-      source.buffer = audioBuffer;
       // Play the PCM backup unless WebRTC is actively DELIVERING audio (recent
       // energy) — so a wedged live-but-silent tunnel can never mute us into
       // silence. When WebRTC is really delivering, stay muted to avoid echo.
@@ -184,22 +206,34 @@ class ESP32AudioHandler {
       const playPcm = (typeof getAudioHealth === 'function')
         ? getAudioHealth(fromId).shouldPlayPcm(Date.now())
         : true;
-      if (playPcm) source.connect(ctx.gainNode);
-      // Metering branch — always processed regardless of audible mute
-      // or WebRTC takeover so the baby-card level meter stays live.
-      source.connect(ctx.analyser);
 
-      const now = ctx.audioContext.currentTime;
-      const MIN_LEAD = 0.05;
-      const MAX_LEAD = 0.30;
+      if (ctx.workletReady && ctx.worklet) {
+        // --- AudioWorklet path: hand samples to the jitter buffer on the audio
+        // thread. Audibility is gated by arbGain (WebRTC arbitration); the
+        // worklet always consumes (and feeds the meter) so it never backs up.
+        ctx.arbGain.gain.value = playPcm ? 1 : 0;
+        ctx.worklet.port.postMessage(floatData, [floatData.buffer]);
+      } else {
+        // --- Fallback: per-chunk scheduled AudioBufferSourceNode. Schedule each
+        // chunk where the last ended with ~50 ms lead; re-anchor on drift.
+        const audioBuffer = ctx.audioContext.createBuffer(ctx.channels, floatData.length, ctx.sampleRate);
+        audioBuffer.getChannelData(0).set(floatData);
+        const source = ctx.audioContext.createBufferSource();
+        source.buffer = audioBuffer;
+        if (playPcm) source.connect(ctx.gainNode);
+        source.connect(ctx.analyser); // meter stays live even when muted
 
-      if (!ctx.nextStartTime || ctx.nextStartTime < now + 0.001) {
-        ctx.nextStartTime = now + MIN_LEAD;
-      } else if (ctx.nextStartTime - now > MAX_LEAD) {
-        ctx.nextStartTime = now + MIN_LEAD;
+        const now = ctx.audioContext.currentTime;
+        const MIN_LEAD = 0.05;
+        const MAX_LEAD = 0.30;
+        if (!ctx.nextStartTime || ctx.nextStartTime < now + 0.001) {
+          ctx.nextStartTime = now + MIN_LEAD;
+        } else if (ctx.nextStartTime - now > MAX_LEAD) {
+          ctx.nextStartTime = now + MIN_LEAD;
+        }
+        source.start(ctx.nextStartTime);
+        ctx.nextStartTime += audioBuffer.duration;
       }
-      source.start(ctx.nextStartTime);
-      ctx.nextStartTime += audioBuffer.duration;
     } catch (error) {
       console.error('Error playing ESP32 audio:', error);
     }
