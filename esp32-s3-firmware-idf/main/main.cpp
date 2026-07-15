@@ -1031,6 +1031,36 @@ static void portalLoopTick() {
 // WEBSOCKET (server register + audio stream)
 // =============================================================================
 
+// Resting-voltage → state-of-charge for a 1S Li-ion/LiPo cell, as breakpoints
+// (monotonic high→low), linearly interpolated between points. This follows the
+// real curve — a flat plateau where 3.73-3.95V ≈ 20-70% and a steep drop below
+// ~3.7V — instead of a straight line, which badly over-reports mid-range (a
+// linear map calls 3.75V "50%"; the true value is ~25%). Sources: common Li-ion
+// OCV/SoC charts (lygte-info.dk, Battery University). Most accurate at rest or
+// light load; while charging the terminal voltage is elevated so it reads high.
+struct BatPoint { float v; int pct; };
+static const BatPoint BAT_CURVE[] = {
+  {4.20f, 100}, {4.15f, 95}, {4.11f, 90}, {4.08f, 85}, {4.02f, 80}, {3.98f, 75},
+  {3.95f, 70},  {3.91f, 65}, {3.87f, 60}, {3.85f, 55}, {3.84f, 50}, {3.82f, 45},
+  {3.80f, 40},  {3.79f, 35}, {3.77f, 30}, {3.75f, 25}, {3.73f, 20}, {3.71f, 15},
+  {3.69f, 10},  {3.61f, 5},  {3.30f, 0},
+};
+
+int socFromVoltage(float v) {
+  const int n = sizeof(BAT_CURVE) / sizeof(BAT_CURVE[0]);
+  if (v >= BAT_CURVE[0].v) return 100;
+  if (v <= BAT_CURVE[n - 1].v) return 0;
+  for (int i = 1; i < n; i++) {
+    if (v >= BAT_CURVE[i].v) {
+      const BatPoint& hi = BAT_CURVE[i - 1];
+      const BatPoint& lo = BAT_CURVE[i];
+      float t = (v - lo.v) / (hi.v - lo.v);
+      return (int)lroundf(lo.pct + t * (hi.pct - lo.pct));
+    }
+  }
+  return 0;
+}
+
 // Read the battery via the external divider. Returns 0-100, or -1 ("unknown"
 // → the app shows "--%") when the feature is off or NO divider is soldered.
 //
@@ -1050,14 +1080,15 @@ int readBatteryPercent() {
   if (probeMv < 300) return -1; // pulled to ~0 ⇒ no divider wired ⇒ unknown
 
   uint32_t sum = 0;
-  const int n = 8;
+  const int n = 16;
   for (int i = 0; i < n; i++) sum += analogReadMilliVolts(BATTERY_ADC_PIN);
   float vbat = (sum / (float)n) / 1000.0f * BATTERY_DIVIDER;
   if (vbat < 3.0f || vbat > 4.35f) return -1;   // implausible ⇒ unknown
-  int pct = (int)lroundf((vbat - 3.30f) / (4.20f - 3.30f) * 100.0f);
-  if (pct < 0) pct = 0;
-  if (pct > 100) pct = 100;
-  return pct;
+  // Light smoothing (EMA) so the % doesn't wobble ±1-2% with WiFi-load sag and
+  // ADC noise on the flat plateau, where a few mV is a percent or two.
+  static float vbatEma = 0.0f;
+  vbatEma = (vbatEma <= 0.0f) ? vbat : vbatEma + 0.25f * (vbat - vbatEma);
+  return socFromVoltage(vbatEma); // real Li-ion curve, not a straight line
 }
 
 // Periodic battery report so the parent sees a live level (and notices a baby
