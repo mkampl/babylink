@@ -345,7 +345,9 @@ class ESP32AudioProxy {
             socketId: socket.id,
             role: socket.role || 'unknown',
             userName: socket.userName || 'Unknown',
-            source: 'socketio'
+            source: 'socketio',
+            battery: socket.battery,       // last self-reported battery %, if any
+            charging: socket.charging
           });
         }
       });

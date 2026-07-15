@@ -725,6 +725,21 @@ io.on('connection', (socket) => {
     }
   });
 
+  // A baby reports its own battery so the parent knows the monitored device
+  // won't quietly die. Stored on the socket (so late-joining parents get it via
+  // room-state, see getRoomParticipants) and relayed live to the room.
+  socket.on('baby-status', (data) => {
+    if (!socket.roomId || typeof data !== 'object' || data === null) return;
+    const level = Number(data.battery);
+    if (Number.isFinite(level)) socket.battery = Math.max(0, Math.min(100, Math.round(level)));
+    socket.charging = !!data.charging;
+    socket.to(socket.roomId).emit('baby-status', {
+      socketId: socket.id,
+      battery: socket.battery,
+      charging: socket.charging
+    });
+  });
+
   // Handle WebRTC signaling
   socket.on('signal', (data) => {
     if (!signalRateOk(socket, 'signal')) {
