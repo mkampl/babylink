@@ -70,6 +70,18 @@ static const int BUFFER_SIZE  = 1024;
 static const int AUDIO_GAIN   = 32;
 static const float DC_ALPHA   = 0.001f;
 
+// --- Battery sense --------------------------------------------------------
+// The XIAO ESP32-S3 has NO built-in battery divider or dedicated ADC pin, so
+// the charge can only be read via an EXTERNAL resistor divider soldered on:
+//   BAT+ --[ R1 ]--+--[ R2 ]-- GND ,  ADC pin taps the R1/R2 junction.
+// R1==R2 halves the voltage (4.2V -> 2.1V, safe) => divider ratio 2.0.
+// Pin D4 = GPIO5 (ADC1, free on this board). If the divider isn't wired the
+// reading is implausible and we report -1 ("unknown"), which the app shows as
+// "--%" rather than a wrong number. Set the pin to -1 to disable the feature.
+static const int   BATTERY_ADC_PIN = 5;      // GPIO5 / D4
+static const float BATTERY_DIVIDER = 2.0f;   // (R1+R2)/R2; 2x equal resistors
+static const unsigned long BATTERY_REPORT_MS = 30000;
+
 struct WifiProfile   { String ssid;  String password; };
 struct ServerProfile { String label; String host; uint16_t port; String roomId; };
 
@@ -95,6 +107,7 @@ String deviceId;
 unsigned long lastLedToggle = 0;
 bool ledState = false;
 unsigned long lastStatusReport = 0;
+unsigned long lastBatteryReport = 0;
 // Watchdog: last time the WS was healthy (registered). If WiFi is up but this
 // goes stale, the esp_websocket reconnect has wedged (seen after a server
 // restart) and we force-recreate the client.
@@ -1018,6 +1031,34 @@ static void portalLoopTick() {
 // WEBSOCKET (server register + audio stream)
 // =============================================================================
 
+// Read the battery via the external divider. Returns 0-100, or -1 when the
+// feature is off OR the reading is implausible (no divider soldered → a
+// floating pin won't land in the Li-ion range), so the app shows "--%".
+int readBatteryPercent() {
+  if (BATTERY_ADC_PIN < 0) return -1;
+  uint32_t sum = 0;
+  const int n = 8;
+  for (int i = 0; i < n; i++) sum += analogReadMilliVolts(BATTERY_ADC_PIN);
+  float vbat = (sum / (float)n) / 1000.0f * BATTERY_DIVIDER;
+  if (vbat < 3.0f || vbat > 4.35f) return -1;   // implausible → unknown
+  int pct = (int)lroundf((vbat - 3.30f) / (4.20f - 3.30f) * 100.0f);
+  if (pct < 0) pct = 0;
+  if (pct > 100) pct = 100;
+  return pct;
+}
+
+// Periodic battery report so the parent sees a live level (and notices a baby
+// about to die). -1 is sent as "unknown" and surfaces as "--%".
+void sendBatteryStatus() {
+  if (BATTERY_ADC_PIN < 0 || !isRegistered || !webSocket) return;
+  StaticJsonDocument<96> doc;
+  doc["type"]    = "status";
+  doc["battery"] = readBatteryPercent();
+  String payload;
+  serializeJson(doc, payload);
+  esp_websocket_client_send_text(webSocket, payload.c_str(), payload.length(), portMAX_DELAY);
+}
+
 void sendRegister() {
   if (!hasActiveServer() || !webSocket) return;
   const ServerProfile& s = serverProfiles[activeServer];
@@ -1029,6 +1070,7 @@ void sendRegister() {
   doc["sampleRate"]  = SAMPLE_RATE;
   doc["channels"]    = 1;
   doc["device_type"] = DEVICE_TYPE;
+  if (BATTERY_ADC_PIN >= 0) doc["battery"] = readBatteryPercent();
 
   String payload;
   serializeJson(doc, payload);
@@ -1422,6 +1464,11 @@ void loop() {
     Serial.println("[WS] watchdog: unregistered too long — rebooting");
     delay(100);
     ESP.restart();
+  }
+
+  if (BATTERY_ADC_PIN >= 0 && now - lastBatteryReport >= BATTERY_REPORT_MS) {
+    lastBatteryReport = now;
+    sendBatteryStatus();
   }
 
   if (now - lastStatusReport >= 5000) {

@@ -730,12 +730,21 @@ io.on('connection', (socket) => {
   // room-state, see getRoomParticipants) and relayed live to the room.
   socket.on('baby-status', (data) => {
     if (!socket.roomId || typeof data !== 'object' || data === null) return;
-    const level = Number(data.battery);
-    if (Number.isFinite(level)) socket.battery = Math.max(0, Math.min(100, Math.round(level)));
+    // Three states: not reported (ignore), unknown/null (relay "--%"), or 0-100.
+    const raw = data.battery;
+    let level;
+    if (raw === undefined || raw === null) {
+      level = undefined;
+    } else {
+      const n = Number(raw);
+      level = !Number.isFinite(n) ? undefined : (n < 0 ? null : Math.max(0, Math.min(100, Math.round(n))));
+    }
+    if (level === undefined) return; // device isn't actually reporting battery
+    socket.battery = level;
     socket.charging = !!data.charging;
     socket.to(socket.roomId).emit('baby-status', {
       socketId: socket.id,
-      battery: socket.battery,
+      battery: level,
       charging: socket.charging
     });
   });

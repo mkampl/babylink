@@ -30,6 +30,18 @@ const MAX_CONNECTIONS_PER_IP = 10;
 const MSG_RATE_MAX = 60;
 const MSG_RATE_WINDOW_MS = 10_000; // 10 seconds
 
+// Normalize a self-reported battery value into three states:
+//   undefined → device didn't report battery at all (parent shows nothing)
+//   null      → battery sense active but unreadable, e.g. no divider soldered
+//               (parent shows "--%", not a wrong number)
+//   0..100    → a real reading
+function normalizeBattery(v) {
+  if (v === undefined || v === null) return undefined;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return undefined;
+  return n < 0 ? null : Math.max(0, Math.min(100, Math.round(n)));
+}
+
 class ESP32AudioProxy {
   constructor(io, opts = {}) {
     this.io = io;
@@ -182,6 +194,11 @@ class ESP32AudioProxy {
       ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
       return {};
     }
+    if (message.type === 'status') {
+      const info = getEsp32Info();
+      if (info) this.updateEsp32Battery(info.id, message.battery, message.charging);
+      return {};
+    }
     if (message.type === 'signal') {
       const info = getEsp32Info();
       if (!info) {
@@ -209,7 +226,7 @@ class ESP32AudioProxy {
    * Register a new ESP32 device
    */
   registerESP32(ws, registrationData, clientIp) {
-    const { roomId, name, mac, sampleRate = 16000, channels = 1 } = registrationData;
+    const { roomId, name, mac, sampleRate = 16000, channels = 1, battery } = registrationData;
     const deviceType = (typeof registrationData.device_type === 'string' && registrationData.device_type)
       ? registrationData.device_type
       : null;
@@ -249,6 +266,8 @@ class ESP32AudioProxy {
       sampleRate,
       channels,
       deviceType,
+      battery: normalizeBattery(battery),
+      charging: !!registrationData.charging,
       connectedAt: new Date(),
       connectedAtMs: Date.now(),
       audioPacketsReceived: 0,
@@ -331,6 +350,25 @@ class ESP32AudioProxy {
   }
 
   /**
+   * A device self-reported its battery (periodic `status` message). Store it and
+   * relay to the room so the parent sees it live. A null level — sense active but
+   * unreadable, e.g. no divider soldered — is relayed too and surfaces as "--%".
+   */
+  updateEsp32Battery(esp32Id, battery, charging) {
+    const client = this.esp32Clients.get(esp32Id);
+    if (!client) return;
+    const level = normalizeBattery(battery);
+    if (level === undefined) return; // device isn't actually reporting battery
+    client.battery = level;
+    client.charging = !!charging;
+    this.io.to(client.roomId).emit('baby-status', {
+      socketId: esp32Id,
+      battery: level,
+      charging: client.charging,
+    });
+  }
+
+  /**
    * Get all participants in a room (Socket.IO + ESP32)
    */
   getRoomParticipants(roomId) {
@@ -360,7 +398,9 @@ class ESP32AudioProxy {
           role: 'baby',
           userName: client.name,
           source: 'esp32',
-          deviceType: client.deviceType
+          deviceType: client.deviceType,
+          battery: client.battery,
+          charging: client.charging
         });
       }
     });

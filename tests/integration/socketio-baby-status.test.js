@@ -52,6 +52,31 @@ describe('baby-status (battery)', () => {
     expect(status.charging).toBe(true);
   });
 
+  it('relays a negative battery as null (unknown → "--%")', async () => {
+    const baby = makeClient();
+    const parent = makeClient();
+    await joinRoom(baby, VALID_ROOM_ID, 'baby', 'Emma');
+    await joinRoom(parent, VALID_ROOM_ID, 'parent', 'Mom');
+
+    const statusPromise = waitForEvent(parent, 'baby-status');
+    baby.emit('baby-status', { battery: -1 }); // sense active but unreadable
+    const status = await statusPromise;
+    expect(status.battery).toBeNull();
+  });
+
+  it('ignores a report with no battery field', async () => {
+    const baby = makeClient();
+    const parent = makeClient();
+    await joinRoom(baby, VALID_ROOM_ID, 'baby', 'Emma');
+    await joinRoom(parent, VALID_ROOM_ID, 'parent', 'Mom');
+
+    let got = false;
+    parent.on('baby-status', () => { got = true; });
+    baby.emit('baby-status', { charging: true });
+    await new Promise(r => setTimeout(r, 200));
+    expect(got).toBe(false);
+  });
+
   it('is not echoed back to the reporting baby', async () => {
     const baby = makeClient();
     await joinRoom(baby, VALID_ROOM_ID, 'baby', 'Emma');
