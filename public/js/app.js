@@ -477,6 +477,41 @@
     if (labelEl) labelEl.textContent = 'listening';
   }
 
+  // Baby role: report our battery to the parent so a phone-as-baby about to die
+  // is visible, not a silent outage. Set up once; the listeners re-emit live and
+  // report() no-ops until the socket is connected. Browsers without the Battery
+  // API simply don't report (the parent shows no chip for us).
+  let babyBatteryInited = false;
+  function initBabyBatteryReport() {
+    if (babyBatteryInited || role !== 'baby' || !navigator.getBattery) return;
+    babyBatteryInited = true;
+    navigator.getBattery().then(function(battery) {
+      function report() {
+        if (!socket || !socket.connected) return;
+        socket.emit('baby-status', {
+          battery: Math.round(battery.level * 100),
+          charging: battery.charging
+        });
+      }
+      report();
+      battery.addEventListener('levelchange', report);
+      battery.addEventListener('chargingchange', report);
+      setInterval(report, 60000); // safety net if events are throttled
+    }).catch(function() { /* Battery API unavailable */ });
+  }
+
+  // Parent role: apply battery values carried on a participants list (room-state
+  // / participant-joined). hasOwnProperty, not truthiness: a present-but-null
+  // value means "reported, unknown" (→ "--%") and must not be skipped.
+  function applyBatteryFromParticipants(participants) {
+    if (role !== 'parent' || !Array.isArray(participants)) return;
+    participants.forEach(function(p) {
+      if (p && p.role === 'baby' && Object.prototype.hasOwnProperty.call(p, 'battery')) {
+        multiBabyUI.setBattery(p.socketId, p.battery, p.charging);
+      }
+    });
+  }
+
   function initBatteryIndicator() {
     if (!navigator.getBattery) return;
 
@@ -701,6 +736,13 @@
     }
 
     if (isInitialized) joinRoom();
+    initBabyBatteryReport(); // baby: start reporting our charge (no-op for parents / no API)
+  });
+
+  socket.on('baby-status', (data) => {
+    if (role === 'parent' && data && data.socketId) {
+      multiBabyUI.setBattery(data.socketId, data.battery, data.charging);
+    }
   });
 
   socket.on('disconnect', (reason) => {
@@ -749,6 +791,7 @@
           socket.emit('signal', { requestOffer: true, to: baby.socketId });
         }
       });
+      applyBatteryFromParticipants(participants);
       if (babies.length > 0) { alarmMgr.stop(); hideDisconnectBanner(); }
     }
   });
@@ -768,6 +811,7 @@
       }
     } else if (role === 'parent' && pRole === 'baby') {
       multiBabyUI.addBaby(socketId, { socketId, role: pRole, userName: pName });
+      applyBatteryFromParticipants(participants);
       if (multiBabyUI.babyCards.size > 0) { alarmMgr.stop(); hideDisconnectBanner(); }
       // Unified dispatch — same requestOffer kickoff for every baby
       // type. multiStreamManager handles the inbound offer regardless

@@ -227,6 +227,20 @@ body.monitor-page {
   color: var(--color-text-muted);
 }
 
+/* Per-baby battery chip in the parent's baby-card header (value / "--%"). */
+.baby-battery-chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--color-text-muted);
+}
+.baby-battery-chip[hidden] { display: none; }
+.baby-battery-chip.medium { color: var(--color-warning); }
+.baby-battery-chip.low { color: var(--color-danger); }
+.baby-battery-chip.unknown { color: var(--color-text-muted); opacity: 0.7; }
+
 .battery-indicator {
   width: 36px;
   height: 16px;

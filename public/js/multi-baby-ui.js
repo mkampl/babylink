@@ -93,6 +93,7 @@ class MultiBabyUI {
         <span class="baby-status-dot status-ok" id="status-${babyId}" title="Connected" role="status">
           <span class="visually-hidden" id="status-text-${babyId}">Connected</span>
         </span>
+        <span class="baby-battery-chip" id="battery-${babyId}" hidden title="Baby device battery"></span>
         <div class="volume-meter-container">
           <div class="volume-meter" id="meter-${babyId}" style="width: 0%"></div>
         </div>
@@ -173,6 +174,25 @@ class MultiBabyUI {
 
     // Log activity
     this.logActivity(babyId, `${babyName} connected`, 'success');
+  }
+
+  /**
+   * Update a baby's battery chip. Three states, mirroring the app:
+   *   null/undefined level → "--%" (device has a battery sensor but can't read
+   *   it, e.g. an ESP with no divider); a number → the level; the chip stays
+   *   hidden until a device reports at all.
+   */
+  setBattery(babyId, level, charging) {
+    const el = document.getElementById(`battery-${babyId}`);
+    if (!el) return;
+    el.hidden = false;
+    if (level === null || level === undefined) {
+      el.textContent = '🔋 --%';
+      el.className = 'baby-battery-chip unknown';
+      return;
+    }
+    el.textContent = `${charging ? '⚡' : '🔋'} ${level}%`;
+    el.className = 'baby-battery-chip' + (level <= 15 ? ' low' : (level <= 30 ? ' medium' : ''));
   }
 
   /**
