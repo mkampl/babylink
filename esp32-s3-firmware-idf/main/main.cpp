@@ -1031,16 +1031,29 @@ static void portalLoopTick() {
 // WEBSOCKET (server register + audio stream)
 // =============================================================================
 
-// Read the battery via the external divider. Returns 0-100, or -1 when the
-// feature is off OR the reading is implausible (no divider soldered → a
-// floating pin won't land in the Li-ion range), so the app shows "--%".
+// Read the battery via the external divider. Returns 0-100, or -1 ("unknown"
+// → the app shows "--%") when the feature is off or NO divider is soldered.
+//
+// Detecting "not soldered" robustly matters: a floating ADC pin can drift into
+// the valid Li-ion range and show a bogus %. So we first probe with an internal
+// pull-down — an unwired pin is dragged to ~0 mV, but a wired divider (~50k
+// source) still holds the pin well above it (~0.8-1.0 V). Below the probe
+// threshold ⇒ nothing connected ⇒ unknown.
 int readBatteryPercent() {
   if (BATTERY_ADC_PIN < 0) return -1;
+
+  pinMode(BATTERY_ADC_PIN, INPUT_PULLDOWN);
+  delay(3);
+  int probeMv = analogReadMilliVolts(BATTERY_ADC_PIN);
+  pinMode(BATTERY_ADC_PIN, INPUT); // release so the pull-down doesn't skew the read
+  delay(3);
+  if (probeMv < 300) return -1; // pulled to ~0 ⇒ no divider wired ⇒ unknown
+
   uint32_t sum = 0;
   const int n = 8;
   for (int i = 0; i < n; i++) sum += analogReadMilliVolts(BATTERY_ADC_PIN);
   float vbat = (sum / (float)n) / 1000.0f * BATTERY_DIVIDER;
-  if (vbat < 3.0f || vbat > 4.35f) return -1;   // implausible → unknown
+  if (vbat < 3.0f || vbat > 4.35f) return -1;   // implausible ⇒ unknown
   int pct = (int)lroundf((vbat - 3.30f) / (4.20f - 3.30f) * 100.0f);
   if (pct < 0) pct = 0;
   if (pct > 100) pct = 100;
@@ -1473,11 +1486,12 @@ void loop() {
 
   if (now - lastStatusReport >= 5000) {
     lastStatusReport = now;
-    Serial.printf("[status] uptime=%lus wifi=%s ws=%s heap=%u\n",
+    Serial.printf("[status] uptime=%lus wifi=%s ws=%s heap=%u bat=%d%%\n",
                   now / 1000,
                   (WiFi.status() == WL_CONNECTED) ? "up" : "down",
                   isRegistered ? "registered" : (isConnected ? "open" : "down"),
-                  (unsigned)ESP.getFreeHeap());
+                  (unsigned)ESP.getFreeHeap(),
+                  readBatteryPercent());
     // Keep the BLE INFO characteristic's provOpen flag fresh (e.g. after the
     // provisioning window expires) for any connected wizard.
     static bool lastProvOpen = false;
