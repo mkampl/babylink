@@ -1135,6 +1135,28 @@ void sendRegister() {
                                  portMAX_DELAY);
 }
 
+// Chrome hides a parent's LAN IP behind an mDNS `<uuid>.local` host ICE
+// candidate. esp_peer's ICE agent doesn't resolve it, so it falls back to the
+// STUN/hairpin path (public IP) even on the same LAN. Resolve the name to a LAN
+// IP ourselves (the responder + lwIP mDNS queries are already up) and rewrite
+// the candidate, giving esp_peer a numeric host candidate for a DIRECT-LAN path.
+static String resolveMdnsCandidate(const String& cand) {
+  int dot = cand.indexOf(".local");
+  if (dot < 0) return cand; // already numeric (host with real IP, or srflx/relay)
+  int sp = cand.lastIndexOf(' ', dot);
+  int start = (sp < 0) ? 0 : sp + 1;
+  String host = cand.substring(start, dot); // the <uuid>, without ".local"
+  if (host.length() == 0) return cand;
+  IPAddress ip = MDNS.queryHost((char*)host.c_str(), 1000);
+  if ((uint32_t)ip == 0) {
+    Serial.printf("[mDNS] no A-record for %s.local — leaving candidate as-is\n", host.c_str());
+    return cand;
+  }
+  String out = cand.substring(0, start) + ip.toString() + cand.substring(dot + 6); // 6 = len(".local")
+  Serial.printf("[mDNS] %s.local -> %s (direct-LAN candidate)\n", host.c_str(), ip.toString().c_str());
+  return out;
+}
+
 static void handleWsTextFrame(const char* data, size_t len) {
   // SDP answers from the browser can run 700-1500 bytes; ArduinoJson
   // overhead roughly doubles that. 4 KB is comfortable for our signal
@@ -1204,13 +1226,14 @@ static void handleWsTextFrame(const char* data, size_t len) {
     if (doc["ice"].is<JsonObject>()) {
       String cand = doc["ice"]["candidate"].as<String>();
       if (cand.length() == 0) return;   // end-of-candidates marker
+      // Resolve a browser's mDNS-obscured `<uuid>.local` host candidate to a LAN
+      // IP so esp_peer can pair on the direct-LAN path (not just STUN/hairpin).
+      cand = resolveMdnsCandidate(cand);
       esp_peer_msg_t pmsg = {};
       pmsg.type = ESP_PEER_MSG_TYPE_CANDIDATE;
       pmsg.data = (uint8_t*)cand.c_str();
       pmsg.size = cand.length();
       esp_peer_send_msg(webrtcPeer, &pmsg);
-      // Log the full candidate: a browser without mic/cam permission hides
-      // its LAN IP behind an mDNS `.local` name the device can't resolve.
       Serial.printf("[peer] <- ICE: %s\n", cand.c_str());
     }
   }
