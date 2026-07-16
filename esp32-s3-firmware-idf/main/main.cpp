@@ -86,6 +86,10 @@ static const int   BATTERY_ADC_PIN = 5;      // GPIO5 / D4
 static const float BATTERY_DIVIDER = 2.094f;
 static const unsigned long BATTERY_REPORT_MS = 30000;
 
+// Set to 1 to force one WebRTC recovery cycle ~25s after boot (validates the
+// close/reopen is crash-free). MUST be 0 for production.
+#define WRTC_RECOVERY_SELFTEST 0
+
 struct WifiProfile   { String ssid;  String password; };
 struct ServerProfile { String label; String host; uint16_t port; String roomId; };
 
@@ -134,10 +138,22 @@ esp_websocket_client_handle_t webSocket = nullptr;
 esp_peer_handle_t webrtcPeer = nullptr;
 volatile bool webrtcPeerRunning = false;
 volatile bool webrtcConnected = false;     // set/cleared by onPeerState
+volatile bool webrtcLoopDone = false;      // loop task has exited (for a clean restart)
 unsigned long webrtcPacketsSent = 0;
 unsigned long wssPacketsSent = 0;
 uint32_t webrtcAudioPts = 0;
 TaskHandle_t webrtcLoopTaskHandle = nullptr;
+
+// Malformed-offer / wedged-esp_peer recovery: after long uptime esp_peer can
+// start emitting a malformed SDP offer the browser rejects, so WebRTC never
+// connects (audio silently stays on the WSS-PCM path). We count offers that
+// don't reach CONNECTED and, past a threshold, re-init esp_peer WITHOUT a
+// reboot — so the PCM stream (and the parent's audio) never drops.
+int webrtcOfferCount = 0;               // offers sent since the last CONNECTED
+unsigned long lastOfferMs = 0;
+unsigned long lastRecoveryMs = 0;
+static void startOffer();               // esp_peer_new_connection + bookkeeping
+static void restartWebRTC();            // close + reopen esp_peer, keep the device up
 
 // Last parent socketId we've seen, used as `to` on outbound SDP/ICE so
 // the server routes them. Single-parent — multi-parent rooms need one
@@ -1157,6 +1173,15 @@ static String resolveMdnsCandidate(const String& cand) {
   return out;
 }
 
+// Start the WebRTC offer to the current parent, tracking attempts so the
+// recovery logic can spot a wedged esp_peer that never reaches CONNECTED.
+static void startOffer() {
+  if (!webrtcPeer) return;
+  esp_peer_new_connection(webrtcPeer);
+  lastOfferMs = millis();
+  webrtcOfferCount++;
+}
+
 static void handleWsTextFrame(const char* data, size_t len) {
   // SDP answers from the browser can run 700-1500 bytes; ArduinoJson
   // overhead roughly doubles that. 4 KB is comfortable for our signal
@@ -1201,7 +1226,7 @@ static void handleWsTextFrame(const char* data, size_t len) {
     }
     if (doc["requestOffer"] | false) {
       Serial.printf("[peer] requestOffer from %s — starting connection\n", from);
-      esp_peer_new_connection(webrtcPeer);
+      startOffer();
       return;
     }
     // MultiStreamManager (browser) sends answers as
@@ -1345,6 +1370,7 @@ static int onPeerState(esp_peer_state_t state, void* /*ctx*/) {
   if (state == ESP_PEER_STATE_CONNECTED) {
     webrtcConnected = true;
     webrtcAudioPts  = 0;       // restart timestamps on every fresh tunnel
+    webrtcOfferCount = 0;      // healthy tunnel — clear the recovery counter
   } else if (state == ESP_PEER_STATE_DISCONNECTED ||
              state == ESP_PEER_STATE_CONNECT_FAILED ||
              state == ESP_PEER_STATE_CLOSED) {
@@ -1405,40 +1431,29 @@ static void webrtcLoopTask(void* /*arg*/) {
     esp_peer_main_loop(webrtcPeer);
     vTaskDelay(pdMS_TO_TICKS(20));
   }
+  webrtcLoopDone = true;   // let restartWebRTC know it's safe to close the peer
   vTaskDelete(nullptr);
 }
 
-void setupWebRTC() {
-  // Generate the DTLS cert up front so the first connection doesn't
-  // stall on it.
-  esp_peer_pre_generate_cert();
-
+// Open esp_peer and start its main-loop task. Split out of setupWebRTC so the
+// recovery path can reopen the peer without re-generating the DTLS cert.
+static bool startPeer() {
   esp_peer_default_cfg_t defaults = {};
-  defaults.agent_recv_timeout = 300;            // 100 ms → 300 ms: slack
-                                                // for DTLS retransmits on
-                                                // residential WiFi.
+  defaults.agent_recv_timeout = 300;
   defaults.rtp_cfg.audio_recv_jitter.cache_size = 1024;
   defaults.rtp_cfg.send_pool_size = 1024;
   defaults.rtp_cfg.send_queue_num = 10;
 
-  // STUN so the device advertises a server-reflexive candidate, not just a
-  // bare host one. Note: WebRTC media does not currently complete on this
-  // stack — the browser's DTLS ClientHello arrives fragmented (large modern
-  // ClientHello) and ESP-IDF's mbedtls DTLS server cannot reassemble a
-  // fragmented ClientHello (ssl_tls12_server.c: "ClientHello fragmentation
-  // not supported" → MBEDTLS_ERR_SSL_FEATURE_UNAVAILABLE). Until that upstream
-  // limitation is resolved, audio rides the WSS-PCM path. Kept wired so the
-  // moment mbedtls/esp_peer gains fragmented-ClientHello support this works.
   static esp_peer_ice_server_cfg_t iceServers[1] = {};
   iceServers[0].stun_url = (char*)"stun:stun.l.google.com:19302";
 
   esp_peer_cfg_t cfg = {};
   cfg.server_lists     = iceServers;
   cfg.server_num       = 1;
-  cfg.role             = ESP_PEER_ROLE_CONTROLLING;     // baby initiates the offer
+  cfg.role             = ESP_PEER_ROLE_CONTROLLING;
   cfg.ice_trans_policy = ESP_PEER_ICE_TRANS_POLICY_ALL;
   cfg.audio_info.codec       = ESP_PEER_AUDIO_CODEC_OPUS;
-  cfg.audio_info.sample_rate = SAMPLE_RATE;             // 16 kHz, matches PDM
+  cfg.audio_info.sample_rate = SAMPLE_RATE;
   cfg.audio_info.channel     = 1;
   cfg.audio_dir          = ESP_PEER_MEDIA_DIR_SEND_ONLY;
   cfg.video_dir          = ESP_PEER_MEDIA_DIR_NONE;
@@ -1452,22 +1467,55 @@ void setupWebRTC() {
   if (ret != ESP_PEER_ERR_NONE || !webrtcPeer) {
     Serial.printf("[peer] esp_peer_open failed ret=%d\n", ret);
     webrtcPeer = nullptr;
-    return;
+    return false;
   }
-  Serial.printf("[peer] esp_peer opened — heap=%lu\n",
-                (unsigned long)ESP.getFreeHeap());
+  Serial.printf("[peer] esp_peer opened — heap=%lu\n", (unsigned long)ESP.getFreeHeap());
 
   webrtcPeerRunning = true;
-  // Pinned to core 1 so ICE / DTLS work doesn't fight the Arduino loop
-  // on core 0.
-  if (xTaskCreatePinnedToCore(webrtcLoopTask, "wrtc-loop",
-                              10 * 1024, nullptr, 5,
+  webrtcLoopDone = false;
+  if (xTaskCreatePinnedToCore(webrtcLoopTask, "wrtc-loop", 10 * 1024, nullptr, 5,
                               &webrtcLoopTaskHandle, 1) != pdPASS) {
     Serial.println("[peer] failed to create main-loop task");
     webrtcPeerRunning = false;
     esp_peer_close(webrtcPeer);
     webrtcPeer = nullptr;
+    return false;
   }
+  return true;
+}
+
+// Re-initialise esp_peer WITHOUT rebooting: stop the loop task, close the wedged
+// peer, reopen a fresh one, and re-offer to the current parent. The WSS-PCM
+// audio path is untouched throughout, so the parent never loses audio (no
+// "baby unreachable" alarm) — this just heals the WebRTC tunnel in place.
+static void restartWebRTC() {
+  Serial.println("[peer] recovery: reinitialising esp_peer (no reboot; PCM keeps flowing)");
+  webrtcPeerRunning = false;                       // ask the loop task to exit
+  for (int i = 0; i < 80 && !webrtcLoopDone; i++) { // wait up to ~800ms for it
+    vTaskDelay(pdMS_TO_TICKS(10));
+  }
+  if (webrtcPeer) {
+    esp_peer_close(webrtcPeer);
+    webrtcPeer = nullptr;
+  }
+  webrtcConnected  = false;
+  pendingOfferRequest = false;
+  webrtcOfferCount = 0;
+  webrtcAudioPts   = 0;
+  if (startPeer() && parentSocketId.length() > 0) {
+    Serial.println("[peer] recovery: offering to the waiting parent");
+    startOffer();
+  }
+}
+
+void setupWebRTC() {
+  // Generate the DTLS cert up front so the first connection doesn't stall on it.
+  // NOTE on STUN + the stack: the browser's DTLS ClientHello can arrive
+  // fragmented; older ESP-IDF mbedtls couldn't reassemble it (the patched
+  // babylink-idf image fixes this). Config lives in startPeer(), which the
+  // recovery path reuses to reopen esp_peer without regenerating the cert.
+  esp_peer_pre_generate_cert();
+  startPeer();
 }
 
 // =============================================================================
@@ -1521,12 +1569,31 @@ void loop() {
   if (pendingOfferRequest && webrtcPeer && parentSocketId.length() > 0) {
     pendingOfferRequest = false;
     Serial.println("[peer] firing queued requestOffer");
-    esp_peer_new_connection(webrtcPeer);
+    startOffer();
   }
 
   processAudio();
 
   unsigned long now = millis();
+
+  // WebRTC self-heal: if we've offered a few times and never reached CONNECTED,
+  // esp_peer is wedged (the post-uptime malformed-offer bug). Re-init it in
+  // place — the WSS-PCM audio keeps flowing, so the parent never alarms.
+  if (webrtcPeer && !webrtcConnected && webrtcOfferCount >= 2 &&
+      now - lastOfferMs > 8000 && now - lastRecoveryMs > 30000) {
+    lastRecoveryMs = now;
+    Serial.printf("[peer] %d offers, still not connected — recovering\n", webrtcOfferCount);
+    restartWebRTC();
+  }
+#if WRTC_RECOVERY_SELFTEST
+  // One forced recovery ~25s after boot to prove the close/reopen is crash-free.
+  static bool selftestDone = false;
+  if (!selftestDone && now > 25000) {
+    selftestDone = true;
+    Serial.println("[peer] SELFTEST: forcing a recovery cycle");
+    restartWebRTC();
+  }
+#endif
 
   // Reconnect watchdog. esp_websocket auto-reconnects, but after a server
   // restart it can wedge and never recover on its own — the device then sits
