@@ -79,7 +79,11 @@ static const float DC_ALPHA   = 0.001f;
 // reading is implausible and we report -1 ("unknown"), which the app shows as
 // "--%" rather than a wrong number. Set the pin to -1 to disable the feature.
 static const int   BATTERY_ADC_PIN = 5;      // GPIO5 / D4
-static const float BATTERY_DIVIDER = 2.0f;   // (R1+R2)/R2; 2x equal resistors
+// Nominally (R1+R2)/R2 = 2.0 for 2x equal resistors, but CALIBRATED against a
+// full cell: with 2.0 a full battery (~4.20V, LED off) read only 4.01V/79%, so
+// the true gain is 2.0*4200/4011 = 2.094 (resistor tolerance + ADC gain error).
+// Re-calibrate here if a full charge doesn't read ~100% (serial logs v=…mV).
+static const float BATTERY_DIVIDER = 2.094f;
 static const unsigned long BATTERY_REPORT_MS = 30000;
 
 struct WifiProfile   { String ssid;  String password; };
@@ -1069,26 +1073,34 @@ int socFromVoltage(float v) {
 // pull-down — an unwired pin is dragged to ~0 mV, but a wired divider (~50k
 // source) still holds the pin well above it (~0.8-1.0 V). Below the probe
 // threshold ⇒ nothing connected ⇒ unknown.
-int readBatteryPercent() {
-  if (BATTERY_ADC_PIN < 0) return -1;
+// Returns the smoothed battery voltage (already scaled by the divider), or a
+// negative value when the feature is off or NO divider is wired.
+float readBatteryVolts() {
+  if (BATTERY_ADC_PIN < 0) return -1.0f;
 
   pinMode(BATTERY_ADC_PIN, INPUT_PULLDOWN);
   delay(3);
   int probeMv = analogReadMilliVolts(BATTERY_ADC_PIN);
   pinMode(BATTERY_ADC_PIN, INPUT); // release so the pull-down doesn't skew the read
   delay(3);
-  if (probeMv < 300) return -1; // pulled to ~0 ⇒ no divider wired ⇒ unknown
+  if (probeMv < 300) return -1.0f; // pulled to ~0 ⇒ no divider wired ⇒ unknown
 
   uint32_t sum = 0;
   const int n = 16;
   for (int i = 0; i < n; i++) sum += analogReadMilliVolts(BATTERY_ADC_PIN);
   float vbat = (sum / (float)n) / 1000.0f * BATTERY_DIVIDER;
-  if (vbat < 3.0f || vbat > 4.35f) return -1;   // implausible ⇒ unknown
+  if (vbat < 3.0f || vbat > 4.35f) return -1.0f;   // implausible ⇒ unknown
   // Light smoothing (EMA) so the % doesn't wobble ±1-2% with WiFi-load sag and
   // ADC noise on the flat plateau, where a few mV is a percent or two.
   static float vbatEma = 0.0f;
   vbatEma = (vbatEma <= 0.0f) ? vbat : vbatEma + 0.25f * (vbat - vbatEma);
-  return socFromVoltage(vbatEma); // real Li-ion curve, not a straight line
+  return vbatEma;
+}
+
+int readBatteryPercent() {
+  float v = readBatteryVolts();
+  if (v < 0.0f) return -1;
+  return socFromVoltage(v); // real Li-ion curve, not a straight line
 }
 
 // Periodic battery report so the parent sees a live level (and notices a baby
@@ -1517,12 +1529,14 @@ void loop() {
 
   if (now - lastStatusReport >= 5000) {
     lastStatusReport = now;
-    Serial.printf("[status] uptime=%lus wifi=%s ws=%s heap=%u bat=%d%%\n",
+    float vb = readBatteryVolts();
+    Serial.printf("[status] uptime=%lus wifi=%s ws=%s heap=%u bat=%d%% v=%dmV\n",
                   now / 1000,
                   (WiFi.status() == WL_CONNECTED) ? "up" : "down",
                   isRegistered ? "registered" : (isConnected ? "open" : "down"),
                   (unsigned)ESP.getFreeHeap(),
-                  readBatteryPercent());
+                  (vb < 0.0f) ? -1 : socFromVoltage(vb),
+                  (int)lroundf(vb * 1000.0f));
     // Keep the BLE INFO characteristic's provOpen flag fresh (e.g. after the
     // provisioning window expires) for any connected wizard.
     static bool lastProvOpen = false;
