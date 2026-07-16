@@ -47,7 +47,7 @@ a physical XIAO ESP32-S3 device. Requires `bleak` (`pip install bleak`).
 # provision a device in range
 python tools/esp32-s3-ble-provision.py set \
   --ssid MyNetwork --password s3cr3t \
-  --server wss://babylink.example.com
+  --server wss://babylink.itvoodoo.at
 
 # read device info
 python tools/esp32-s3-ble-provision.py info

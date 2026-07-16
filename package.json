@@ -28,7 +28,7 @@
     "voice-activation",
     "pwa"
   ],
-  "author": "Markus Kampl",
+  "author": "mkampl",
   "license": "BSD-3-Clause",
   "dependencies": {
     "axios": "^1.6.0",

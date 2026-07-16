@@ -3,7 +3,7 @@
 
 # Replace with your domain name
 # For local development, use localhost
-babylink.example.com {
+babylink.itvoodoo.at {
     # Automatic HTTPS with Let's Encrypt
     # Caddy handles certificate issuance and renewal automatically
 
@@ -69,6 +69,6 @@ localhost {
 }
 
 # Optional: Redirect www to non-www
-www.babylink.example.com {
-    redir https://babylink.example.com{uri} permanent
+www.babylink.itvoodoo.at {
+    redir https://babylink.itvoodoo.at{uri} permanent
 }

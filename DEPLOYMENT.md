@@ -79,10 +79,10 @@ sudo apt update && sudo apt install caddy
 
 ### 2. Configure Caddy
 
-Edit `Caddyfile` and replace `babylink.example.com` with your domain:
+Edit `Caddyfile` and replace `babylink.itvoodoo.at` with your domain:
 
 ```caddy
-yourdomain.com {
+babylink.itvoodoo.at {
     reverse_proxy localhost:3001
 }
 ```
@@ -90,11 +90,11 @@ yourdomain.com {
 ### 3. Install BabyLink
 
 ```bash
-git clone https://github.com/your-org/babylink babylink
+git clone https://github.com/mkampl/babylink babylink
 cd babylink
 npm ci --only=production
 cp .env.example .env
-nano .env   # set NODE_ENV=production and PUBLIC_HOST=yourdomain.com
+nano .env   # set NODE_ENV=production and PUBLIC_HOST=babylink.itvoodoo.at
 ```
 
 ### 4. Set Up as System Service
@@ -146,7 +146,7 @@ Caddy obtains and renews Let's Encrypt certificates automatically.
 
 ```bash
 # Build and start
-PUBLIC_HOST=yourdomain.com docker compose up -d --build
+PUBLIC_HOST=babylink.itvoodoo.at docker compose up -d --build
 
 # View logs
 docker compose logs -f
@@ -246,7 +246,7 @@ server. See [SECURITY.md](SECURITY.md) for the full breakdown.
 **Health endpoint:**
 
 ```bash
-curl https://yourdomain.com/health
+curl https://babylink.itvoodoo.at/health
 ```
 
 ```json

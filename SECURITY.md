@@ -64,14 +64,11 @@ access controls.
 
 ## Reporting a vulnerability
 
-Please report security issues privately to: **<security contact>**
+Please report security issues **privately** via GitHub's private vulnerability
+reporting — the *Report a vulnerability* button under the repository's
+**Security** tab
+(<https://github.com/mkampl/babylink/security/advisories/new>).
 
-(Maintainer: replace the placeholder above with an email address or a
-link to a private advisory on GitHub before making this repository
-public.)
-
-Provide enough detail to reproduce the issue. We aim to acknowledge
-reports within 72 hours and to publish a fix or mitigation within
-30 days for critical issues.
+Include enough detail to reproduce the issue.
 
 Please do not open public GitHub issues for security vulnerabilities.
