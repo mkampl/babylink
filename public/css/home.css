@@ -450,5 +450,8 @@ body.home-page main label {
 /* The slim fixed footer bar lives in base.css (shared across landing pages).
    Home-only tweak: lift the help button above it. */
 body.home-page .help-btn {
-  bottom: calc(var(--footer-h) + var(--space-md));
+  /* Sit above the footer *including* its safe-area growth — otherwise when the
+     footer grows at the bottom of a scroll (URL bar / gesture area), its top
+     edge rises over the button and it overlaps the footer icons. */
+  bottom: calc(var(--footer-h) + var(--space-md) + env(safe-area-inset-bottom, 0px));
 }
