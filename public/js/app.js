@@ -11,6 +11,10 @@
   const userName = params.get('userName') || role;
   const roomId = window.location.pathname.slice(1);
 
+  // i18n helpers: fall back to the key/element if the engine hasn't loaded.
+  const T = (k, v) => (window.i18n ? window.i18n.t(k, v) : k);
+  const applyI18n = (el) => { if (window.i18n && el) window.i18n.apply(el); };
+
   // Shared state
   const socket = io();
   const esp32AudioContexts = new Map();
@@ -56,15 +60,15 @@
       'font-size:0.95rem;font-weight:600;box-shadow:var(--shadow-md);' +
       'max-width:calc(100vw - 2rem);';
     disconnectBanner.innerHTML =
-      '<span>⚠ Connection lost — babies offline</span>' +
+      '<span>' + escapeHtml(T('mon_conn_lost')) + '</span>' +
       '<button id="muteAlarmBtn" style="padding:0.3em 0.8em;border:1px solid var(--color-danger);' +
         'background:transparent;color:var(--color-danger-text);border-radius:var(--radius-sm);' +
-        'cursor:pointer;font-size:0.85rem;">Mute alarm</button>';
+        'cursor:pointer;font-size:0.85rem;">' + escapeHtml(T('mon_mute_alarm')) + '</button>';
     document.body.appendChild(disconnectBanner);
     document.getElementById('muteAlarmBtn').addEventListener('click', () => {
       alarmMgr.stop();
       const btn = document.getElementById('muteAlarmBtn');
-      if (btn) { btn.textContent = 'Muted'; btn.disabled = true; }
+      if (btn) { btn.textContent = T('mon_muted'); btn.disabled = true; }
     });
   }
 
@@ -144,8 +148,8 @@
       overlay.innerHTML = `
         <div style="text-align:center;padding:2rem;max-width:360px;">
           <h2 style="font-size:1.4rem;margin-bottom:0.5rem;color:var(--color-text);">BabyLink</h2>
-          <p style="color:var(--color-text-muted);margin-bottom:1.5rem;font-size:0.95rem;">Tap to start monitoring</p>
-          <button id="startMonitoringBtn" style="
+          <p style="color:var(--color-text-muted);margin-bottom:1.5rem;font-size:0.95rem;" data-i18n="mon_tap_start">Tap to start monitoring</p>
+          <button id="startMonitoringBtn" data-i18n="mon_start" style="
             min-height:56px;width:100%;padding:1em 2em;font-size:1.1rem;font-weight:700;
             border:none;border-radius:var(--radius-md);cursor:pointer;
             background:var(--color-primary);color:white;font-family:var(--font-family);
@@ -154,6 +158,7 @@
           </button>
         </div>`;
       document.body.appendChild(overlay);
+      applyI18n(overlay);
 
       document.getElementById('startMonitoringBtn').addEventListener('click', () => {
         // Create a "pre-warmed" AudioContext during this gesture — it starts running
@@ -226,17 +231,17 @@
       <div class="baby-device-container">
         <div class="baby-header-strip">
           <h2 class="baby-name-display">${escapeHtml(userName)}</h2>
-          <div class="baby-listeners" id="parentCountSection" title="Parents currently monitoring">
+          <div class="baby-listeners" id="parentCountSection" title="Parents currently monitoring" data-i18n-attr="title:mon_parents_title">
             <span class="baby-listeners-num" id="parentCountNum">0</span>
-            <span class="baby-listeners-label" id="parentCountLabel">listening</span>
+            <span class="baby-listeners-label" id="parentCountLabel" data-i18n="mon_listening">listening</span>
           </div>
         </div>
         <div class="baby-waveform-section">
           <canvas id="waveformCanvas" width="360" height="80"></canvas>
-          <div class="baby-mic-status" id="micStatus">Requesting microphone…</div>
+          <div class="baby-mic-status" id="micStatus" data-i18n="mon_mic_requesting">Requesting microphone…</div>
         </div>
         <div class="baby-footer">
-          <button class="baby-test-btn" id="testAudioBtn" disabled title="Play a short tone so parents can verify they hear this device">Test</button>
+          <button class="baby-test-btn" id="testAudioBtn" disabled title="Play a short tone so parents can verify they hear this device" data-i18n="mon_test" data-i18n-attr="title:mon_test_title">Test</button>
           <div class="baby-battery" id="batterySection" style="display:none;">
             <div class="battery-indicator">
               <div class="battery-level" id="batteryLevel"></div>
@@ -246,6 +251,7 @@
         </div>
       </div>
     `;
+    applyI18n(container);
 
     // Set up test audio button
     document.getElementById('testAudioBtn').addEventListener('click', playTestTone);
@@ -257,10 +263,9 @@
     // navigator.mediaDevices is undefined and the user would see a confusing
     // "access denied" error instead of the real cause.
     if (!window.isSecureContext || !navigator.mediaDevices) {
-      const msg = 'Microphone access requires HTTPS (or localhost). ' +
-                  'Open this page via HTTPS or use a reverse proxy.';
-      document.getElementById('status').textContent = 'Secure context required';
-      document.getElementById('micStatus').textContent = 'HTTPS required';
+      const msg = T('mon_mic_https_msg');
+      document.getElementById('status').textContent = T('mon_secure_required');
+      document.getElementById('micStatus').textContent = T('mon_https_required');
       document.getElementById('micStatus').classList.add('error');
       document.getElementById('alert').textContent = msg;
       document.getElementById('alert').hidden = false;
@@ -277,8 +282,8 @@
       const webrtcConfig = await configResponse.json();
       multiStreamManager = new MultiStreamManager(socket, webrtcConfig);
       multiStreamManager.localStream = localStream;
-      document.getElementById('status').textContent = 'Microphone active - streaming to parents';
-      document.getElementById('micStatus').textContent = 'Microphone active';
+      document.getElementById('status').textContent = T('mon_mic_active_status');
+      document.getElementById('micStatus').textContent = T('mon_mic_active');
       document.getElementById('micStatus').classList.add('active');
       document.getElementById('testAudioBtn').disabled = false;
 
@@ -293,12 +298,12 @@
       }
     } catch (err) {
       console.error('Microphone error:', err);
-      document.getElementById('status').textContent = 'Microphone access denied';
-      document.getElementById('micStatus').textContent = 'Microphone denied';
+      document.getElementById('status').textContent = T('mon_mic_denied_status');
+      document.getElementById('micStatus').textContent = T('mon_mic_denied');
       document.getElementById('micStatus').classList.add('error');
       const hint = err.name === 'NotAllowedError'
-        ? 'Allow microphone access in your browser settings, then reload.'
-        : 'Please allow microphone access to use baby monitor.';
+        ? T('mon_mic_denied_hint')
+        : T('mon_mic_needed_hint');
       document.getElementById('alert').textContent = hint;
       document.getElementById('alert').hidden = false;
     }
@@ -441,7 +446,7 @@
     if (!btn || btn.disabled) return;
 
     btn.disabled = true;
-    btn.textContent = 'Playing...';
+    btn.textContent = T('mon_playing');
 
     const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     const oscillator = audioCtx.createOscillator();
@@ -461,7 +466,7 @@
     oscillator.onended = function() {
       audioCtx.close();
       btn.disabled = false;
-      btn.textContent = 'Test Audio';
+      btn.textContent = T('mon_test_audio');
     };
   }
 
@@ -474,7 +479,7 @@
     var numEl = document.getElementById('parentCountNum');
     var labelEl = document.getElementById('parentCountLabel');
     if (numEl) numEl.textContent = count;
-    if (labelEl) labelEl.textContent = 'listening';
+    if (labelEl) labelEl.textContent = T('mon_listening');
   }
 
   // Baby role: report our battery to the parent so a phone-as-baby about to die
@@ -527,7 +532,7 @@
         if (!levelEl || !textEl) return;
 
         levelEl.style.width = pct + '%';
-        textEl.textContent = pct + '%' + (battery.charging ? ' (charging)' : '');
+        textEl.textContent = pct + '%' + (battery.charging ? ' ' + T('mon_charging') : '');
 
         levelEl.className = 'battery-level';
         if (pct <= 15) levelEl.classList.add('low');
@@ -680,7 +685,7 @@
       }
     };
 
-    document.getElementById('status').textContent = '\uD83D\uDC42 Listening for babies...';
+    document.getElementById('status').textContent = '\uD83D\uDC42 ' + T('mon_listening_babies');
   }
 
   // ========================
@@ -712,7 +717,7 @@
   // ========================
 
   socket.on('connect', () => {
-    document.getElementById('status').textContent = 'Connected - Rejoining room...';
+    document.getElementById('status').textContent = T('mon_rejoining');
     document.getElementById('alert').hidden = true;
     alarmMgr.stop();
     hideDisconnectBanner();
@@ -746,12 +751,12 @@
   });
 
   socket.on('disconnect', (reason) => {
-    document.getElementById('status').textContent = 'Disconnected - Reconnecting...';
+    document.getElementById('status').textContent = T('mon_reconnecting');
     wasDisconnected = true;
 
     setTimeout(() => {
       if (!socket.connected) {
-        document.getElementById('alert').textContent = 'Connection lost. Attempting to reconnect...';
+        document.getElementById('alert').textContent = T('mon_conn_lost_retry');
         document.getElementById('alert').hidden = false;
       }
     }, 3000);
@@ -857,7 +862,7 @@
 
   socket.on('error', (data) => {
     console.error('Server error:', data);
-    document.getElementById('alert').textContent = `Error: ${data.message}`;
+    document.getElementById('alert').textContent = T('mon_error', { msg: data.message });
     document.getElementById('alert').hidden = false;
   });
 
