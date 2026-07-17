@@ -122,30 +122,60 @@ input[type="text"]::placeholder, input[type="url"]::placeholder {
 }
 
 /* ====== Theme Toggle ====== */
-.theme-toggle {
+/* Top-right control cluster: language switcher + theme toggle. Lives above the
+   sticky app-bar (10000) and the #startOverlay (9999) so it stays reachable. */
+.top-controls {
   position: fixed;
-  top: var(--space-md);
-  right: var(--space-md);
-  /* Above the sticky .app-bar (10000) and the #startOverlay (9999) so the
-     toggle stays visible/clickable in its top-right corner rather than being
-     covered by the app-bar's background. */
+  top: env(safe-area-inset-top, 0px);
+  right: var(--space-sm);
   z-index: 10001;
-  width: 44px;
-  height: 44px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+}
+.tc-lang {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 3px 8px 3px 10px;
+  box-shadow: var(--shadow-sm);
+}
+.tc-globe { font-size: 0.9rem; line-height: 1; opacity: 0.7; }
+.tc-lang select {
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: 0.78rem;
+  line-height: 1;
+  padding: 2px 2px;
+  cursor: pointer;
+  max-width: 128px;
+}
+.tc-lang select:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+
+.theme-toggle {
+  width: 40px;
+  height: 40px;
   padding: 0;
   margin: 0;
   border-radius: 50%;
   background: var(--color-surface);
-  border: 2px solid var(--color-border);
+  border: 1px solid var(--color-border);
   box-shadow: var(--shadow-sm);
-  font-size: 1.2em;
+  font-size: 1.1em;
   line-height: 1;
   cursor: pointer;
   transition: all var(--transition-base);
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 44px;
 }
 
 .theme-toggle:hover {
@@ -295,32 +325,3 @@ body.role-page {
   .footer-name { display: none; }
 }
 
-.footer-lang-wrap {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.28rem;
-}
-.footer-lang-globe {
-  font-size: 0.95rem;
-  line-height: 1;
-  opacity: 0.7;
-}
-.footer-lang {
-  appearance: none;
-  -webkit-appearance: none;
-  border: 1px solid var(--color-border);
-  background: transparent;
-  color: var(--color-text-muted);
-  font: inherit;
-  font-size: 0.78rem;
-  line-height: 1;
-  padding: 0.3rem 0.4rem;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  max-width: 116px;
-}
-.footer-lang:hover,
-.footer-lang:focus-visible {
-  color: var(--color-text);
-  border-color: var(--color-primary);
-}

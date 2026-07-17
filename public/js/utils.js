@@ -78,8 +78,11 @@ const ThemeManager = {
       mq.addListener(updateIcon);
     }
 
-    if (container) {
-      container.appendChild(btn);
+    // Prefer the top-right control cluster (next to the language switcher);
+    // fall back to the passed container / body.
+    const host = document.querySelector('.top-controls') || container;
+    if (host) {
+      host.appendChild(btn);
     }
 
     return btn;
