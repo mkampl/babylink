@@ -1,5 +1,5 @@
 // service-worker.js
-const CACHE_NAME = 'babylink-v2.17.0';
+const CACHE_NAME = 'babylink-v2.18.0';
 
 // Shell assets pre-cached on install. Everything here is fingerprintless
 // (no hashed filenames), so we rely on the CACHE_NAME bump to roll
@@ -11,10 +11,15 @@ const urlsToCache = [
   '/css/components.css',
   '/css/monitor.css',
   '/css/home.css',
+  '/js/i18n.js',
   '/js/utils.js',
   '/js/qrcode-generator.js',
   '/js/sw-register.js',
   '/js/home.js',
+  '/locales/en.json',
+  '/locales/de.json',
+  '/locales/es.json',
+  '/locales/tr.json',
   '/js/select-role.js',
   '/js/level-meter.js',
   '/js/audio-health.js',
@@ -45,7 +50,7 @@ function isStaticShell(url) {
   if (url.origin !== self.location.origin) return false;
   const p = url.pathname;
   if (p === '/manifest.json') return true;
-  return p.startsWith('/css/') || p.startsWith('/js/') || p.startsWith('/icons/');
+  return p.startsWith('/css/') || p.startsWith('/js/') || p.startsWith('/icons/') || p.startsWith('/locales/');
 }
 
 // Requests we never want the SW to touch — let them go straight to

@@ -3,6 +3,10 @@
 // (script-src 'self' blocks inline scripts). Loaded after utils.js +
 // qrcode-generator.js, which it depends on.
 
+    // Shorthand for strings built at runtime; falls back to the key if i18n
+    // hasn't loaded yet. The room list re-renders on 'i18n:changed' below.
+    const T = (k, v) => (window.i18n ? window.i18n.t(k, v) : k);
+
     // Dark mode toggle. Guarded: if utils.js failed to load (flaky mobile
     // network, stale service worker), a ReferenceError here must NOT abort the
     // rest of the script — otherwise the create/join form handlers below never
@@ -113,20 +117,20 @@
 
       const submitBtn = this.querySelector('[type="submit"]');
       submitBtn.disabled = true;
-      submitBtn.textContent = 'Creating…';
+      submitBtn.textContent = T('js_creating');
 
       try {
         const res = await createRoom(onboardingRoomName);
         onboardingRoomId = res.roomId;
       } catch (err) {
         submitBtn.disabled = false;
-        submitBtn.textContent = 'Create Room';
-        alert('Could not create room: ' + err.message);
+        submitBtn.textContent = T('home_create_btn');
+        alert(T('js_create_error', { msg: err.message }));
         return;
       }
 
       submitBtn.disabled = false;
-      submitBtn.textContent = 'Create Room';
+      submitBtn.textContent = T('home_create_btn');
 
       // Set up step 2 with room link + QR
       var roomUrl = window.location.origin + '/' + onboardingRoomId;
@@ -139,7 +143,7 @@
         qr.make();
         var qrImg = document.getElementById('onboardingQR');
         qrImg.src = qr.createDataURL(6, 4);
-        qrImg.alt = 'QR Code for room link';
+        qrImg.alt = T('qr_alt');
       } catch (e) {
         document.getElementById('onboardingQR').style.display = 'none';
       }
@@ -152,10 +156,10 @@
       var linkInput = document.getElementById('onboardingRoomLink');
       try {
         await navigator.clipboard.writeText(linkInput.value);
-        this.textContent = 'Copied!';
+        this.textContent = T('js_copied');
         this.style.background = 'var(--color-success)';
         var btn = this;
-        setTimeout(function() { btn.textContent = 'Copy'; btn.style.background = ''; }, 2000);
+        setTimeout(function() { btn.textContent = T('ob_copy'); btn.style.background = ''; }, 2000);
       } catch (err) {
         linkInput.select();
         document.execCommand('copy');
@@ -205,7 +209,7 @@
       if (data.ownerToken) {
         localStorage.setItem('babylink-owner-' + data.roomId, data.ownerToken);
       }
-      saveRoom(name || 'Room', data.roomId, data.ownerToken);
+      saveRoom(name || T('js_room_default'), data.roomId, data.ownerToken);
       return data;
     }
 
@@ -232,8 +236,8 @@
     function deleteRoom(id) {
       const rooms = JSON.parse(localStorage.getItem('babylink-rooms') || '[]');
       const target = rooms.find(r => r.id === id);
-      const label = target ? '"' + target.name + '"' : 'this room';
-      if (!confirm('Remove ' + label + ' from this device?\n\nThe room itself keeps running for anyone with the link.')) return;
+      const label = target ? '"' + target.name + '"' : T('js_this_room');
+      if (!confirm(T('js_remove_confirm', { label: label }))) return;
       const filteredRooms = rooms.filter(room => room.id !== id);
       localStorage.setItem('babylink-rooms', JSON.stringify(filteredRooms));
       // Leave the ownerToken in localStorage — the user may want to re-add the room later.
@@ -267,7 +271,7 @@
 
         const idDiv = document.createElement('div');
         idDiv.className = 'room-id';
-        idDiv.textContent = 'ID: ' + room.id.substring(0, 8) + '...';
+        idDiv.textContent = T('js_id_label', { id: room.id.substring(0, 8) + '...' });
 
         infoDiv.appendChild(nameDiv);
         infoDiv.appendChild(idDiv);
@@ -277,12 +281,12 @@
 
         const joinBtn = document.createElement('button');
         joinBtn.className = 'join-btn';
-        joinBtn.textContent = 'Join';
+        joinBtn.textContent = T('js_join');
         joinBtn.addEventListener('click', () => joinRoom(room.id));
 
         const deleteBtn = document.createElement('button');
         deleteBtn.className = 'delete-btn';
-        deleteBtn.textContent = 'Delete';
+        deleteBtn.textContent = T('js_delete');
         deleteBtn.addEventListener('click', () => deleteRoom(room.id));
 
         actionsDiv.appendChild(joinBtn);
@@ -345,14 +349,14 @@
       if (!roomName) return;
       const btn = this.querySelector('button[type="submit"]');
       btn.disabled = true;
-      btn.textContent = 'Creating…';
+      btn.textContent = T('js_creating');
       try {
         const data = await createRoom(roomName);
         window.location.href = "/" + encodeURIComponent(data.roomId);
       } catch (err) {
         btn.disabled = false;
-        btn.textContent = 'Create Room';
-        alert('Could not create room: ' + err.message);
+        btn.textContent = T('home_create_btn');
+        alert(T('js_create_error', { msg: err.message }));
       }
     });
 
@@ -366,7 +370,7 @@
       const errorEl = document.getElementById('joinRoomError');
       if (!/^[0-9a-f]{32}$/i.test(rawId)) {
         if (errorEl) {
-          errorEl.textContent = 'Room IDs are 32 hex characters (the part after the last "/" in a shared link).';
+          errorEl.textContent = T('js_roomid_invalid');
           errorEl.hidden = false;
         }
         return;
@@ -377,6 +381,10 @@
 
     // Initialize
     displayPreviousRooms();
+
+    // Re-render runtime-generated strings (room list) when the language loads
+    // or the user switches it.
+    document.addEventListener('i18n:changed', displayPreviousRooms);
 
 // Onboarding button handlers — wired here instead of inline onclick= because
 // the CSP (script-src-attr 'none') blocks inline event-handler attributes.
