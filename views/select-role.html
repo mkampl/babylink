@@ -19,34 +19,34 @@
 </head>
 <body class="role-page">
   <header class="app-bar">
-    <button type="button" id="homeBtn" class="app-bar__home btn" aria-label="Go to the home screen">
+    <button type="button" id="homeBtn" class="app-bar__home btn" aria-label="Go to the home screen" data-i18n-attr="aria-label:nav_home_aria">
       <span class="app-bar__home-icon" aria-hidden="true">←</span>
-      <span>Home</span>
+      <span data-i18n="nav_home">Home</span>
     </button>
     <span class="app-bar__title app-bar__title--brand" aria-hidden="true">BabyLink</span>
   </header>
   <main>
-    <h1>Choose Your Role</h1>
+    <h1 data-i18n="role_title">Choose Your Role</h1>
 
     <!-- Role Selection — shown first so arriving joiners immediately see what to do -->
     <!-- PIN Entry (shown if room has a PIN) -->
     <div id="pinSection" class="pin-section" style="display:none;">
-      <h3>This room is protected</h3>
-      <p>Enter the room PIN to continue.</p>
+      <h3 data-i18n="pin_protected_title">This room is protected</h3>
+      <p data-i18n="pin_protected_body">Enter the room PIN to continue.</p>
       <form id="pinForm" class="pin-form">
-        <input type="password" id="pinInput" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="Enter PIN" autocomplete="off" required />
-        <button type="submit">Unlock</button>
-        <div id="pinError" class="pin-error" style="display:none;">Incorrect PIN</div>
+        <input type="password" id="pinInput" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="Enter PIN" autocomplete="off" required data-i18n-attr="placeholder:pin_ph" />
+        <button type="submit" data-i18n="pin_unlock">Unlock</button>
+        <div id="pinError" class="pin-error" style="display:none;" data-i18n="pin_incorrect">Incorrect PIN</div>
       </form>
     </div>
 
     <!-- Role Selection -->
     <div class="role-selection" id="roleSelection">
       <div class="role-card">
-        <h3>Baby Device</h3>
-        <p>Place this device near the baby to stream audio</p>
+        <h3 data-i18n="role_baby_title">Baby Device</h3>
+        <p data-i18n="role_baby_desc">Place this device near the baby to stream audio</p>
         <form id="babyForm">
-          <label for="babyName">Baby's Name:</label>
+          <label for="babyName" data-i18n="role_baby_name_label">Baby's Name:</label>
           <input
             type="text"
             id="babyName"
@@ -54,26 +54,28 @@
             placeholder="e.g. Emma, Room 1, etc."
             maxlength="50"
             required
+            data-i18n-attr="placeholder:role_baby_name_ph"
           />
-          <button type="submit" class="role-btn baby-btn">
+          <button type="submit" class="role-btn baby-btn" data-i18n="role_baby_join">
             Join as Baby Device
           </button>
         </form>
       </div>
 
       <div class="role-card">
-        <h3>Parent Device</h3>
-        <p>Listen and monitor your babies from this device</p>
+        <h3 data-i18n="role_parent_title">Parent Device</h3>
+        <p data-i18n="role_parent_desc">Listen and monitor your babies from this device</p>
         <form id="parentForm">
-          <label for="parentName">Your Name (optional):</label>
+          <label for="parentName" data-i18n="role_parent_name_label">Your Name (optional):</label>
           <input
             type="text"
             id="parentName"
             name="userName"
             placeholder="e.g. Mom, Dad, etc."
             maxlength="50"
+            data-i18n-attr="placeholder:role_parent_name_ph"
           />
-          <button type="submit" class="role-btn parent-btn">
+          <button type="submit" class="role-btn parent-btn" data-i18n="role_parent_join">
             Join as Parent Device
           </button>
         </form>
@@ -82,43 +84,43 @@
 
     <!-- Room Sharing Section -->
     <div class="room-sharing">
-      <h3>Share this room</h3>
+      <h3 data-i18n="share_title">Share this room</h3>
       <div class="share-controls">
         <input type="text" id="roomLink" readonly />
-        <button id="copyLinkBtn">Copy Link</button>
+        <button id="copyLinkBtn" data-i18n="share_copy">Copy Link</button>
       </div>
       <div class="qr-container">
-        <img id="qrcode" alt="Loading QR code..." />
-        <p>Scan QR code to join</p>
+        <img id="qrcode" alt="Loading QR code..." data-i18n-attr="alt:share_qr_loading" />
+        <p data-i18n="share_qr_scan">Scan QR code to join</p>
       </div>
     </div>
 
     <!-- Room Settings toggles — owner only (hidden for joiners without ownerToken) -->
     <div id="roomSettingsToggle" class="room-settings-toggle" style="display:none;">
-      <button type="button" id="pinSettingsBtn" class="room-settings-btn">Room Security</button>
-      <button type="button" id="ntfySettingsBtn" class="room-settings-btn">Push Notifications</button>
-      <button type="button" id="devicesSettingsBtn" class="room-settings-btn">Devices</button>
+      <button type="button" id="pinSettingsBtn" class="room-settings-btn" data-i18n="set_security">Room Security</button>
+      <button type="button" id="ntfySettingsBtn" class="room-settings-btn" data-i18n="set_push">Push Notifications</button>
+      <button type="button" id="devicesSettingsBtn" class="room-settings-btn" data-i18n="set_devices">Devices</button>
     </div>
     <div id="pinSettings" class="pin-settings" style="display:none;">
-      <h3 id="pinSettingsTitle">Set Room PIN</h3>
-      <p id="pinSettingsDesc">Optionally protect this room with a 4-6 digit PIN.</p>
+      <h3 id="pinSettingsTitle" data-i18n="pin_set_title">Set Room PIN</h3>
+      <p id="pinSettingsDesc" data-i18n="pin_set_desc">Optionally protect this room with a 4-6 digit PIN.</p>
       <form id="pinSetForm" class="pin-form">
         <div id="currentPinRow" style="display:none;">
-          <label for="currentPinInput">Current PIN:</label>
-          <input type="password" id="currentPinInput" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="Current PIN" autocomplete="off" />
+          <label for="currentPinInput" data-i18n="pin_current_label">Current PIN:</label>
+          <input type="password" id="currentPinInput" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="Current PIN" autocomplete="off" data-i18n-attr="placeholder:pin_current_ph" />
         </div>
-        <label for="newPinInput">New PIN (leave empty to remove):</label>
-        <input type="password" id="newPinInput" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="4-6 digits" autocomplete="off" />
-        <button type="submit">Save PIN</button>
+        <label for="newPinInput" data-i18n="pin_new_label">New PIN (leave empty to remove):</label>
+        <input type="password" id="newPinInput" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="4-6 digits" autocomplete="off" data-i18n-attr="placeholder:pin_new_ph" />
+        <button type="submit" data-i18n="pin_save">Save PIN</button>
         <div id="pinSetResult" class="pin-result" style="display:none;"></div>
       </form>
     </div>
 
     <!-- Notification Settings -->
     <div id="ntfySettings" class="pin-settings" style="display:none;">
-      <h3>Push Notifications</h3>
-      <p>Get alerts on your phone via <a href="https://ntfy.sh" target="_blank" class="link-primary">ntfy</a> when baby cries or a device disconnects.</p>
-      <div class="info-box" style="background:var(--color-info-bg);color:var(--color-info-text);border-radius:var(--radius-sm);padding:0.65rem 0.9rem;margin-bottom:0.75rem;font-size:0.88rem;line-height:1.5;">
+      <h3 data-i18n="set_push">Push Notifications</h3>
+      <p data-i18n-html="push_intro">Get alerts on your phone via <a href="https://ntfy.sh" target="_blank" class="link-primary">ntfy</a> when baby cries or a device disconnects.</p>
+      <div class="info-box" style="background:var(--color-info-bg);color:var(--color-info-text);border-radius:var(--radius-sm);padding:0.65rem 0.9rem;margin-bottom:0.75rem;font-size:0.88rem;line-height:1.5;" data-i18n-html="push_setup">
         <strong>Setup:</strong> Install the <strong>ntfy</strong> app on your phone
         (<a href="https://play.google.com/store/apps/details?id=io.heckel.ntfy" target="_blank">Android</a> /
         <a href="https://apps.apple.com/app/ntfy/id1625396347" target="_blank">iOS</a>),
@@ -129,56 +131,56 @@
         and enter its URL in the Server field.
       </div>
       <form id="ntfyForm" class="pin-form">
-        <label for="ntfyServer">Server URL (leave empty for ntfy.sh):</label>
+        <label for="ntfyServer" data-i18n="push_server_label">Server URL (leave empty for ntfy.sh):</label>
         <input type="text" id="ntfyServer" placeholder="https://ntfy.sh" autocomplete="off" />
-        <label for="ntfyTopic">Topic:</label>
+        <label for="ntfyTopic" data-i18n="push_topic_label">Topic:</label>
         <div class="form-input-row">
-          <input type="text" id="ntfyTopic" placeholder="my-unique-topic-name" class="ble-flex-grow" autocomplete="off" />
-          <button type="button" id="testNotificationBtn" disabled class="btn-compact">Test</button>
+          <input type="text" id="ntfyTopic" placeholder="my-unique-topic-name" class="ble-flex-grow" autocomplete="off" data-i18n-attr="placeholder:push_topic_ph" />
+          <button type="button" id="testNotificationBtn" disabled class="btn-compact" data-i18n="push_test">Test</button>
         </div>
         <div class="form-section">
           <label class="checkbox-row">
             <input type="checkbox" id="ntfyEnabled" checked class="checkbox-lg">
-            <span>Enable push notifications</span>
+            <span data-i18n="push_enable">Enable push notifications</span>
           </label>
         </div>
         <div class="form-section">
-          <div class="form-group-label">Notify me when:</div>
+          <div class="form-group-label" data-i18n="push_notify_when">Notify me when:</div>
           <label class="checkbox-row">
             <input type="checkbox" id="notifyOnCrying" checked class="checkbox-lg">
-            <span>Baby is crying</span>
+            <span data-i18n="push_on_crying">Baby is crying</span>
           </label>
           <label class="checkbox-row">
             <input type="checkbox" id="notifyOnDisconnect" checked class="checkbox-lg">
-            <span>Baby monitor disconnects</span>
+            <span data-i18n="push_on_disconnect">Baby monitor disconnects</span>
           </label>
           <label class="checkbox-row">
             <input type="checkbox" id="notifyOnActivity" class="checkbox-lg">
-            <span>Activity events (low priority)</span>
+            <span data-i18n="push_on_activity">Activity events (low priority)</span>
           </label>
         </div>
-        <button type="submit">Save Settings</button>
+        <button type="submit" data-i18n="push_save">Save Settings</button>
         <div id="ntfyResult" class="pin-result" style="display:none;"></div>
       </form>
     </div>
 
     <!-- ESP32 Device Management -->
     <div id="devicesSettings" class="pin-settings" style="display:none;">
-      <h3>ESP32 Devices</h3>
-      <p>Manage physical baby monitor hardware in this room.</p>
+      <h3 data-i18n="ble_title">ESP32 Devices</h3>
+      <p data-i18n="ble_desc">Manage physical baby monitor hardware in this room.</p>
       <div id="devicesList" class="devices-list"></div>
-      <div id="noDevices" class="no-devices">No ESP32 devices connected to this room.</div>
-      <button type="button" id="addDeviceBtn" class="onboarding-btn secondary ble-add-btn">Add ESP32 Device</button>
+      <div id="noDevices" class="no-devices" data-i18n="ble_none">No ESP32 devices connected to this room.</div>
+      <button type="button" id="addDeviceBtn" class="onboarding-btn secondary ble-add-btn" data-i18n="ble_add">Add ESP32 Device</button>
       <div id="addDeviceInstructions" class="ble-instructions" style="display:none;">
-        <h4 class="ble-instructions-title">Setup Instructions</h4>
+        <h4 class="ble-instructions-title" data-i18n="ble_setup_instructions">Setup Instructions</h4>
         <div id="bleProvisionBtn" class="ble-provision-row" style="display:none;">
-          <button type="button" id="startBleBtn" class="onboarding-btn primary">Add via Bluetooth</button>
-          <p class="ble-help-text ble-help-text--spaced">Android Chrome only — discovers nearby BabyLink devices</p>
+          <button type="button" id="startBleBtn" class="onboarding-btn primary" data-i18n="ble_add_bt">Add via Bluetooth</button>
+          <p class="ble-help-text ble-help-text--spaced" data-i18n="ble_add_bt_help">Android Chrome only — discovers nearby BabyLink devices</p>
         </div>
         <!-- BLE Wizard (shown after clicking Add via Bluetooth) -->
         <div id="bleWizard" class="ble-wizard" style="display:none;">
           <div id="bleStatus" class="ble-status"></div>
-          <div id="bleGateHint" class="ble-gate-hint" style="display:none;">
+          <div id="bleGateHint" class="ble-gate-hint" style="display:none;" data-i18n-html="ble_gate_hint">
             🔒 This device is already set up. To change it, <strong>tap the button on the device once</strong> (its LED blinks 3×), then continue. This stops anyone nearby from re-configuring your monitor.
           </div>
           <div id="bleEditor" style="display:none;">
@@ -190,54 +192,54 @@
 
             <!-- Step 1 — WiFi networks -->
             <div class="ble-step active" data-step="0">
-              <h4 class="ble-step-title">WiFi networks</h4>
-              <p class="ble-info-text">Networks this device should roam between. The strongest known one at boot wins.</p>
-              <button type="button" id="bleScanBtn" class="onboarding-btn secondary ble-mini-btn">📡 Scan nearby</button>
+              <h4 class="ble-step-title" data-i18n="ble_wifi_title">WiFi networks</h4>
+              <p class="ble-info-text" data-i18n="ble_wifi_desc">Networks this device should roam between. The strongest known one at boot wins.</p>
+              <button type="button" id="bleScanBtn" class="onboarding-btn secondary ble-mini-btn" data-i18n="ble_scan">📡 Scan nearby</button>
               <div id="bleScanList" class="ble-scan-list"></div>
               <div id="bleWifiRows" class="ble-wifi-rows"></div>
-              <button type="button" id="bleAddWifi" class="onboarding-btn secondary ble-mini-btn ble-mini-btn--spaced">+ Add manually</button>
+              <button type="button" id="bleAddWifi" class="onboarding-btn secondary ble-mini-btn ble-mini-btn--spaced" data-i18n="ble_add_manual">+ Add manually</button>
               <div class="ble-step-nav">
-                <button type="button" class="onboarding-btn primary ble-step-next" data-ble-step-next="1">Next →</button>
+                <button type="button" class="onboarding-btn primary ble-step-next" data-ble-step-next="1" data-i18n="ble_next">Next →</button>
               </div>
             </div>
 
             <!-- Step 2 — Server profiles -->
             <div class="ble-step" data-step="1">
-              <h4 class="ble-step-title">Server profiles</h4>
-              <p class="ble-info-text">Where this device sends its audio. The active server (radio) is the one it tries first.</p>
+              <h4 class="ble-step-title" data-i18n="ble_server_title">Server profiles</h4>
+              <p class="ble-info-text" data-i18n="ble_server_desc">Where this device sends its audio. The active server (radio) is the one it tries first.</p>
               <div id="bleServerRows"></div>
-              <button type="button" id="bleAddServer" class="onboarding-btn secondary ble-mini-btn ble-mini-btn--spaced">+ Add server</button>
+              <button type="button" id="bleAddServer" class="onboarding-btn secondary ble-mini-btn ble-mini-btn--spaced" data-i18n="ble_add_server">+ Add server</button>
               <div class="ble-step-nav">
-                <button type="button" class="onboarding-btn secondary ble-step-back" data-ble-step-back="0">← Back</button>
-                <button type="button" class="onboarding-btn primary ble-step-next" data-ble-step-next="2">Next →</button>
+                <button type="button" class="onboarding-btn secondary ble-step-back" data-ble-step-back="0" data-i18n="ble_back">← Back</button>
+                <button type="button" class="onboarding-btn primary ble-step-next" data-ble-step-next="2" data-i18n="ble_next">Next →</button>
               </div>
             </div>
 
             <!-- Step 3 — Name + save -->
             <div class="ble-step" data-step="2">
-              <h4 class="ble-step-title">Device name</h4>
-              <p class="ble-info-text">A short label so you can tell devices apart on the parent screen.</p>
-              <input type="text" id="bleDevName" placeholder="e.g. Nursery ESP32" autocomplete="off" class="ble-input-full" />
+              <h4 class="ble-step-title" data-i18n="ble_devname_title">Device name</h4>
+              <p class="ble-info-text" data-i18n="ble_devname_desc">A short label so you can tell devices apart on the parent screen.</p>
+              <input type="text" id="bleDevName" placeholder="e.g. Nursery ESP32" autocomplete="off" class="ble-input-full" data-i18n-attr="placeholder:ble_devname_ph" />
               <div class="ble-step-nav">
-                <button type="button" class="onboarding-btn secondary ble-step-back" data-ble-step-back="1">← Back</button>
-                <button type="button" id="bleSaveBtn" class="onboarding-btn primary">💾 Save &amp; Connect</button>
+                <button type="button" class="onboarding-btn secondary ble-step-back" data-ble-step-back="1" data-i18n="ble_back">← Back</button>
+                <button type="button" id="bleSaveBtn" class="onboarding-btn primary" data-i18n="ble_save_connect">💾 Save &amp; Connect</button>
               </div>
             </div>
           </div>
           <div id="bleResult" class="pin-result" style="display:none;"></div>
         </div>
         <div class="device-setup-steps">
-          <p id="manualSetupHeading" class="ble-manual-heading">Manual Setup (all platforms):</p>
+          <p id="manualSetupHeading" class="ble-manual-heading" data-i18n="ble_manual_heading">Manual Setup (all platforms):</p>
           <ol class="ble-manual-steps">
-            <li>Power on your ESP32 device</li>
-            <li>Connect to its setup WiFi network (<strong>BabyLinkS3-Setup</strong>)</li>
-            <li>Open <strong>http://192.168.4.1</strong> in your browser</li>
-            <li>Enter your WiFi credentials and the values below:</li>
+            <li data-i18n="ble_manual_1">Power on your ESP32 device</li>
+            <li data-i18n-html="ble_manual_2">Connect to its setup WiFi network (<strong>BabyLinkS3-Setup</strong>)</li>
+            <li data-i18n-html="ble_manual_3">Open <strong>http://192.168.4.1</strong> in your browser</li>
+            <li data-i18n="ble_manual_4">Enter your WiFi credentials and the values below:</li>
           </ol>
           <div class="device-prefill">
-            <div><strong>Server:</strong> <code id="prefillServer"></code></div>
-            <div><strong>Port:</strong> <code id="prefillPort"></code></div>
-            <div><strong>Room ID:</strong> <code id="prefillRoom"></code></div>
+            <div><strong data-i18n="ble_prefill_server">Server:</strong> <code id="prefillServer"></code></div>
+            <div><strong data-i18n="ble_prefill_port">Port:</strong> <code id="prefillPort"></code></div>
+            <div><strong data-i18n="ble_prefill_room">Room ID:</strong> <code id="prefillRoom"></code></div>
           </div>
         </div>
       </div>
@@ -259,14 +261,19 @@
       </a>
       <a class="footer-mini" href="https://ko-fi.com/mkampl" target="_blank" rel="noopener">
         <svg class="footer-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 3H4v10a4 4 0 0 0 4 4h6a4 4 0 0 0 4-4v-1h1a3 3 0 0 0 0-6h-1V3zm0 5h1a1 1 0 0 1 0 2h-1V8zM2 21h18v-2H2v2z"/></svg>
-        <span>Support</span>
+        <span data-i18n="footer_support">Support</span>
       </a>
-      <a class="footer-mini footer-mini-icon" href="https://github.com/mkampl/babylink" target="_blank" rel="noopener" aria-label="Source on GitHub">
+      <a class="footer-mini footer-mini-icon" href="https://github.com/mkampl/babylink" target="_blank" rel="noopener" aria-label="Source on GitHub" data-i18n-attr="aria-label:footer_source_aria">
         <svg class="footer-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .5C5.37.5 0 5.87 0 12.5c0 5.3 3.44 9.8 8.21 11.39.6.11.82-.26.82-.58 0-.28-.01-1.03-.02-2.02-3.34.73-4.04-1.61-4.04-1.61-.55-1.39-1.34-1.76-1.34-1.76-1.09-.75.08-.73.08-.73 1.2.09 1.84 1.24 1.84 1.24 1.07 1.83 2.81 1.3 3.5.99.11-.78.42-1.31.76-1.61-2.67-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.13-.3-.54-1.52.12-3.18 0 0 1.01-.32 3.3 1.23a11.5 11.5 0 0 1 6.01 0c2.29-1.55 3.29-1.23 3.29-1.23.66 1.66.25 2.88.13 3.18.77.84 1.23 1.91 1.23 3.22 0 4.61-2.81 5.63-5.49 5.92.43.37.82 1.1.82 2.22 0 1.61-.02 2.9-.02 3.29 0 .32.22.7.83.58C20.57 22.29 24 17.8 24 12.5 24 5.87 18.63.5 12 .5z"/></svg>
       </a>
+      <span class="footer-lang-wrap">
+        <span class="footer-lang-globe" aria-hidden="true">🌐</span>
+        <select id="langSelect" class="footer-lang" aria-label="Language" data-i18n-attr="aria-label:lang_label"></select>
+      </span>
     </nav>
   </footer>
 
+  <script src="/js/i18n.js"></script>
   <script src="/js/utils.js"></script>
   <script src="/js/qrcode-generator.js"></script>
   <script src="/js/select-role.js"></script>

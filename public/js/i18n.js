@@ -71,7 +71,7 @@
       Object.keys(SUPPORTED).forEach(function (code) {
         var o = document.createElement('option');
         o.value = code;
-        o.textContent = SUPPORTED[code];
+        o.textContent = SUPPORTED[code] + ' · ' + code.toUpperCase();
         sel.appendChild(o);
       });
       sel.addEventListener('change', function () {
@@ -85,8 +85,8 @@
         }
       });
     }
-    // "Auto (Deutsch)" etc. — re-translated on every language change.
-    sel.options[0].textContent = t('lang_auto') + ' (' + SUPPORTED[detectBrowser()] + ')';
+    // "Automatisch (DE)" etc. — re-translated on every language change.
+    sel.options[0].textContent = t('lang_auto') + ' (' + detectBrowser().toUpperCase() + ')';
     sel.value = hasOverride ? lang : 'auto';
   }
 
