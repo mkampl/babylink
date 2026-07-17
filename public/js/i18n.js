@@ -13,14 +13,24 @@
   var DEFAULT = 'en';
   var dict = {};
   var lang = DEFAULT;
+  // Whether the user has explicitly pinned a language (saved in localStorage).
+  // When false we follow the browser/OS locale and the switcher shows "Auto".
+  var hasOverride = false;
 
-  function detect() {
+  function savedLang() {
     try {
-      var saved = localStorage.getItem('babylink-lang');
-      if (saved && SUPPORTED[saved]) return saved;
-    } catch (e) { /* private mode */ }
+      var s = localStorage.getItem('babylink-lang');
+      return (s && SUPPORTED[s]) ? s : null;
+    } catch (e) { return null; /* private mode */ }
+  }
+
+  function detectBrowser() {
     var nav = (navigator.language || 'en').slice(0, 2).toLowerCase();
     return SUPPORTED[nav] ? nav : DEFAULT;
+  }
+
+  function detect() {
+    return savedLang() || detectBrowser();
   }
 
   function t(key, vars) {
@@ -49,20 +59,35 @@
     wireSwitcher();
   }
 
-  // Populate + sync any <select id="langSelect"> language picker.
+  // Populate + sync any <select id="langSelect"> language picker. The first
+  // option ("Auto") clears the saved preference and follows the browser/OS.
   function wireSwitcher() {
     var sel = document.getElementById('langSelect');
     if (!sel) return;
     if (!sel.options.length) {
+      var auto = document.createElement('option');
+      auto.value = 'auto';
+      sel.appendChild(auto);
       Object.keys(SUPPORTED).forEach(function (code) {
         var o = document.createElement('option');
         o.value = code;
         o.textContent = SUPPORTED[code];
         sel.appendChild(o);
       });
-      sel.addEventListener('change', function () { setLang(sel.value, true); });
+      sel.addEventListener('change', function () {
+        if (sel.value === 'auto') {
+          try { localStorage.removeItem('babylink-lang'); } catch (e) {}
+          hasOverride = false;
+          setLang(detectBrowser(), false);
+        } else {
+          hasOverride = true;
+          setLang(sel.value, true);
+        }
+      });
     }
-    sel.value = lang;
+    // "Auto (Deutsch)" etc. — re-translated on every language change.
+    sel.options[0].textContent = t('lang_auto') + ' (' + SUPPORTED[detectBrowser()] + ')';
+    sel.value = hasOverride ? lang : 'auto';
   }
 
   function setLang(l, save) {
@@ -88,5 +113,6 @@
     SUPPORTED: SUPPORTED,
   };
 
+  hasOverride = !!savedLang();
   setLang(detect(), false);
 })();

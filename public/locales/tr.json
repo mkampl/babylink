@@ -38,6 +38,7 @@
   "footer_source_aria": "GitHub'daki kaynak kod",
   "help_wizard": "Kurulum sihirbazını göster",
   "lang_label": "Dil",
+  "lang_auto": "Otomatik",
   "js_creating": "Oluşturuluyor…",
   "js_create_error": "Oda oluşturulamadı: {msg}",
   "js_copied": "Kopyalandı!",

@@ -38,6 +38,7 @@
   "footer_source_aria": "Quellcode auf GitHub",
   "help_wizard": "Einrichtungs-Assistent anzeigen",
   "lang_label": "Sprache",
+  "lang_auto": "Automatisch",
   "js_creating": "Wird erstellt…",
   "js_create_error": "Raum konnte nicht erstellt werden: {msg}",
   "js_copied": "Kopiert!",

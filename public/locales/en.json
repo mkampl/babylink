@@ -38,6 +38,7 @@
   "footer_source_aria": "Source on GitHub",
   "help_wizard": "Show setup wizard",
   "lang_label": "Language",
+  "lang_auto": "Auto",
   "js_creating": "Creating…",
   "js_create_error": "Could not create room: {msg}",
   "js_copied": "Copied!",

@@ -38,6 +38,7 @@
   "footer_source_aria": "Código fuente en GitHub",
   "help_wizard": "Mostrar el asistente de configuración",
   "lang_label": "Idioma",
+  "lang_auto": "Automático",
   "js_creating": "Creando…",
   "js_create_error": "No se pudo crear la sala: {msg}",
   "js_copied": "¡Copiado!",
