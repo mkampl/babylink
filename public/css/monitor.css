@@ -6,7 +6,8 @@ body.monitor-page {
   padding: var(--space-md);
   max-width: 960px;
   margin: 0 auto;
-  padding-bottom: calc(var(--space-2xl) + env(safe-area-inset-bottom, 0));
+  /* Clear the slim fixed footer bar. */
+  padding-bottom: calc(var(--footer-h) + var(--space-lg) + env(safe-area-inset-bottom, 0));
 }
 
 #mainContainer {
