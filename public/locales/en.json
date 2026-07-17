@@ -256,5 +256,7 @@
   "sr_ble_write_failed": "Failed to write config: {msg}",
   "sr_device_fallback": "device",
   "sr_ble_applying": "Applying…",
-  "sr_ble_config_sent": "Configuration sent! Device is restarting; it should appear in the devices list within ~15 seconds."
+  "sr_ble_config_sent": "Configuration sent! Device is restarting; it should appear in the devices list within ~15 seconds.",
+  "footer_app_aria": "Download the Android app",
+  "footer_support_aria": "Support on Ko-fi"
 }

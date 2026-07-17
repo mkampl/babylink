@@ -256,5 +256,7 @@
   "sr_ble_write_failed": "No se pudo escribir la configuración: {msg}",
   "sr_device_fallback": "dispositivo",
   "sr_ble_applying": "Aplicando…",
-  "sr_ble_config_sent": "¡Configuración enviada! El dispositivo se está reiniciando; debería aparecer en la lista de dispositivos en unos 15 segundos."
+  "sr_ble_config_sent": "¡Configuración enviada! El dispositivo se está reiniciando; debería aparecer en la lista de dispositivos en unos 15 segundos.",
+  "footer_app_aria": "Descargar la app de Android",
+  "footer_support_aria": "Apoyar en Ko-fi"
 }

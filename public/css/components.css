@@ -1367,8 +1367,7 @@ body.role-page main {
   display: flex;
   align-items: center;
   gap: var(--space-md);
-  /* keep clear of the fixed 44px theme toggle in the top-right */
-  padding: var(--space-sm) calc(44px + var(--space-lg)) var(--space-sm) 0;
+  padding: var(--space-sm) var(--space-md) var(--space-sm) 0;
   margin-bottom: var(--space-sm);
   /* Sticky + above the #startOverlay (9999) so Home is ALWAYS reachable —
      even over the parent "Start Monitoring" overlay (the wrong-room case)
@@ -1408,11 +1407,13 @@ body.role-page main {
   font-size: var(--text-h3);
   font-weight: 700;
   color: var(--color-text-heading);
+  flex: 1 1 auto; /* grows so the controls cluster is pushed to the right edge */
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.app-bar .controls-cluster { flex: 0 0 auto; }
 .app-bar__title--brand { color: var(--color-primary); }
 
 /* the role page is a centered column — align the bar with its <main> */
