@@ -223,3 +223,74 @@ body, .baby-card, .master-controls, .wake-lock-container,
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ===== Slim fixed footer bar (home + role-picker landing pages) ===== */
+:root { --footer-h: 52px; }
+
+.site-footer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: 0.4rem var(--space-md);
+  padding-bottom: calc(0.4rem + env(safe-area-inset-bottom, 0px));
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border-light);
+  box-shadow: 0 -2px 10px rgba(45, 41, 38, 0.05);
+}
+
+.footer-brand { display: inline-flex; align-items: center; gap: 0.45rem; min-width: 0; }
+.footer-logo {
+  width: 24px; height: 24px; border-radius: 7px;
+  box-shadow: var(--shadow-sm); flex-shrink: 0;
+}
+.footer-name { font-weight: 600; color: var(--color-text); font-size: 0.9rem; }
+
+.footer-actions { display: flex; align-items: center; gap: 0.35rem; }
+.footer-ic { width: 17px; height: 17px; fill: currentColor; flex-shrink: 0; }
+
+/* The one prominent element: get the native app. */
+.footer-app {
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  padding: 0.4rem 0.8rem;
+  background: var(--color-primary); color: #fff;
+  border-radius: var(--radius-pill);
+  font-size: 0.85rem; font-weight: 600; text-decoration: none;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+.footer-app:hover,
+.footer-app:focus-visible {
+  background: var(--color-primary-hover);
+  transform: translateY(-1px);
+}
+
+/* Quiet secondary links. */
+.footer-mini {
+  display: inline-flex; align-items: center; gap: 0.3rem;
+  padding: 0.4rem 0.55rem;
+  color: var(--color-text-muted); border-radius: var(--radius-pill);
+  font-size: 0.82rem; font-weight: 500; text-decoration: none;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.footer-mini:hover,
+.footer-mini:focus-visible {
+  color: var(--color-primary);
+  background: var(--color-primary-light);
+}
+.footer-mini-icon { padding: 0.4rem; }
+
+/* Reserve space so the fixed bar never covers content. */
+body.home-page,
+body.role-page {
+  padding-bottom: calc(var(--footer-h) + env(safe-area-inset-bottom, 0px));
+}
+
+/* Very narrow phones: drop the brand word so it stays one line. */
+@media (max-width: 360px) {
+  .footer-name { display: none; }
+}
