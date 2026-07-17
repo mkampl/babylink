@@ -2,6 +2,9 @@
 // views/select-role.html for CSP compliance (script-src 'self').
 // Depends on utils.js + qrcode-generator.js (loaded before it).
 
+    // i18n helper: falls back to the key if the engine hasn't loaded yet.
+    const T = (k, v) => (window.i18n ? window.i18n.t(k, v) : k);
+
     // Dark mode toggle
     ThemeManager.createToggleButton(document.body);
 
@@ -14,13 +17,13 @@
         qr.addData(text);
         qr.make();
         qrImg.src = qr.createDataURL(6, 4);
-        qrImg.alt = 'QR Code for room link';
-        qrImg.title = 'Scan to join BabyLink room';
+        qrImg.alt = T('qr_alt');
+        qrImg.title = T('sr_qr_title');
       } catch (e) {
         qrImg.style.display = 'none';
         const fallback = document.createElement('div');
         fallback.className = 'qr-fallback';
-        fallback.textContent = '📱 QR Code unavailable - please share the link above';
+        fallback.textContent = T('sr_qr_unavailable');
         qrImg.parentNode.appendChild(fallback);
       }
     }
@@ -50,7 +53,7 @@
           await navigator.clipboard.writeText(linkInput.value);
           const btn = document.getElementById('copyLinkBtn');
           const originalText = btn.textContent;
-          btn.textContent = '✅ Copied!';
+          btn.textContent = T('sr_copied');
           btn.style.background = '#28a745';
 
           setTimeout(() => {
@@ -61,7 +64,7 @@
           // Fallback for older browsers
           linkInput.select();
           document.execCommand('copy');
-          alert('Link copied to clipboard!');
+          alert(T('sr_link_copied'));
         }
       });
 
@@ -134,11 +137,11 @@
       resultEl.style.display = 'block';
       resultEl.className = 'pin-result error';
       if (status === 401 || status === 403) {
-        resultEl.textContent = 'Only the room owner can do this. Create the room from this device to gain management access.';
+        resultEl.textContent = T('sr_owner_only');
       } else if (status === 429) {
-        resultEl.textContent = 'Too many requests — please wait a moment and try again.';
+        resultEl.textContent = T('sr_rate_limited');
       } else {
-        resultEl.textContent = 'Server error (' + status + '). Please try again.';
+        resultEl.textContent = T('sr_server_error', { status: status });
       }
     }
 
@@ -210,8 +213,8 @@
 
       if (!visible && roomHasPin) {
         document.getElementById('currentPinRow').style.display = 'block';
-        document.getElementById('pinSettingsTitle').textContent = 'Change Room PIN';
-        document.getElementById('pinSettingsDesc').textContent = 'Enter current PIN and set a new one, or leave new PIN empty to remove.';
+        document.getElementById('pinSettingsTitle').textContent = T('sr_pin_change_title');
+        document.getElementById('pinSettingsDesc').textContent = T('sr_pin_change_desc');
       }
     });
 
@@ -271,7 +274,7 @@
         if (!silent && resultEl) {
           resultEl.style.display = 'block';
           resultEl.className = 'pin-result error';
-          resultEl.textContent = 'Please enter a topic';
+          resultEl.textContent = T('sr_enter_topic');
         }
         return;
       }
@@ -292,7 +295,7 @@
           handleAuthError(res.status, resultEl);
           return;
         }
-        if (!res.ok) throw new Error('Failed to save');
+        if (!res.ok) throw new Error(T('sr_save_failed'));
 
         var testBtn = document.getElementById('testNotificationBtn');
         if (testBtn) testBtn.disabled = false;
@@ -300,7 +303,7 @@
         if (!silent && resultEl) {
           resultEl.style.display = 'block';
           resultEl.className = 'pin-result success';
-          resultEl.textContent = 'Settings saved';
+          resultEl.textContent = T('sr_settings_saved');
           setTimeout(function() { resultEl.style.display = 'none'; }, 3000);
         }
       } catch (err) {
@@ -308,7 +311,7 @@
         if (!silent && resultEl) {
           resultEl.style.display = 'block';
           resultEl.className = 'pin-result error';
-          resultEl.textContent = 'Failed to save';
+          resultEl.textContent = T('sr_save_failed');
         }
       }
     }
@@ -329,7 +332,7 @@
       var btn = this;
       var resultEl = document.getElementById('ntfyResult');
       btn.disabled = true;
-      btn.textContent = 'Sending...';
+      btn.textContent = T('sr_sending');
 
       try {
         await saveNtfyConfig(true);
@@ -341,24 +344,24 @@
         }
         if (!res.ok) {
           var data = await res.json().catch(function() { return {}; });
-          throw new Error(data.error || 'Failed');
+          throw new Error(data.error || T('sr_failed'));
         }
         var result = await res.json();
         if (resultEl) {
           resultEl.style.display = 'block';
           resultEl.className = 'pin-result ' + (result.success ? 'success' : 'error');
-          resultEl.textContent = result.success ? 'Test sent! Check your phone.' : 'Failed to send';
+          resultEl.textContent = result.success ? T('sr_test_sent') : T('sr_send_failed');
           setTimeout(function() { resultEl.style.display = 'none'; }, 5000);
         }
       } catch (err) {
         if (resultEl) {
           resultEl.style.display = 'block';
           resultEl.className = 'pin-result error';
-          resultEl.textContent = err.message || 'Error sending';
+          resultEl.textContent = err.message || T('sr_error_sending');
         }
       } finally {
         btn.disabled = false;
-        btn.textContent = 'Test';
+        btn.textContent = T('push_test');
       }
     });
 
@@ -394,7 +397,7 @@
       } catch (err) {
         resultEl.style.display = 'block';
         resultEl.className = 'pin-result error';
-        resultEl.textContent = 'Failed to update PIN';
+        resultEl.textContent = T('sr_pin_update_failed');
       }
     });
 
@@ -426,9 +429,9 @@
         var manualHeading = document.getElementById('manualSetupHeading');
         if (navigator.bluetooth) {
           document.getElementById('bleProvisionBtn').style.display = 'block';
-          if (manualHeading) manualHeading.textContent = 'Manual Setup (all platforms):';
+          if (manualHeading) manualHeading.textContent = T('ble_manual_heading');
         } else {
-          if (manualHeading) manualHeading.textContent = 'Set up via WiFi (iOS / Safari / desktop):';
+          if (manualHeading) manualHeading.textContent = T('sr_manual_ios');
         }
       } else {
         stopDevicePolling();
@@ -509,7 +512,7 @@
         meta.className = 'device-meta';
         // clientIp is a server-emitted IP string; audioPacketsReceived is a number.
         // Both are set via textContent to be safe.
-        meta.textContent = d.clientIp + ' · ' + uptimeStr + ' · ' + d.audioPacketsReceived + ' packets';
+        meta.textContent = d.clientIp + ' · ' + uptimeStr + ' · ' + T('sr_packets', { n: d.audioPacketsReceived });
         info.appendChild(meta);
         item.appendChild(info);
 
@@ -518,17 +521,17 @@
 
         var renameBtn = document.createElement('button');
         renameBtn.className = 'device-rename-btn';
-        renameBtn.textContent = 'Rename';
+        renameBtn.textContent = T('sr_rename');
         renameBtn.addEventListener('click', function() { renameDevice(d.id, d.name); });
 
         var disconnectBtn = document.createElement('button');
         disconnectBtn.className = 'device-disconnect-btn';
-        disconnectBtn.textContent = 'Disconnect';
+        disconnectBtn.textContent = T('sr_disconnect');
         disconnectBtn.addEventListener('click', function() { disconnectDevice(d.id); });
 
         var resetBtn = document.createElement('button');
         resetBtn.className = 'device-reset-btn';
-        resetBtn.textContent = 'Reset';
+        resetBtn.textContent = T('sr_reset');
         resetBtn.addEventListener('click', function() { resetDevice(d.id); });
 
         actions.appendChild(renameBtn);
@@ -540,13 +543,13 @@
     }
 
     window.renameDevice = async function(esp32Id, currentName) {
-      var newName = prompt('Device name:', currentName);
+      var newName = prompt(T('sr_device_name_prompt'), currentName);
       if (!newName || newName === currentName) return;
       try {
         var res = await fetch('/api/rooms/' + encodeURIComponent(roomId) + '/esp32/' + encodeURIComponent(esp32Id),
           ownerFetchOptions('PATCH', { name: newName }));
         if (res.status === 401 || res.status === 403 || res.status === 429) {
-          alert('Only the room owner can rename devices.');
+          alert(T('sr_owner_rename'));
           return;
         }
         loadDevices();
@@ -556,12 +559,12 @@
     };
 
     window.disconnectDevice = async function(esp32Id) {
-      if (!confirm('Disconnect this device?\n\nThe device will keep its WiFi + room config and reconnect on next power cycle.')) return;
+      if (!confirm(T('sr_confirm_disconnect'))) return;
       try {
         var res = await fetch('/api/rooms/' + encodeURIComponent(roomId) + '/esp32/' + encodeURIComponent(esp32Id),
           ownerFetchOptions('DELETE'));
         if (res.status === 401 || res.status === 403) {
-          alert('Only the room owner can disconnect devices.');
+          alert(T('sr_owner_disconnect'));
           return;
         }
         loadDevices();
@@ -571,17 +574,17 @@
     };
 
     window.resetDevice = async function(esp32Id) {
-      if (!confirm('Reset this device to factory defaults?\n\nClears WiFi credentials, server, and room. The device will reboot into provisioning mode (BLE + setup network).')) return;
+      if (!confirm(T('sr_confirm_reset'))) return;
       try {
         var res = await fetch('/api/rooms/' + encodeURIComponent(roomId) + '/esp32/' + encodeURIComponent(esp32Id) + '/reset',
           ownerFetchOptions('POST'));
         if (res.status === 401 || res.status === 403) {
-          alert('Only the room owner can reset devices.');
+          alert(T('sr_owner_reset'));
           return;
         }
         if (!res.ok) {
           var body = await res.json().catch(function() { return {}; });
-          alert('Reset failed: ' + (body.error || res.statusText));
+          alert(T('sr_reset_failed', { err: body.error || res.statusText }));
         }
         loadDevices();
       } catch (err) {
@@ -632,7 +635,7 @@
       var save = $('bleSaveBtn');
       if (save) {
         save.disabled = locked;
-        save.title = locked ? 'Tap the button on the device to enable changes' : '';
+        save.title = locked ? T('sr_gate_save_title') : '';
       }
     }
 
@@ -640,7 +643,7 @@
       var host = $('bleWifiRows');
       host.innerHTML = '';
       if (!bleConfig.wifi.length) {
-        host.innerHTML = '<div class="ble-empty-state">No WiFi networks yet — scan or add manually.</div>';
+        host.innerHTML = '<div class="ble-empty-state">' + escapeHtml(T('sr_no_wifi')) + '</div>';
         return;
       }
       bleConfig.wifi.forEach(function(p, i) {
@@ -649,7 +652,7 @@
         div.innerHTML =
           '<div class="ble-flex-grow">' +
           '<input type="text" data-i="' + i + '" data-k="ssid" value="' + escapeHtml(p.ssid || '') + '" placeholder="SSID" class="ble-row-input ble-row-input--spaced" />' +
-          '<input type="password" data-i="' + i + '" data-k="password" value="' + escapeHtml(p.password || '') + '" placeholder="Password" class="ble-row-input" />' +
+          '<input type="password" data-i="' + i + '" data-k="password" value="' + escapeHtml(p.password || '') + '" placeholder="' + escapeHtml(T('sr_password_ph')) + '" class="ble-row-input" />' +
           '</div>' +
           '<button type="button" data-rm-w="' + i + '" class="ble-remove-btn">×</button>';
         host.appendChild(div);
@@ -660,7 +663,7 @@
       var host = $('bleServerRows');
       host.innerHTML = '';
       if (!bleConfig.servers.length) {
-        host.innerHTML = '<div class="ble-empty-state">No servers yet.</div>';
+        host.innerHTML = '<div class="ble-empty-state">' + escapeHtml(T('sr_no_servers')) + '</div>';
         return;
       }
       bleConfig.servers.forEach(function(p, i) {
@@ -669,11 +672,11 @@
         var active = (i === bleConfig.activeServer) ? 'checked' : '';
         div.innerHTML =
           '<div class="ble-flex-grow">' +
-          '<input type="text" data-i="' + i + '" data-k="label" value="' + escapeHtml(p.label || '') + '" placeholder="Label (e.g. Home)" class="ble-row-input ble-row-input--spaced" />' +
-          '<input type="text" data-i="' + i + '" data-k="host" value="' + escapeHtml(p.host || '') + '" placeholder="Host or IP" class="ble-row-input ble-row-input--spaced" />' +
-          '<input type="number" data-i="' + i + '" data-k="port" value="' + (p.port || 3001) + '" placeholder="Port" class="ble-row-input ble-row-input--spaced" />' +
-          '<input type="text" data-i="' + i + '" data-k="roomId" value="' + escapeHtml(p.roomId || '') + '" placeholder="Room ID" class="ble-row-input" />' +
-          '<label class="ble-active-toggle"><input type="radio" name="ble-active" data-a="' + i + '" ' + active + ' /> Active</label>' +
+          '<input type="text" data-i="' + i + '" data-k="label" value="' + escapeHtml(p.label || '') + '" placeholder="' + escapeHtml(T('sr_label_ph')) + '" class="ble-row-input ble-row-input--spaced" />' +
+          '<input type="text" data-i="' + i + '" data-k="host" value="' + escapeHtml(p.host || '') + '" placeholder="' + escapeHtml(T('sr_host_ph')) + '" class="ble-row-input ble-row-input--spaced" />' +
+          '<input type="number" data-i="' + i + '" data-k="port" value="' + (p.port || 3001) + '" placeholder="' + escapeHtml(T('ble_prefill_port').replace(/:$/, '')) + '" class="ble-row-input ble-row-input--spaced" />' +
+          '<input type="text" data-i="' + i + '" data-k="roomId" value="' + escapeHtml(p.roomId || '') + '" placeholder="' + escapeHtml(T('sr_roomid_ph')) + '" class="ble-row-input" />' +
+          '<label class="ble-active-toggle"><input type="radio" name="ble-active" data-a="' + i + '" ' + active + ' /> ' + escapeHtml(T('sr_active')) + '</label>' +
           '</div>' +
           '<button type="button" data-rm-s="' + i + '" class="ble-remove-btn">×</button>';
         host.appendChild(div);
@@ -697,12 +700,12 @@
         var hasWifi = bleConfig.wifi && bleConfig.wifi.some(function(w) {
           return w.ssid && w.ssid.trim().length > 0;
         });
-        if (!hasWifi) return 'Add at least one WiFi network.';
+        if (!hasWifi) return T('sr_step_need_wifi');
       } else if (stepIdx === 1) {
         var hasServer = bleConfig.servers && bleConfig.servers.some(function(s) {
           return s.host && s.host.trim().length > 0 && s.roomId && s.roomId.trim().length > 0;
         });
-        if (!hasServer) return 'Add at least one server with host and room ID.';
+        if (!hasServer) return T('sr_need_server');
       }
       return null;
     }
@@ -720,7 +723,7 @@
       // Step status messages should reset whenever the user moves —
       // a stale "add at least one server" from step 1 shouldn't shout
       // at them on step 2.
-      $('bleStatus').textContent = 'Connected — step ' + (target + 1) + ' of 3';
+      $('bleStatus').textContent = T('sr_ble_step', { n: target + 1 });
     }
 
     document.addEventListener('click', function(e) {
@@ -817,7 +820,7 @@
       var result = $('bleResult');
 
       wizard.style.display = 'block';
-      status.textContent = 'Scanning for BabyLink devices…';
+      status.textContent = T('sr_ble_scanning');
       result.style.display = 'none';
       $('bleEditor').style.display = 'none';
 
@@ -833,7 +836,7 @@
           optionalServices: [BLE_SERVICE_UUID]
         });
 
-        status.textContent = 'Connecting to ' + bleDevice.name + '…';
+        status.textContent = T('sr_ble_connecting', { name: bleDevice.name });
         bleServer = await bleDevice.gatt.connect();
         bleService = await bleServer.getPrimaryService(BLE_SERVICE_UUID);
 
@@ -873,7 +876,7 @@
         }
 
         // Pull current config from device so the editor shows what's saved
-        status.textContent = 'Reading current config…';
+        status.textContent = T('sr_ble_reading');
         try {
           var cfgChar = await bleService.getCharacteristic(BLE_CHAR_CONFIG);
           var raw = await cfgChar.readValue();
@@ -915,16 +918,16 @@
           bleConfig.activeServer = 0;
         }
 
-        status.textContent = 'Connected to ' + deviceLabel;
+        status.textContent = T('sr_ble_connected', { name: deviceLabel });
         $('bleEditor').style.display = 'block';
         goToBleStep(0);
         renderBleEditor();
         updateGateHint();
       } catch (err) {
         if (err.name === 'NotFoundError') {
-          status.textContent = 'No device selected.';
+          status.textContent = T('sr_ble_no_device');
         } else {
-          status.textContent = 'Error: ' + err.message;
+          status.textContent = T('mon_error', { msg: err.message });
         }
         console.error('BLE error:', err);
       }
@@ -933,10 +936,10 @@
     $('bleScanBtn').addEventListener('click', async function() {
       var btn = $('bleScanBtn');
       var sl = $('bleScanList');
-      if (!bleService) { sl.innerHTML = '<div class="ble-error-text">Not connected.</div>'; return; }
+      if (!bleService) { sl.innerHTML = '<div class="ble-error-text">' + escapeHtml(T('sr_not_connected')) + '</div>'; return; }
       btn.disabled = true;
       var origLabel = btn.textContent;
-      btn.textContent = 'Scanning…';
+      btn.textContent = T('sr_scanning');
       sl.innerHTML = '';
       try {
         var scanChar = await bleService.getCharacteristic(BLE_CHAR_SCAN);
@@ -958,21 +961,21 @@
           await new Promise(function(r) { setTimeout(r, 500); });
         }
         if (!list.length) {
-          sl.innerHTML = '<div class="ble-help-text">No networks found.</div>';
+          sl.innerHTML = '<div class="ble-help-text">' + escapeHtml(T('sr_no_networks')) + '</div>';
         } else {
-          sl.innerHTML = '<div class="ble-scan-hint">Tap to add:</div>';
+          sl.innerHTML = '<div class="ble-scan-hint">' + escapeHtml(T('sr_tap_to_add')) + '</div>';
           list.sort(function(a, b) { return (b.rssi || -100) - (a.rssi || -100); });
           list.forEach(function(n) {
             var b = document.createElement('button');
             b.type = 'button';
             b.className = 'onboarding-btn secondary ble-scan-chip';
             b.dataset.pickSsid = n.ssid;
-            b.textContent = n.ssid + ' (' + n.rssi + ' dBm' + (n.secure ? '' : ' · open') + ')';
+            b.textContent = n.ssid + ' (' + n.rssi + ' dBm' + (n.secure ? '' : ' · ' + T('sr_open')) + ')';
             sl.appendChild(b);
           });
         }
       } catch (e) {
-        sl.innerHTML = '<div class="ble-error-text">Scan failed: ' + escapeHtml(e.message) + '</div>';
+        sl.innerHTML = '<div class="ble-error-text">' + escapeHtml(T('sr_scan_failed', { msg: e.message })) + '</div>';
       }
       btn.disabled = false;
       btn.textContent = origLabel;
@@ -995,15 +998,15 @@
       if (!bleService) {
         result.style.display = 'block';
         result.className = 'pin-result error';
-        result.textContent = 'Not connected to device';
+        result.textContent = T('sr_ble_not_connected');
         return;
       }
       if (!bleConfig.wifi.length || !bleConfig.wifi[0].ssid) {
-        alert('Add at least one WiFi network with an SSID.');
+        alert(T('sr_need_wifi_ssid'));
         return;
       }
       if (!bleConfig.servers.length || !bleConfig.servers[0].host || !bleConfig.servers[0].roomId) {
-        alert('Add at least one server with host and room ID.');
+        alert(T('sr_need_server'));
         return;
       }
       // Gate: a configured device rejects writes until its window is opened by
@@ -1012,28 +1015,28 @@
         updateGateHint();
         result.style.display = 'block';
         result.className = 'pin-result error';
-        result.textContent = 'Locked: tap the button on the device once (LED blinks 3×), then Save.';
+        result.textContent = T('sr_locked_save');
         return;
       }
       // The config write must actually succeed — if it fails, no point
       // applying. The apply write, however, intentionally reboots the
       // device, which drops the BLE link mid-write. Catch each separately
       // so an expected post-apply disconnect doesn't surface as "Failed".
-      status.textContent = 'Writing configuration…';
+      status.textContent = T('sr_ble_writing');
       try {
         var blob = JSON.stringify(bleConfig);
         var cfgChar = await bleService.getCharacteristic(BLE_CHAR_CONFIG);
         await cfgChar.writeValue(new TextEncoder().encode(blob));
       } catch (err) {
-        status.textContent = 'Connected to ' + (bleDevice ? bleDevice.name : 'device');
+        status.textContent = T('sr_ble_connected', { name: bleDevice ? bleDevice.name : T('sr_device_fallback') });
         result.style.display = 'block';
         result.className = 'pin-result error';
-        result.textContent = 'Failed to write config: ' + err.message;
+        result.textContent = T('sr_ble_write_failed', { msg: err.message });
         console.error('BLE config write error:', err);
         return;
       }
 
-      status.textContent = 'Applying…';
+      status.textContent = T('sr_ble_applying');
       try {
         var cmdChar = await bleService.getCharacteristic(BLE_CHAR_COMMAND);
         await cmdChar.writeValue(new TextEncoder().encode('apply'));
@@ -1046,7 +1049,7 @@
       status.textContent = '';
       result.style.display = 'block';
       result.className = 'pin-result success';
-      result.textContent = 'Configuration sent! Device is restarting; it should appear in the devices list within ~15 seconds.';
+      result.textContent = T('sr_ble_config_sent');
       $('bleEditor').style.display = 'none';
 
       try { if (bleServer && bleServer.connected) bleServer.disconnect(); } catch (e) { /* ignore */ }
