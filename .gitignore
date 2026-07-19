@@ -46,3 +46,6 @@ esp32-firmware/src/dev_defaults.h
 # Temporary files
 tmp/
 temp/
+
+# Personal legal data (Impressum) — never commit; read at runtime
+config/legal.json

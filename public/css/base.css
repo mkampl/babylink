@@ -328,3 +328,23 @@ body.role-page {
   .footer-name { display: none; }
 }
 
+
+/* Footer legal links (Impressum / Datenschutz) — injected when configured. */
+.footer-legal-link {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.footer-legal-link:hover { color: var(--color-text); text-decoration: underline; }
+
+/* Legal pages (Impressum / Datenschutz). */
+.legal-page { max-width: 680px; margin: 0 auto; padding-bottom: 3rem; line-height: 1.6; }
+.legal-lead { color: var(--color-text-muted); }
+.legal-page h3 { margin-top: var(--space-lg); font-size: var(--text-h3); }
+.legal-page ul { padding-left: 1.2rem; }
+.legal-page li { margin-bottom: 0.4rem; }
+.legal-contact { display: grid; grid-template-columns: max-content 1fr; gap: 0.4rem 1rem; margin: var(--space-md) 0; }
+.legal-contact dt { font-weight: 600; color: var(--color-text-heading); }
+.legal-contact dd { margin: 0; }
+.legal-small { color: var(--color-text-muted); font-size: 0.85rem; margin-top: var(--space-lg); }

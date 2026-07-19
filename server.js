@@ -564,6 +564,70 @@ app.post('/api/rooms/:roomId/pin/verify', validateRoomId, pinVerifyLimiter, (req
 });
 
 // =============================================================================
+// LEGAL PAGES (Impressum / Datenschutz) — data comes from config/legal.json,
+// which is git-ignored. If a page isn't configured, its route 404s and no
+// footer link appears, so personal data never lives in the repo.
+// =============================================================================
+
+function loadLegal() {
+  try {
+    return JSON.parse(require('fs').readFileSync(path.join(__dirname, 'config', 'legal.json'), 'utf8'));
+  } catch (e) {
+    return null;
+  }
+}
+function impressumReady(l) {
+  const i = l && l.impressum;
+  return !!(i && i.name && i.address && i.email);
+}
+function datenschutzReady(l) {
+  const d = l && l.datenschutz;
+  return !!(d && d.enabled === true);
+}
+function escHtml(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, (c) =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// Which legal pages exist — the footer uses this to show links only when set up.
+app.get('/api/legal', (req, res) => {
+  const l = loadLegal();
+  res.json({ impressum: impressumReady(l), datenschutz: datenschutzReady(l) });
+});
+
+app.get('/impressum', (req, res) => {
+  const l = loadLegal();
+  if (!impressumReady(l)) return res.status(404).send('Not found');
+  const i = l.impressum;
+  const rows = [
+    `<dt>Name</dt><dd>${escHtml(i.name)}</dd>`,
+    `<dt>Anschrift</dt><dd>${escHtml(i.address).replace(/\n/g, '<br>')}</dd>`,
+    `<dt>E-Mail</dt><dd><a class="link-primary" href="mailto:${escHtml(i.email)}">${escHtml(i.email)}</a></dd>`,
+  ];
+  if (i.phone) rows.push(`<dt>Telefon</dt><dd>${escHtml(i.phone)}</dd>`);
+  if (i.note) rows.push(`<dt></dt><dd>${escHtml(i.note).replace(/\n/g, '<br>')}</dd>`);
+  const html = require('fs')
+    .readFileSync(path.join(__dirname, 'views', 'impressum.html'), 'utf8')
+    .replace('{{contactRows}}', rows.join('\n'));
+  res.setHeader('Cache-Control', 'no-store');
+  res.send(html);
+});
+
+app.get('/datenschutz', (req, res) => {
+  const l = loadLegal();
+  if (!datenschutzReady(l)) return res.status(404).send('Not found');
+  const d = l.datenschutz;
+  const email = escHtml(d.email || (l.impressum && l.impressum.email) || '');
+  const html = require('fs')
+    .readFileSync(path.join(__dirname, 'views', 'datenschutz.html'), 'utf8')
+    .replace(/\{\{email\}\}/g, email)
+    .replace('{{retention}}', escHtml(String(d.logRetentionDays || 14)))
+    .replace('{{extra}}', d.extra ? `<p>${escHtml(d.extra).replace(/\n/g, '<br>')}</p>` : '');
+  res.setHeader('Cache-Control', 'no-store');
+  res.send(html);
+});
+
+// =============================================================================
 // ROOM ROUTES
 // =============================================================================
 

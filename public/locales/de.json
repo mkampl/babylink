@@ -258,5 +258,7 @@
   "sr_ble_applying": "Wird angewendet…",
   "sr_ble_config_sent": "Konfiguration gesendet! Das Gerät startet neu; es sollte innerhalb von ~15 Sekunden in der Geräteliste erscheinen.",
   "footer_app_aria": "Android-App herunterladen",
-  "footer_support_aria": "Auf Ko-fi unterstützen"
+  "footer_support_aria": "Auf Ko-fi unterstützen",
+  "footer_impressum": "Impressum",
+  "footer_datenschutz": "Datenschutz"
 }

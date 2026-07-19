@@ -91,3 +91,35 @@ const ThemeManager = {
 
 // Initialize theme on load
 ThemeManager.init();
+
+// Footer legal links (Impressum / Datenschutz) — injected only when the server
+// reports them configured (config/legal.json). Keeps the default footer clean
+// and the repo free of personal data.
+(function () {
+  function inject() {
+    fetch('/api/legal', { cache: 'no-store' })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (l) {
+        if (!l || (!l.impressum && !l.datenschutz)) return;
+        var nav = document.querySelector('.footer-actions');
+        if (!nav) return;
+        function add(href, key, fallback) {
+          var a = document.createElement('a');
+          a.className = 'footer-legal-link';
+          a.href = href;
+          a.setAttribute('data-i18n', key);
+          a.textContent = window.i18n ? window.i18n.t(key) : fallback;
+          nav.insertBefore(a, nav.firstChild);
+        }
+        if (l.datenschutz) add('/datenschutz', 'footer_datenschutz', 'Datenschutz');
+        if (l.impressum) add('/impressum', 'footer_impressum', 'Impressum');
+        if (window.i18n) window.i18n.apply(nav);
+      })
+      .catch(function () {});
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', inject);
+  } else {
+    inject();
+  }
+})();

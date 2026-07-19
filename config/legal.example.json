@@ -1,0 +1,20 @@
+{
+  "_comment": "Copy this file to config/legal.json and fill in only what you need. config/legal.json is git-ignored, so your personal data never enters the repository. Each page is independent: if it isn't configured, its route returns 404 and no footer link appears — the page simply does not exist.",
+
+  "_impressum": "Enabled when name + address + email are all filled. Page: /impressum",
+  "impressum": {
+    "name": "",
+    "address": "",
+    "email": "",
+    "phone": "",
+    "note": ""
+  },
+
+  "_datenschutz": "Enabled when enabled=true. Page: /datenschutz. email + logRetentionDays fill the privacy notice; extra is optional free HTML-less text.",
+  "datenschutz": {
+    "enabled": false,
+    "email": "",
+    "logRetentionDays": 14,
+    "extra": ""
+  }
+}

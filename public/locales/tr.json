@@ -258,5 +258,7 @@
   "sr_ble_applying": "Uygulanıyor…",
   "sr_ble_config_sent": "Yapılandırma gönderildi! Cihaz yeniden başlıyor; ~15 saniye içinde cihaz listesinde görünmeli.",
   "footer_app_aria": "Android uygulamasını indir",
-  "footer_support_aria": "Ko-fi'de destekle"
+  "footer_support_aria": "Ko-fi'de destekle",
+  "footer_impressum": "Künye",
+  "footer_datenschutz": "Gizlilik"
 }

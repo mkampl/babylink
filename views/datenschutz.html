@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Datenschutz — BabyLink</title>
+  <link rel="stylesheet" href="/css/variables.css">
+  <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/components.css">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#6B8EAE">
+  <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="/icons/icon-16x16.png">
+  <link rel="apple-touch-icon" href="/icons/icon-192x192.png">
+</head>
+<body class="role-page">
+  <header class="app-bar">
+    <button type="button" id="homeBtn" class="app-bar__home btn" aria-label="Go to the home screen" data-i18n-attr="aria-label:nav_home_aria" onclick="location.href='/'">
+      <span class="app-bar__home-icon" aria-hidden="true">←</span>
+      <span data-i18n="nav_home">Home</span>
+    </button>
+    <span class="app-bar__title app-bar__title--brand" aria-hidden="true">BabyLink</span>
+    <div class="controls-cluster">
+      <label class="cc-lang">
+        <span class="cc-globe" aria-hidden="true">🌐</span>
+        <select id="langSelect" aria-label="Language" data-i18n-attr="aria-label:lang_label"></select>
+      </label>
+      <span class="cc-divider" aria-hidden="true"></span>
+    </div>
+  </header>
+
+  <main>
+    <h1>Datenschutzerklärung</h1>
+    <div class="legal-page">
+      <p class="legal-lead">Diese Erklärung gilt für den unter dieser Domain betriebenen BabyLink-Dienst.</p>
+
+      <h3>Verantwortlicher</h3>
+      <p>Verantwortlich im Sinne der DSGVO ist der im <a href="/impressum" class="link-primary">Impressum</a> genannte Betreiber. Kontakt für Datenschutzanliegen: <a href="mailto:{{email}}" class="link-primary">{{email}}</a>.</p>
+
+      <h3>Welche Daten verarbeitet werden</h3>
+      <ul>
+        <li><strong>Server-Zugriffsdaten:</strong> Beim Aufruf werden technisch notwendige Daten verarbeitet — IP-Adresse, Zeitpunkt, angefragte Ressource und User-Agent — zur Bereitstellung und Absicherung des Dienstes.</li>
+        <li><strong>Raum-Daten:</strong> Zufällig erzeugte Raum-IDs und der von dir vergebene Raum-/Gerätename, um Geräte einem Raum zuzuordnen.</li>
+        <li><strong>Audio:</strong> Der Ton wird zwischen Baby- und Eltern-Geräten <em>nur durchgeleitet</em> (Relay) und <strong>nicht gespeichert</strong>.</li>
+        <li><strong>Keine</strong> Analyse-, Tracking- oder Werbe-Cookies. Es kommt ausschließlich funktionaler Browser-Speicher (localStorage) für deine Einstellungen zum Einsatz.</li>
+      </ul>
+
+      <h3>Rechtsgrundlage &amp; Speicherdauer</h3>
+      <p>Die Verarbeitung erfolgt auf Grundlage des berechtigten Interesses am sicheren Betrieb des Dienstes (Art.&nbsp;6 Abs.&nbsp;1 lit.&nbsp;f DSGVO). Server-Logs werden nach spätestens {{retention}} Tagen gelöscht.</p>
+
+      <h3>Deine Rechte</h3>
+      <p>Du hast das Recht auf Auskunft, Berichtigung, Löschung, Einschränkung, Datenübertragbarkeit und Widerspruch. Wende dich dazu an die oben genannte Kontaktadresse. Außerdem besteht ein Beschwerderecht bei der Datenschutzbehörde.</p>
+
+      {{extra}}
+
+      <p class="legal-small">BabyLink ist quelloffen. Wer eine eigene Instanz betreibt, ist für die Datenverarbeitung auf dieser Instanz selbst verantwortlich.</p>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="footer-brand">
+      <img class="footer-logo" src="/icons/icon-96x96.png" alt="" width="24" height="24" />
+      <span class="footer-name">BabyLink</span>
+    </div>
+    <nav class="footer-actions" aria-label="Get the app and support">
+      <a class="footer-app" href="https://github.com/mkampl/babylink-app/releases/latest/download/babylink.apk" rel="noopener" aria-label="Download the Android app" data-i18n-attr="aria-label:footer_app_aria">
+        <svg class="footer-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 18c0 .55.45 1 1 1h1v3.5a1.5 1.5 0 0 0 3 0V19h2v3.5a1.5 1.5 0 0 0 3 0V19h1c.55 0 1-.45 1-1V8H6v10zM3.5 8A1.5 1.5 0 0 0 2 9.5v7a1.5 1.5 0 0 0 3 0v-7A1.5 1.5 0 0 0 3.5 8zm17 0a1.5 1.5 0 0 0-1.5 1.5v7a1.5 1.5 0 0 0 3 0v-7A1.5 1.5 0 0 0 20.5 8zM15.53 2.16l1.3-1.3a.5.5 0 0 0-.71-.71l-1.47 1.48A5.98 5.98 0 0 0 12 1c-.96 0-1.87.22-2.68.63L7.88.15a.5.5 0 1 0-.71.71l1.31 1.3A5.98 5.98 0 0 0 6 7h12a5.98 5.98 0 0 0-2.47-4.84zM10 5H9V4h1v1zm5 0h-1V4h1v1z"/></svg>
+      </a>
+      <a class="footer-mini footer-mini-icon" href="https://ko-fi.com/mkampl" target="_blank" rel="noopener" aria-label="Support on Ko-fi" data-i18n-attr="aria-label:footer_support_aria">
+        <svg class="footer-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 3H4v10a4 4 0 0 0 4 4h6a4 4 0 0 0 4-4v-1h1a3 3 0 0 0 0-6h-1V3zm0 5h1a1 1 0 0 1 0 2h-1V8zM2 21h18v-2H2v2z"/></svg>
+      </a>
+      <a class="footer-mini footer-mini-icon" href="https://github.com/mkampl/babylink" target="_blank" rel="noopener" aria-label="Source on GitHub" data-i18n-attr="aria-label:footer_source_aria">
+        <svg class="footer-ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .5C5.37.5 0 5.87 0 12.5c0 5.3 3.44 9.8 8.21 11.39.6.11.82-.26.82-.58 0-.28-.01-1.03-.02-2.02-3.34.73-4.04-1.61-4.04-1.61-.55-1.39-1.34-1.76-1.34-1.76-1.09-.75.08-.73.08-.73 1.2.09 1.84 1.24 1.84 1.24 1.07 1.83 2.81 1.3 3.5.99.11-.78.42-1.31.76-1.61-2.67-.3-5.47-1.33-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.13-.3-.54-1.52.12-3.18 0 0 1.01-.32 3.3 1.23a11.5 11.5 0 0 1 6.01 0c2.29-1.55 3.29-1.23 3.29-1.23.66 1.66.25 2.88.13 3.18.77.84 1.23 1.91 1.23 3.22 0 4.61-2.81 5.63-5.49 5.92.43.37.82 1.1.82 2.22 0 1.61-.02 2.9-.02 3.29 0 .32.22.7.83.58C20.57 22.29 24 17.8 24 12.5 24 5.87 18.63.5 12 .5z"/></svg>
+      </a>
+    </nav>
+  </footer>
+
+  <script src="/js/i18n.js"></script>
+  <script src="/js/utils.js"></script>
+</body>
+</html>
