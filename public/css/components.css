@@ -1394,6 +1394,7 @@ body.role-page main {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);
+  text-decoration: none; /* works whether it's a <button> or an <a href> */
 }
 .app-bar__home:hover {
   color: var(--color-primary);
