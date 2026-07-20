@@ -25,6 +25,7 @@
 #include "esp_peer_default.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_sleep.h"
 
 #if __has_include("dev_defaults.h")
   #include "dev_defaults.h"
@@ -1533,18 +1534,92 @@ void setupWebRTC() {
 // SETUP / LOOP
 // =============================================================================
 
+// =============================================================================
+// CHARGE MODE (press RESET twice)
+// =============================================================================
+// Charging while the firmware runs barely works: WiFi plus continuous audio
+// draws about as much as the XIAO's charger supplies, so the cell gains only a
+// few mV per minute. Charge mode parks the device with every radio off so the
+// full charge current reaches the battery.
+//
+// The trigger is the RESET button, not BOOT: GPIO0's press durations are fully
+// allocated (tap = provisioning, 5 s = factory reset) and it picks up RF noise
+// while streaming, so splitting it into finer time windows would make the
+// factory reset less reliable — an expensive thing to get wrong in the field.
+//
+// These live in RTC_NOINIT memory, which survives an EN-pin reset but holds
+// garbage after a true power-on, hence the magic word.
+#define CHARGE_RST_MAGIC 0x8AB1C0DEu
+RTC_NOINIT_ATTR static uint32_t chargeRstMagic;
+RTC_NOINIT_ATTR static uint32_t chargeRstCount;
+// Long enough to double-press unhurriedly, short enough that two unrelated
+// reboots (a crash, a watchdog) don't read as a deliberate gesture.
+static const unsigned long CHARGE_ARM_MS = 3000;
+static bool chargeArmActive = false;
+
+// Deliberately light sleep, not deep sleep: waking from deep sleep re-enters
+// the ROM, which samples GPIO0 as a strapping pin and can land in USB download
+// mode — a silent device that looks bricked. Light sleep keeps the CPU state,
+// and at ~1-2 mA it is already negligible against a ~100 mA charge current.
+static void enterChargeMode() {
+  // Clear first: the RESET that ends charge mode must count as 1, not 3, or
+  // the device would drop straight back into charging.
+  chargeRstCount = 0;
+
+  Serial.println("[charge] double reset — charge mode: radios off, light sleep");
+  Serial.println("[charge] press RESET once to resume monitoring");
+  Serial.flush();
+
+  esp_sleep_enable_timer_wakeup(4000000ULL); // 4 s
+  for (;;) {
+    // A short heartbeat blink, so a charging device doesn't look dead — the
+    // failure mode this whole feature is easy to mistake for.
+    setLED(true);
+    delay(30);
+    setLED(false);
+    esp_light_sleep_start();
+  }
+}
+
+// Called at the very top of setup(), before any radio is brought up: entering
+// charge mode is then simply a matter of never starting them.
+static bool chargeModeRequested() {
+  if (chargeRstMagic != CHARGE_RST_MAGIC) {   // cold boot: RTC RAM is garbage
+    chargeRstMagic = CHARGE_RST_MAGIC;
+    chargeRstCount = 0;
+  }
+  chargeRstCount++;
+  chargeArmActive = true;
+  return chargeRstCount >= 2;
+}
+
+// Disarm once the device has clearly booted normally, so a reset minutes later
+// starts a fresh gesture instead of completing a stale one.
+static void chargeArmTick() {
+  if (!chargeArmActive) return;
+  if (millis() < CHARGE_ARM_MS) return;
+  chargeArmActive = false;
+  chargeRstCount = 0;
+}
+
 void setup() {
   Serial.begin(115200);
   delay(200);
   Serial.println("\n=== BabyLink XIAO ESP32-S3 ===");
   Serial.printf("[id] MAC=%s\n", macHex().c_str());
 
-  // Camera to standby first — stops the LDO heating up while the rest
-  // of boot runs.
-  cameraSleep();
-
+  // Before anything else powers up — the LED is all charge mode needs.
   pinMode(LED_PIN, OUTPUT);
   setLED(false);
+  if (chargeModeRequested()) {
+    cameraSleep();       // the LDO heats up otherwise, even while charging
+    enterChargeMode();   // never returns
+  }
+
+  // Camera to standby early — stops the LDO heating up while the rest
+  // of boot runs. (LED pins are already set up above, for charge mode.)
+  cameraSleep();
+
   pinMode(RESET_BUTTON_PIN, INPUT_PULLUP);
 
   deviceId = String("esp32_") + macHex();
@@ -1564,6 +1639,7 @@ void setup() {
 }
 
 void loop() {
+  chargeArmTick();
   checkResetButton();
   if (isConfigMode) {
     portalLoopTick();
