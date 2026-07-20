@@ -97,6 +97,10 @@ ThemeManager.init();
 // and the repo free of personal data.
 (function () {
   function inject() {
+    // The .catch() below only sees promise rejections — a missing fetch throws
+    // a synchronous ReferenceError before any promise exists, which would
+    // surface as an uncaught page error. Legal links are optional anyway.
+    if (typeof fetch !== 'function') return;
     fetch('/api/legal', { cache: 'no-store' })
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (l) {

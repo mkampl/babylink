@@ -1105,7 +1105,10 @@ float readBatteryVolts() {
   const int n = 16;
   for (int i = 0; i < n; i++) sum += analogReadMilliVolts(BATTERY_ADC_PIN);
   float vbat = (sum / (float)n) / 1000.0f * BATTERY_DIVIDER;
-  if (vbat < 3.0f || vbat > 4.35f) return -1.0f;   // implausible ⇒ unknown
+  // 2.9 V, not 3.0: the readings right before the cell cuts out are exactly the
+  // ones the SoC curve's 0% point is calibrated from, so they must not be
+  // discarded as "implausible". Still well above any real divider fault.
+  if (vbat < 2.9f || vbat > 4.35f) return -1.0f;   // implausible ⇒ unknown
   // Light smoothing (EMA) so the % doesn't wobble ±1-2% with WiFi-load sag and
   // ADC noise on the flat plateau, where a few mV is a percent or two.
   static float vbatEma = 0.0f;
@@ -1123,9 +1126,17 @@ int readBatteryPercent() {
 // about to die). -1 is sent as "unknown" and surfaces as "--%".
 void sendBatteryStatus() {
   if (BATTERY_ADC_PIN < 0 || !isRegistered || !webSocket) return;
-  StaticJsonDocument<96> doc;
+  // One read for both fields: readBatteryVolts() advances an EMA on every call,
+  // so reading twice here would age the average twice as fast per report.
+  float v = readBatteryVolts();
+  StaticJsonDocument<128> doc;
   doc["type"]    = "status";
-  doc["battery"] = readBatteryPercent();
+  doc["battery"] = (v < 0.0f) ? -1 : socFromVoltage(v);
+  // Raw millivolts alongside the percentage. The percentage is derived from
+  // BAT_CURVE, so it can't be used to calibrate that curve; the mV can. This is
+  // the only way to see the voltage at the moment the cell gives out, since the
+  // device is on battery then and no serial cable is attached.
+  doc["batteryMv"] = (v < 0.0f) ? -1 : (int)lroundf(v * 1000.0f);
   String payload;
   serializeJson(doc, payload);
   esp_websocket_client_send_text(webSocket, payload.c_str(), payload.length(), portMAX_DELAY);

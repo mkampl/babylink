@@ -24,6 +24,12 @@ function loadWithMatchMedia(makeMql) {
     document: {
       documentElement: { setAttribute() {}, getAttribute() { return null; } },
       createElement: fakeEl,
+      // createToggleButton looks for the .controls-cluster host, and the legal
+      // pages' footer-link injection queries too. Null = "not on this page",
+      // which is the branch both are expected to survive.
+      querySelector() { return null; },
+      addEventListener() {},
+      readyState: 'complete',
     },
     localStorage: { getItem() { return null; }, setItem() {} },
     console,

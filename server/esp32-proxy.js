@@ -42,6 +42,22 @@ function normalizeBattery(v) {
   return n < 0 ? null : Math.max(0, Math.min(100, Math.round(n)));
 }
 
+// Raw cell millivolts, when the device reports them. Undefined for anything
+// non-numeric or outside a plausible 1S Li-ion range — including the -1 the
+// firmware sends for "unreadable" — so a bad reading is absent rather than a
+// wrong voltage. The upper bound is generous to allow charging overshoot.
+function normalizeBatteryMv(v) {
+  if (v === undefined || v === null) return undefined;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return undefined;
+  const mv = Math.round(n);
+  return (mv < 2500 || mv > 4500) ? undefined : mv;
+}
+
+// Below this the SoC curve is steep and every reading matters for calibration,
+// so the tail of a discharge is logged rather than left to the debug stream.
+const BATTERY_LOG_MV = 3600;
+
 class ESP32AudioProxy {
   constructor(io, opts = {}) {
     this.io = io;
@@ -196,7 +212,9 @@ class ESP32AudioProxy {
     }
     if (message.type === 'status') {
       const info = getEsp32Info();
-      if (info) this.updateEsp32Battery(info.id, message.battery, message.charging);
+      if (info) {
+        this.updateEsp32Battery(info.id, message.battery, message.charging, message.batteryMv);
+      }
       return {};
     }
     if (message.type === 'signal') {
@@ -354,17 +372,28 @@ class ESP32AudioProxy {
    * relay to the room so the parent sees it live. A null level — sense active but
    * unreadable, e.g. no divider soldered — is relayed too and surfaces as "--%".
    */
-  updateEsp32Battery(esp32Id, battery, charging) {
+  updateEsp32Battery(esp32Id, battery, charging, batteryMv) {
     const client = this.esp32Clients.get(esp32Id);
     if (!client) return;
     const level = normalizeBattery(battery);
     if (level === undefined) return; // device isn't actually reporting battery
+    const mv = normalizeBatteryMv(batteryMv);
     client.battery = level;
     client.charging = !!charging;
+    client.batteryMv = mv;
+
+    // A discharge always ends with the device dying on battery, far from any
+    // serial cable, so the last voltage before cutoff only survives if it was
+    // logged server-side as it arrived.
+    if (mv !== undefined && mv <= BATTERY_LOG_MV) {
+      logger.info('Battery low reading', { esp32Id, battery: level, batteryMv: mv });
+    }
+
     this.io.to(client.roomId).emit('baby-status', {
       socketId: esp32Id,
       battery: level,
       charging: client.charging,
+      batteryMv: mv,
     });
   }
 

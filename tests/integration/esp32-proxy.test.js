@@ -123,6 +123,38 @@ describe('ESP32 WebSocket proxy', () => {
     expect(res.body.totalClients).toBe(0);
   });
 
+  // The raw millivolts exist to calibrate the firmware's SoC curve: the
+  // percentage is derived *from* that curve, so it can never validate it.
+  it('status relays raw batteryMv alongside the percentage', async () => {
+    const parent = makeSocket();
+    await joinRoom(parent, VALID_ROOM_ID, 'parent', 'Mom');
+
+    const esp32 = makeESP32();
+    await esp32.register(VALID_ROOM_ID, 'ESP32 Baby');
+
+    const statusPromise = waitForEvent(parent, 'baby-status');
+    esp32.ws.send(JSON.stringify({ type: 'status', battery: 7, batteryMv: 3312 }));
+
+    const status = await statusPromise;
+    expect(status.battery).toBe(7);
+    expect(status.batteryMv).toBe(3312);
+  });
+
+  it('status without batteryMv omits it rather than reporting 0V', async () => {
+    const parent = makeSocket();
+    await joinRoom(parent, VALID_ROOM_ID, 'parent', 'Mom');
+
+    const esp32 = makeESP32();
+    await esp32.register(VALID_ROOM_ID, 'ESP32 Baby');
+
+    const statusPromise = waitForEvent(parent, 'baby-status');
+    esp32.ws.send(JSON.stringify({ type: 'status', battery: 55 }));
+
+    const status = await statusPromise;
+    expect(status.battery).toBe(55);
+    expect(status.batteryMv).toBeUndefined();
+  });
+
   it('multiple ESP32 devices can register in same room', async () => {
     const esp32a = makeESP32();
     const esp32b = makeESP32();
