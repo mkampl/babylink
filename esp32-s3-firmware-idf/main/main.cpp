@@ -1552,9 +1552,10 @@ void setupWebRTC() {
 #define CHARGE_RST_MAGIC 0x8AB1C0DEu
 RTC_NOINIT_ATTR static uint32_t chargeRstMagic;
 RTC_NOINIT_ATTR static uint32_t chargeRstCount;
-// Long enough to double-press unhurriedly, short enough that two unrelated
-// reboots (a crash, a watchdog) don't read as a deliberate gesture.
-static const unsigned long CHARGE_ARM_MS = 3000;
+// Generous on purpose: the press cannot be seen during the ~0.7 s of boot that
+// precedes our code, so the usable part of this window is shorter than it
+// looks. Still far below any plausible gap between two unrelated reboots.
+static const unsigned long CHARGE_ARM_MS = 6000;
 static bool chargeArmActive = false;
 
 // Deliberately light sleep, not deep sleep: waking from deep sleep re-enters
@@ -1593,6 +1594,17 @@ static bool chargeModeRequested() {
   return chargeRstCount >= 2;
 }
 
+// Two quick blinks meaning "first press counted — press RESET again now". The
+// window before this point is dead time where a press cannot be seen, so
+// rather than asking the user to guess an interval, the device says when it is
+// listening. Cheap enough to run on every normal boot.
+static void chargeArmBlink() {
+  for (int i = 0; i < 2; i++) {
+    setLED(true);  delay(60);
+    setLED(false); delay(90);
+  }
+}
+
 // Disarm once the device has clearly booted normally, so a reset minutes later
 // starts a fresh gesture instead of completing a stale one.
 static void chargeArmTick() {
@@ -1603,15 +1615,21 @@ static void chargeArmTick() {
 }
 
 void setup() {
+  // First statement in the sketch, ahead of Serial: the gesture counter can
+  // only be bumped once our code runs, and everything before this point is a
+  // window in which a second RESET press goes unseen. About 0.7 s of IDF init
+  // stays unavoidable — hence the acknowledgement blink below.
+  pinMode(LED_PIN, OUTPUT);
+  setLED(false);
+  const bool charge = chargeModeRequested();
+  if (!charge) chargeArmBlink();
+
   Serial.begin(115200);
   delay(200);
   Serial.println("\n=== BabyLink XIAO ESP32-S3 ===");
   Serial.printf("[id] MAC=%s\n", macHex().c_str());
 
-  // Before anything else powers up — the LED is all charge mode needs.
-  pinMode(LED_PIN, OUTPUT);
-  setLED(false);
-  if (chargeModeRequested()) {
+  if (charge) {
     cameraSleep();       // the LDO heats up otherwise, even while charging
     enterChargeMode();   // never returns
   }
