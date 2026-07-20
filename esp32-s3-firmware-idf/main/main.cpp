@@ -1547,11 +1547,12 @@ void setupWebRTC() {
 // while streaming, so splitting it into finer time windows would make the
 // factory reset less reliable — an expensive thing to get wrong in the field.
 //
-// These live in RTC_NOINIT memory, which survives an EN-pin reset but holds
-// garbage after a true power-on, hence the magic word.
-#define CHARGE_RST_MAGIC 0x8AB1C0DEu
-RTC_NOINIT_ATTR static uint32_t chargeRstMagic;
-RTC_NOINIT_ATTR static uint32_t chargeRstCount;
+// The counter lives in NVS, not RTC_NOINIT. RTC memory survives a software
+// reset — which is what a host-driven RTS pulse produces, and why this first
+// tested fine on the bench — but not the RESET button pulling EN, the one path
+// that actually matters here. Flash survives both. Two small writes per boot is
+// a fair price for a gesture that works with the physical button.
+static const char* CHARGE_NVS_KEY = "chgarm";
 // Generous on purpose: the press cannot be seen during the ~0.7 s of boot that
 // precedes our code, so the usable part of this window is shorter than it
 // looks. Still far below any plausible gap between two unrelated reboots.
@@ -1562,10 +1563,25 @@ static bool chargeArmActive = false;
 // the ROM, which samples GPIO0 as a strapping pin and can land in USB download
 // mode — a silent device that looks bricked. Light sleep keeps the CPU state,
 // and at ~1-2 mA it is already negligible against a ~100 mA charge current.
+// Persisted arm flag: 1 = a boot is in progress that has not yet run long
+// enough to count as "settled", so the next reset completes the gesture.
+static void chargeArmWrite(uint8_t v) {
+  preferences.begin("babylink", false);
+  preferences.putUChar(CHARGE_NVS_KEY, v);
+  preferences.end();
+}
+
+static uint8_t chargeArmRead() {
+  preferences.begin("babylink", true);
+  uint8_t v = preferences.getUChar(CHARGE_NVS_KEY, 0);
+  preferences.end();
+  return v;
+}
+
 static void enterChargeMode() {
-  // Clear first: the RESET that ends charge mode must count as 1, not 3, or
-  // the device would drop straight back into charging.
-  chargeRstCount = 0;
+  // Clear first: the RESET that ends charge mode must count as a fresh first
+  // press, or the device would drop straight back into charging.
+  chargeArmWrite(0);
 
   Serial.println("[charge] double reset — charge mode: radios off, light sleep");
   Serial.println("[charge] press RESET once to resume monitoring");
@@ -1584,14 +1600,15 @@ static void enterChargeMode() {
 
 // Called at the very top of setup(), before any radio is brought up: entering
 // charge mode is then simply a matter of never starting them.
-static bool chargeModeRequested() {
-  if (chargeRstMagic != CHARGE_RST_MAGIC) {   // cold boot: RTC RAM is garbage
-    chargeRstMagic = CHARGE_RST_MAGIC;
-    chargeRstCount = 0;
-  }
-  chargeRstCount++;
+// Runs before Serial is up, so it reports the flag it saw through [out] rather
+// than printing it; setup() logs it once the port is ready.
+static bool chargeModeRequested(uint8_t* seen) {
+  const uint8_t armed = chargeArmRead();
+  if (seen) *seen = armed;
+  if (armed == 1) return true;   // previous boot was cut short by a reset
+  chargeArmWrite(1);
   chargeArmActive = true;
-  return chargeRstCount >= 2;
+  return false;
 }
 
 // Two quick blinks meaning "first press counted — press RESET again now". The
@@ -1611,7 +1628,8 @@ static void chargeArmTick() {
   if (!chargeArmActive) return;
   if (millis() < CHARGE_ARM_MS) return;
   chargeArmActive = false;
-  chargeRstCount = 0;
+  chargeArmWrite(0);
+  Serial.println("[charge] settled — a single reset now boots normally");
 }
 
 void setup() {
@@ -1621,13 +1639,15 @@ void setup() {
   // stays unavoidable — hence the acknowledgement blink below.
   pinMode(LED_PIN, OUTPUT);
   setLED(false);
-  const bool charge = chargeModeRequested();
+  uint8_t armAtBoot = 0;
+  const bool charge = chargeModeRequested(&armAtBoot);
   if (!charge) chargeArmBlink();
 
   Serial.begin(115200);
   delay(200);
   Serial.println("\n=== BabyLink XIAO ESP32-S3 ===");
   Serial.printf("[id] MAC=%s\n", macHex().c_str());
+  Serial.printf("[charge] arm flag at boot = %u\n", armAtBoot);
 
   if (charge) {
     cameraSleep();       // the LDO heats up otherwise, even while charging
