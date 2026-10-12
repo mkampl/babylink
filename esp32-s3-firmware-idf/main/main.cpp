@@ -969,8 +969,20 @@ document.addEventListener('click',e=>{if(e.target.closest('.btn'))setTimeout(sav
 </script></body></html>
 )rawliteral";
 
-static void handleRoot()      { webServer.send_P(200, "text/html", CONFIG_HTML); }
-static void handleGetConfig() { webServer.send(200, "application/json", serializeConfig(false)); }
+// Last time someone used the portal (any HTTP request). The STA retry below
+// stays out of the way while a person is actively configuring the device.
+static unsigned long lastPortalActivityMs = 0;
+static void portalTouch() { lastPortalActivityMs = millis(); }
+
+// Portal STA retry state (see portalStaRetryTick).
+static const unsigned long PORTAL_STA_RETRY_MS   = 60000;
+static const unsigned long PORTAL_STA_ATTEMPT_MS = 15000;
+static unsigned long lastStaRetryMs = 0;
+static unsigned long staAttemptStartMs = 0;
+static int staNextProfile = 0;
+
+static void handleRoot()      { portalTouch(); webServer.send_P(200, "text/html", CONFIG_HTML); }
+static void handleGetConfig() { portalTouch(); webServer.send(200, "application/json", serializeConfig(false)); }
 
 // Captive-portal scan plumbing.
 //
@@ -986,6 +998,7 @@ static String  webScanJson         = "[]";
 static bool    webScanInProgress   = false;
 
 static void handleApScanTrigger() {
+  portalTouch();
   if (!webScanInProgress) {
     Serial.println("[portal] Starting async WiFi scan (passive)");
     webScanJson = "[]";
@@ -1002,6 +1015,7 @@ static void handleApScanTrigger() {
 }
 
 static void handleApScanPoll() {
+  portalTouch();
   webServer.send(200, "application/json", webScanJson);
 }
 
@@ -1039,6 +1053,7 @@ void pollWebScanComplete() {
 }
 
 static void handleSave() {
+  portalTouch();
   if (!webServer.hasArg("plain")) {
     webServer.send(400, "application/json", "{\"error\":\"missing JSON body\"}");
     return;
@@ -1086,6 +1101,54 @@ void startConfigPortal() {
   webServer.onNotFound(handleRoot);
   webServer.begin();
   isConfigMode = true;
+  lastStaRetryMs = millis();
+}
+
+// Portal STA retry. A device with a saved config lands in the portal when its
+// WiFi didn't come up within the boot attempt — typically a power outage where
+// the router boots slower than the device. Without a retry the monitor would
+// sit in the portal until someone power-cycles it. So while a config exists,
+// periodically retry the saved networks and reboot into normal operation as
+// soon as one connects. The attempt is skipped while anyone is using the
+// portal (associated AP client, recent HTTP request, scan running, BLE
+// wizard connected): the STA connect hops channels, which would knock a phone
+// off the SoftAP mid-setup (see the passive-scan note in handleApScanTrigger).
+
+static bool portalInUse(unsigned long now) {
+  if (WiFi.softAPgetStationNum() > 0) return true;
+  if (lastPortalActivityMs != 0 && now - lastPortalActivityMs < PORTAL_STA_RETRY_MS) return true;
+  if (webScanInProgress || bleScanInProgress) return true;
+  NimBLEServer* srv = NimBLEDevice::getServer();
+  if (srv && srv->getConnectedCount() > 0) return true;
+  return false;
+}
+
+static void portalStaRetryTick() {
+  if (wifiProfiles.empty() || !hasActiveServer()) return;   // nothing to retry
+  unsigned long now = millis();
+  if (staAttemptStartMs != 0) {
+    if (WiFi.status() == WL_CONNECTED) {
+      Serial.printf("[portal] WiFi '%s' is back — rebooting into normal operation\n",
+                    WiFi.SSID().c_str());
+      delay(200);
+      ESP.restart();
+    }
+    if (now - staAttemptStartMs >= PORTAL_STA_ATTEMPT_MS) {
+      Serial.println("[portal] STA retry failed — staying in portal");
+      WiFi.disconnect(false);      // stop the STA attempt; the SoftAP stays up
+      staAttemptStartMs = 0;
+      lastStaRetryMs = now;
+    }
+    return;
+  }
+  if (now - lastStaRetryMs < PORTAL_STA_RETRY_MS) return;
+  lastStaRetryMs = now;
+  if (portalInUse(now)) return;
+  const WifiProfile& w = wifiProfiles[staNextProfile % wifiProfiles.size()];
+  staNextProfile = (staNextProfile + 1) % (int)wifiProfiles.size();
+  Serial.printf("[portal] retrying saved WiFi '%s'\n", w.ssid.c_str());
+  WiFi.begin(w.ssid.c_str(), w.password.c_str());
+  staAttemptStartMs = now;
 }
 
 static void portalLoopTick() {
@@ -1093,6 +1156,7 @@ static void portalLoopTick() {
   dnsServer.processNextRequest();
   webServer.handleClient();
   pollWebScanComplete();
+  portalStaRetryTick();
 }
 
 // =============================================================================
