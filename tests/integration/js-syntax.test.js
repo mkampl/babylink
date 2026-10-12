@@ -24,6 +24,7 @@ const JS_FILES = [
   '/js/qrcode-generator.js',
   '/js/sw-register.js',
   '/js/home.js',
+  '/js/ble-config.js',
   '/js/select-role.js',
   '/js/audio-levels.js',
   '/js/level-meter.js',

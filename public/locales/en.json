@@ -276,5 +276,8 @@
   "mon_baby_gone": "⚠ {name} disconnected",
   "mon_reason_left": "left the room",
   "mon_babies_gone": "⚠ Disconnected: {names}",
-  "mon_background_warning": "BabyLink was in the background. Browsers may pause monitoring in background tabs — keep this page open in front with the screen on, or use the BabyLink app."
+  "mon_background_warning": "BabyLink was in the background. Browsers may pause monitoring in background tabs — keep this page open in front with the screen on, or use the BabyLink app.",
+  "sr_password_saved_ph": "Saved — leave empty to keep",
+  "sr_roomid_saved_ph": "Saved on the device",
+  "sr_tls": "Secure (TLS)"
 }

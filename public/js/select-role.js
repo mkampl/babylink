@@ -653,7 +653,7 @@
         div.innerHTML =
           '<div class="ble-flex-grow">' +
           '<input type="text" data-i="' + i + '" data-k="ssid" value="' + escapeHtml(p.ssid || '') + '" placeholder="SSID" class="ble-row-input ble-row-input--spaced" />' +
-          '<input type="password" data-i="' + i + '" data-k="password" value="' + escapeHtml(p.password || '') + '" placeholder="' + escapeHtml(T('sr_password_ph')) + '" class="ble-row-input" />' +
+          '<input type="password" data-i="' + i + '" data-k="password" value="' + escapeHtml(p.password || '') + '" placeholder="' + escapeHtml(T((p.hasPassword && !p.password) ? 'sr_password_saved_ph' : 'sr_password_ph')) + '" class="ble-row-input" />' +
           '</div>' +
           '<button type="button" data-rm-w="' + i + '" class="ble-remove-btn">×</button>';
         host.appendChild(div);
@@ -676,7 +676,8 @@
           '<input type="text" data-i="' + i + '" data-k="label" value="' + escapeHtml(p.label || '') + '" placeholder="' + escapeHtml(T('sr_label_ph')) + '" class="ble-row-input ble-row-input--spaced" />' +
           '<input type="text" data-i="' + i + '" data-k="host" value="' + escapeHtml(p.host || '') + '" placeholder="' + escapeHtml(T('sr_host_ph')) + '" class="ble-row-input ble-row-input--spaced" />' +
           '<input type="number" data-i="' + i + '" data-k="port" value="' + (p.port || 3001) + '" placeholder="' + escapeHtml(T('ble_prefill_port').replace(/:$/, '')) + '" class="ble-row-input ble-row-input--spaced" />' +
-          '<input type="text" data-i="' + i + '" data-k="roomId" value="' + escapeHtml(p.roomId || '') + '" placeholder="' + escapeHtml(T('sr_roomid_ph')) + '" class="ble-row-input" />' +
+          '<input type="text" data-i="' + i + '" data-k="roomId" value="' + escapeHtml(p.roomId || '') + '" placeholder="' + escapeHtml(T((p.hasRoomId && !p.roomId) ? 'sr_roomid_saved_ph' : 'sr_roomid_ph')) + '" class="ble-row-input" />' +
+          '<label class="ble-active-toggle"><input type="checkbox" data-i="' + i + '" data-k="tls" ' + (p.tls ? 'checked' : '') + ' /> ' + escapeHtml(T('sr_tls')) + '</label>' +
           '<label class="ble-active-toggle"><input type="radio" name="ble-active" data-a="' + i + '" ' + active + ' /> ' + escapeHtml(T('sr_active')) + '</label>' +
           '</div>' +
           '<button type="button" data-rm-s="' + i + '" class="ble-remove-btn">×</button>';
@@ -704,7 +705,7 @@
         if (!hasWifi) return T('sr_step_need_wifi');
       } else if (stepIdx === 1) {
         var hasServer = bleConfig.servers && bleConfig.servers.some(function(s) {
-          return s.host && s.host.trim().length > 0 && s.roomId && s.roomId.trim().length > 0;
+          return BleConfig.serverComplete({ host: (s.host || '').trim(), roomId: (s.roomId || '').trim(), hasRoomId: s.hasRoomId });
         });
         if (!hasServer) return T('sr_need_server');
       }
@@ -766,6 +767,13 @@
       return cachedServerHint;
     }
 
+    // TLS for the device: same as this page when it talks to the same host;
+    // for a LAN hint (page opened on localhost) only the 443 convention.
+    function hintTls(host, port) {
+      if (host === window.location.hostname) return window.location.protocol === 'https:';
+      return parseInt(port, 10) === 443;
+    }
+
     function defaultServerProfile() {
       var roomId = window.location.pathname.slice(1);
       var hint = cachedServerHint || { host: window.location.hostname, port: window.location.port || (window.location.protocol === 'https:' ? 443 : 80) };
@@ -773,7 +781,9 @@
         label: hint.host,
         host: hint.host,
         port: parseInt(hint.port, 10),
-        roomId: roomId
+        roomId: roomId,
+        hasRoomId: true,
+        tls: hintTls(hint.host, hint.port)
       };
     }
 
@@ -788,11 +798,17 @@
       var list = inWifi ? bleConfig.wifi : bleConfig.servers;
       var i = parseInt(t.dataset.i, 10);
       if (!list[i]) return;
-      list[i][t.dataset.k] = (t.dataset.k === 'port') ? parseInt(t.value || '0', 10) : t.value;
+      list[i][t.dataset.k] = (t.type === 'checkbox') ? t.checked
+        : (t.dataset.k === 'port') ? parseInt(t.value || '0', 10) : t.value;
     });
     document.addEventListener('change', function(e) {
       if (e.target.dataset && e.target.dataset.a !== undefined) {
         bleConfig.activeServer = parseInt(e.target.dataset.a, 10);
+      }
+      if (e.target.type === 'checkbox' && e.target.dataset && e.target.dataset.k === 'tls' &&
+          e.target.closest('#bleServerRows')) {
+        var srv = bleConfig.servers[parseInt(e.target.dataset.i, 10)];
+        if (srv) srv.tls = e.target.checked;
       }
     });
     document.addEventListener('click', function(e) {
@@ -883,17 +899,14 @@
           var raw = await cfgChar.readValue();
           var text = new TextDecoder().decode(raw);
           if (text && text.trim()) {
-            var parsed = JSON.parse(text);
-            bleConfig = {
-              wifi: parsed.wifi || [],
-              servers: parsed.servers || [],
-              activeServer: parsed.activeServer || 0,
-              deviceName: parsed.deviceName || ''
-            };
+            // New firmware masks passwords (and the room ID while locked);
+            // BleConfig keeps those entries so writing them back keeps the
+            // stored values.
+            bleConfig = BleConfig.fromDevice(JSON.parse(text));
           }
         } catch (e) {
           console.warn('Could not read existing config — starting fresh', e);
-          bleConfig = { wifi: [], servers: [], activeServer: 0, deviceName: '' };
+          bleConfig = BleConfig.empty();
         }
 
         // Pre-seed the current server as active so the device registers
@@ -904,20 +917,8 @@
         var curHost = cachedServerHint ? cachedServerHint.host : window.location.hostname;
         var curPort = cachedServerHint ? parseInt(cachedServerHint.port, 10) : parseInt(window.location.port || (window.location.protocol === 'https:' ? 443 : 80), 10);
         var curRoom = window.location.pathname.slice(1);
-        var matchIdx = -1;
-        for (var i = 0; i < bleConfig.servers.length; i++) {
-          var s = bleConfig.servers[i];
-          if (s.host === curHost && (s.port || 3001) === curPort && s.roomId === curRoom) {
-            matchIdx = i;
-            break;
-          }
-        }
-        if (matchIdx >= 0) {
-          bleConfig.activeServer = matchIdx;
-        } else {
-          bleConfig.servers.unshift({ label: curHost, host: curHost, port: curPort, roomId: curRoom });
-          bleConfig.activeServer = 0;
-        }
+        BleConfig.selectServer(bleConfig,
+          { host: curHost, port: curPort, roomId: curRoom, tls: hintTls(curHost, curPort) });
 
         status.textContent = T('sr_ble_connected', { name: deviceLabel });
         $('bleEditor').style.display = 'block';
@@ -984,7 +985,7 @@
 
     $('bleAddWifi').addEventListener('click', function() {
       if (bleConfig.wifi.length >= BLE_MAX_WIFI) return;
-      bleConfig.wifi.push({ ssid: '', password: '' });
+      bleConfig.wifi.push({ ssid: '', password: '', hasPassword: false });
       renderBleWifi();
     });
     $('bleAddServer').addEventListener('click', function() {
@@ -1006,7 +1007,7 @@
         alert(T('sr_need_wifi_ssid'));
         return;
       }
-      if (!bleConfig.servers.length || !bleConfig.servers[0].host || !bleConfig.servers[0].roomId) {
+      if (!BleConfig.serverComplete(bleConfig.servers[bleConfig.activeServer] || bleConfig.servers[0])) {
         alert(T('sr_need_server'));
         return;
       }
@@ -1025,7 +1026,7 @@
       // so an expected post-apply disconnect doesn't surface as "Failed".
       status.textContent = T('sr_ble_writing');
       try {
-        var blob = JSON.stringify(bleConfig);
+        var blob = BleConfig.toDevice(bleConfig);
         var cfgChar = await bleService.getCharacteristic(BLE_CHAR_CONFIG);
         await cfgChar.writeValue(new TextEncoder().encode(blob));
       } catch (err) {

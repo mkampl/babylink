@@ -20,6 +20,7 @@ const urlsToCache = [
   '/locales/de.json',
   '/locales/es.json',
   '/locales/tr.json',
+  '/js/ble-config.js',
   '/js/select-role.js',
   '/js/audio-levels.js',
   '/js/level-meter.js',

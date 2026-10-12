@@ -276,5 +276,8 @@
   "mon_baby_gone": "⚠ {name} ist nicht mehr verbunden",
   "mon_reason_left": "hat den Raum verlassen",
   "mon_babies_gone": "⚠ Nicht mehr verbunden: {names}",
-  "mon_background_warning": "BabyLink war im Hintergrund. Browser können die Überwachung in Hintergrund-Tabs pausieren — lass diese Seite bei eingeschaltetem Bildschirm im Vordergrund oder nutze die BabyLink-App."
+  "mon_background_warning": "BabyLink war im Hintergrund. Browser können die Überwachung in Hintergrund-Tabs pausieren — lass diese Seite bei eingeschaltetem Bildschirm im Vordergrund oder nutze die BabyLink-App.",
+  "sr_password_saved_ph": "Gespeichert — leer lassen, um es zu behalten",
+  "sr_roomid_saved_ph": "Auf dem Gerät gespeichert",
+  "sr_tls": "Sicher (TLS)"
 }
