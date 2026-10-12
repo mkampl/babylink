@@ -92,7 +92,7 @@ class ESP32AudioProxy {
       this.wss.clients.forEach((ws) => {
         if (ws.isAlive === false) {
           logger.warn('Terminating unresponsive ESP32 WebSocket (no pong received)');
-          if (ws.esp32Id) this.unregisterESP32(ws.esp32Id);
+          if (ws.esp32Id) this.unregisterESP32(ws.esp32Id, ws);
           return ws.terminate();
         }
         ws.isAlive = false;
@@ -133,7 +133,7 @@ class ESP32AudioProxy {
 
       socket.on('timeout', () => {
         logger.warn(`ESP32 socket timeout from ${clientIp}`);
-        if (ws.esp32Id) this.unregisterESP32(ws.esp32Id);
+        if (ws.esp32Id) this.unregisterESP32(ws.esp32Id, ws);
         ws.terminate();
       });
 
@@ -146,8 +146,6 @@ class ESP32AudioProxy {
         }
       });
 
-      let esp32Info = null;
-
       ws.on('message', (data) => {
         // Control frames are JSON; the PCM audio stream is raw binary. Parse
         // as JSON first — success means a control message (register/signal/
@@ -159,7 +157,7 @@ class ESP32AudioProxy {
         try { message = JSON.parse(data.toString()); } catch { /* audio frame */ }
 
         if (message === null || typeof message !== 'object') {
-          if (esp32Info) this.handleAudioData(esp32Info.id, data);
+          if (ws.esp32Id) this.handleAudioData(ws.esp32Id, data);
           return;
         }
 
@@ -176,17 +174,23 @@ class ESP32AudioProxy {
         }
 
         try {
-          const handled = this.handleJsonMessage(ws, message, () => esp32Info);
-          if (handled.registered) esp32Info = handled.registered;
+          // Look the registration up through ws.esp32Id so a socket that was
+          // superseded by a same-MAC re-register can no longer act for it.
+          this.handleJsonMessage(ws, message,
+            () => (ws.esp32Id ? this.esp32Clients.get(ws.esp32Id) || null : null));
         } catch (error) {
           logger.error('Error processing ESP32 message:', error);
         }
       });
 
       ws.on('close', (code, reason) => {
-        if (esp32Info) {
-          logger.info(`ESP32 ${esp32Info.id} disconnected: ${code} ${reason}`);
-          this.unregisterESP32(esp32Info.id);
+        // ws.esp32Id (not the closure's esp32Info): a same-MAC re-register
+        // nulls it on the stale socket, and unregisterESP32(id, ws) only acts
+        // if this socket still owns the registration — otherwise the old
+        // socket's late close would delete the device's NEW registration.
+        if (ws.esp32Id) {
+          logger.info(`ESP32 ${ws.esp32Id} disconnected: ${code} ${reason}`);
+          this.unregisterESP32(ws.esp32Id, ws);
         }
       });
 
@@ -340,9 +344,12 @@ class ESP32AudioProxy {
   /**
    * Unregister an ESP32 device
    */
-  unregisterESP32(esp32Id) {
+  unregisterESP32(esp32Id, ws = null) {
     const client = this.esp32Clients.get(esp32Id);
     if (!client) return;
+    // Called on behalf of a specific socket: only that socket's own
+    // registration may be removed (see the 'close' handler).
+    if (ws && client.ws !== ws) return;
 
     const cfg = roomConfig.getConfig(client.roomId);
     if (cfg.ntfyEnabled && cfg.ntfyTopic && cfg.notifyOnDisconnect) {

@@ -93,3 +93,37 @@ describe('ESP32 device_type tagging', () => {
     expect(s3Entry.deviceType).toBe('esp32-s3');
   });
 });
+
+describe('same-MAC re-register while the old socket is still open (B2)', () => {
+  it('the stale socket closing later does not unregister the new registration', async () => {
+    const { roomId, ownerToken } = await createRoom(server.app);
+    const parent = makeSocket();
+    await joinRoom(parent, roomId, 'parent', 'Mom');
+
+    const MAC = 'aa:bb:cc:dd:ee:b2';
+    const first = makeESP32();
+    await first.register(roomId, 'Nursery', MAC);
+
+    const left = [];
+    parent.on('participant-left', (d) => left.push(d));
+
+    // Device reboots / reconnects before the server noticed the old socket died.
+    const second = makeESP32();
+    const firstClosed = new Promise((r) => first.ws.once('close', r));
+    await second.register(roomId, 'Nursery', MAC);
+    await firstClosed;
+    await new Promise((r) => setTimeout(r, 200));
+
+    expect(left).toHaveLength(0);
+    const res = await request(server.app)
+      .get(`/api/rooms/${roomId}/esp32/devices`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+    expect(res.body.devices).toHaveLength(1);
+
+    // Audio from the NEW socket still reaches the parent.
+    const audio = waitForEvent(parent, 'esp32-audio');
+    second.sendAudio();
+    const frame = await audio;
+    expect(frame.fromId).toBe('esp32_aabbccddeeb2');
+  });
+});
