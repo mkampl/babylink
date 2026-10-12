@@ -14,16 +14,6 @@ class ESP32AudioHandler {
     });
   }
 
-  // Is WebRTC delivering this baby's audio right now? If so, its receiver
-  // owns playback and the meter — this PCM handler stays out of the way.
-  _webrtcActive(fromId) {
-    if (!window._multiStreamManager) return false;
-    const stream = window._multiStreamManager.audioStreams.get(fromId);
-    if (!stream) return false;
-    const tracks = stream.getAudioTracks();
-    return tracks.length > 0 && !tracks[0].muted && tracks[0].readyState === 'live';
-  }
-
   _startLevelMonitor(fromId) {
     // setInterval (not rAF) so the meter keeps running in background/hidden
     // tabs. 100 ms ≈ 10 fps — responsive without burning CPU.

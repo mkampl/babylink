@@ -40,6 +40,7 @@
       this.stallMs = opts.stallMs != null ? opts.stallMs : DEFAULTS.stallMs;
 
       this.lastWebrtcEnergyMs = -Infinity;
+      this.lastWebrtcAliveMs = -Infinity;
       this.lastPcmEnergyMs = -Infinity;
       this.lastPcmFrameMs = -Infinity;
     }
@@ -47,6 +48,15 @@
     /** WebRTC analyser sample (multi-stream-manager, ~10 Hz). */
     markWebrtcLevel(now, volume) {
       if (volume > this.energyThresh) this.lastWebrtcEnergyMs = now;
+    }
+
+    /**
+     * The WebRTC track is live and receiving (multi-stream-manager, ~10 Hz).
+     * For a WebRTC-only baby (phone/browser — no PCM path) this is the
+     * liveness signal, since a quiet room produces no energy.
+     */
+    markWebrtcAlive(now) {
+      this.lastWebrtcAliveMs = now;
     }
 
     /** PCM analyser sample (esp32-audio-handler level monitor, ~10 Hz). */
@@ -61,6 +71,20 @@
 
     webrtcDelivering(now) {
       return now - this.lastWebrtcEnergyMs < this.webrtcWindowMs;
+    }
+
+    /** Has this baby ever sent PCM? Only ESP devices have that second path. */
+    hasPcm() {
+      return this.lastPcmFrameMs > -Infinity;
+    }
+
+    /**
+     * Does the WebRTC loop drive the badge? Always for a WebRTC-only baby;
+     * for a dual-path device only while WebRTC is actually delivering sound
+     * (the exact complement of the PCM handler's yield condition).
+     */
+    webrtcOwnsMeter(now) {
+      return !this.hasPcm() || this.webrtcDelivering(now);
     }
 
     pcmHasSound(now) {
@@ -90,6 +114,10 @@
      */
     status(now) {
       if (this.webrtcDelivering(now)) return 'webrtc';
+      if (!this.hasPcm()) {
+        // WebRTC-only baby: quiet while its track is alive, else stalled.
+        return now - this.lastWebrtcAliveMs < this.stallMs ? 'quiet' : 'stalled';
+      }
       if (this.pcmArriving(now)) return this.pcmHasSound(now) ? 'backup' : 'quiet';
       return 'stalled';
     }

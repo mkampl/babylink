@@ -161,9 +161,8 @@ class MultiStreamManager {
   }
 
   /**
-   * Is this participant's WebRTC audio actually flowing right now? Mirrors
-   * ESP32AudioHandler._webrtcActive so the WebRTC and PCM meters partition
-   * cleanly: exactly one owns the badge at any instant.
+   * Is this participant's WebRTC track live and receiving? (Chrome flips
+   * `muted` on a remote track when RTP stops arriving.)
    */
   _audioLive(participantId) {
     const stream = this.audioStreams.get(participantId);
@@ -182,15 +181,7 @@ class MultiStreamManager {
       const ad = this.analysers.get(participantId);
       if (!ad) return; // removeParticipant already cleared the interval
 
-      // Drive the badge only while WebRTC is actually DELIVERING audio (recent
-      // energy) — not merely "track live". A wedged live-but-silent tunnel has
-      // no energy, so the PCM path (esp32-audio-handler) owns the meter and
-      // speaker instead and the parent keeps hearing/seeing the baby. Both
-      // paths gate on the same shared webrtcDelivering() flag, so exactly one
-      // drives the badge at any instant (no red/green flicker).
-      if (typeof getAudioHealth === 'function' &&
-          !getAudioHealth(participantId).webrtcDelivering(Date.now())) return;
-
+      const now = Date.now();
       const { analyser, dataArray } = ad;
       analyser.getByteFrequencyData(dataArray);
 
@@ -200,12 +191,20 @@ class MultiStreamManager {
         if (dataArray[i] > peak) peak = dataArray[i];
       }
 
-      // Feed the shared audio-health tracker with the RAW WebRTC energy every
-      // frame (before any gating) so both paths agree on whether WebRTC is
-      // actually delivering audio — a wedged "live but silent" tunnel produces
-      // no energy here and the PCM backup takes over. See audio-health.js.
-      if (typeof getAudioHealth === 'function') {
-        getAudioHealth(participantId).markWebrtcLevel(Date.now(), peak);
+      // Feed the shared audio-health tracker on EVERY frame, before any
+      // gating — it is what decides whether this path may drive the badge,
+      // so gating first would mean it never could. A wedged "live but
+      // silent" tunnel produces no energy here and the PCM backup takes
+      // over. See audio-health.js.
+      const health = (typeof getAudioHealth === 'function') ? getAudioHealth(participantId) : null;
+      if (health) {
+        if (this._audioLive(participantId)) health.markWebrtcAlive(now);
+        health.markWebrtcLevel(now, peak);
+        // A dual-path (ESP) device whose WebRTC isn't delivering: the PCM
+        // path (esp32-audio-handler) owns the meter and speaker, so exactly
+        // one path drives the badge (no red/green flicker). A WebRTC-only
+        // baby always drives its own badge.
+        if (!health.webrtcOwnsMeter(now)) return;
       }
 
       // Get sensitivity for this participant (default 1.0 if not set)
