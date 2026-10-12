@@ -26,6 +26,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_sleep.h"
+#include "esp_random.h"
 
 #if __has_include("dev_defaults.h")
   #include "dev_defaults.h"
@@ -1254,10 +1255,42 @@ void sendBatteryStatus() {
   esp_websocket_client_send_text(webSocket, payload.c_str(), payload.length(), portMAX_DELAY);
 }
 
+// Per-device secret, generated once on first boot and presented on every
+// register. The server pins it to this device's MAC the first time it sees it
+// (trust on first use) and from then on refuses a register for this MAC
+// without it — so a stranger who knows the MAC can no longer kick the real
+// device out of its slot or impersonate it. Lives in its own NVS namespace,
+// which a factory reset (clearConfig) does not touch, so re-provisioning the
+// same device keeps its identity. Servers that predate this ignore the field.
+String deviceToken;
+
+static void loadDeviceToken() {
+  Preferences auth;
+  auth.begin("bl_auth", false);
+  String t = auth.getString("tok", "");
+  if (t.length() != 32) {
+    uint8_t raw[16];
+    esp_fill_random(raw, sizeof(raw));
+    char hex[33];
+    for (int i = 0; i < 16; i++) snprintf(hex + i * 2, 3, "%02x", raw[i]);
+    t = String(hex);
+    auth.putString("tok", t);
+    Serial.println("[auth] generated device token");
+  }
+  auth.end();
+  deviceToken = t;
+}
+
+// Set by the WS task when the server rejects our token; loop() then parks the
+// client for TOKEN_BACKOFF_MS instead of letting it reconnect every 5 s.
+volatile bool tokenRejected = false;
+unsigned long tokenBackoffUntil = 0;
+const unsigned long TOKEN_BACKOFF_MS = 300000;   // 5 minutes
+
 void sendRegister() {
   if (!hasActiveServer() || !webSocket) return;
   const ServerProfile& s = serverProfiles[activeServer];
-  StaticJsonDocument<384> doc;
+  StaticJsonDocument<512> doc;
   doc["type"]        = "register";
   doc["roomId"]      = s.roomId;
   doc["name"]        = configDeviceName;
@@ -1266,10 +1299,13 @@ void sendRegister() {
   doc["channels"]    = 1;
   doc["device_type"] = DEVICE_TYPE;
   if (BATTERY_ADC_PIN >= 0) doc["battery"] = readBatteryPercent();
+  if (deviceToken.length() > 0) doc["deviceToken"] = deviceToken;
 
   String payload;
   serializeJson(doc, payload);
-  Serial.printf("[WS] register -> %s\n", payload.c_str());
+  // Don't print the token to the serial log.
+  Serial.printf("[WS] register -> room=%s mac=%s name='%s'\n",
+                s.roomId.c_str(), macHex().c_str(), configDeviceName.c_str());
   esp_websocket_client_send_text(webSocket, payload.c_str(), payload.length(),
                                  portMAX_DELAY);
 }
@@ -1387,7 +1423,14 @@ static void handleWsTextFrame(const char* data, size_t len) {
     delay(200);
     ESP.restart();
   } else if (strcmp(msgType, "error") == 0) {
-    Serial.printf("[WS] server error: %s\n", (const char*)(doc["message"] | ""));
+    const char* code = doc["code"] | "";
+    Serial.printf("[WS] server error: %s %s\n", code, (const char*)(doc["message"] | ""));
+    if (strcmp(code, "DEVICE_TOKEN_MISMATCH") == 0) {
+      Serial.println("[auth] server rejected this device's token — another registration "
+                     "owns this MAC on the server. The room owner can remove the device "
+                     "there; retrying in 5 min");
+      tokenRejected = true;
+    }
   } else if (strcmp(msgType, "signal") == 0) {
     // SDP / ICE relay from the parent browser. Track the parent's
     // socketId, kick off the offer when requested, hand answer / ICE
@@ -1854,6 +1897,7 @@ void setup() {
                 deviceId.c_str(), DEVICE_TYPE, configDeviceName.c_str());
 
   loadConfig();
+  loadDeviceToken();
   setupPDM();
   // BLE before WiFi so connectWiFi / startConfigPortal own the
   // WiFi.mode() decision.
@@ -1934,7 +1978,21 @@ void loop() {
   // for WS_WATCHDOG_MS, tear the client down and recreate it for a clean
   // reconnect. lastWsOkMs is seeded at boot so a device that never registers
   // (server down at startup) is also retried rather than stuck forever.
-  if (isRegistered) lastWsOkMs = now;
+  // Token rejected: park the websocket client instead of letting it hammer the
+  // server every 5 s, and retry later (the owner may have released the slot).
+  if (tokenRejected && webSocket) {
+    tokenRejected = false;
+    esp_websocket_client_stop(webSocket);
+    tokenBackoffUntil = now + TOKEN_BACKOFF_MS;
+    if (tokenBackoffUntil == 0) tokenBackoffUntil = 1;
+  }
+  if (tokenBackoffUntil != 0 && (long)(now - tokenBackoffUntil) >= 0) {
+    tokenBackoffUntil = 0;
+    Serial.println("[auth] retrying registration");
+    esp_websocket_client_start(webSocket);
+  }
+
+  if (isRegistered || tokenBackoffUntil != 0) lastWsOkMs = now;
   if (WiFi.status() == WL_CONNECTED && now - lastWsOkMs > WS_WATCHDOG_MS) {
     // esp_websocket's own auto-reconnect wedges after a server restart, and
     // recreating the client in place did not recover it either. Reboot — a
