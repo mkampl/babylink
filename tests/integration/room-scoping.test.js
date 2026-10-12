@@ -1,9 +1,10 @@
 // Room scoping: a socket may only reach participants of the room it joined.
 // Covers the capacity-rejection leak (rejected sockets must not stay in the
 // room), cross-room signal relay in both directions (browser ↔ browser and
-// browser ↔ ESP32), 
+// browser ↔ ESP32), and owner-token joins for PIN rooms.
 
-const { startServer } = require('../helpers/server-factory');
+const request = require('supertest');
+const { startServer, createRoom } = require('../helpers/server-factory');
 const { createESP32Client } = require('../helpers/esp32-client');
 const { createSocketClient, waitForEvent, joinRoom, disconnectClient } =
   require('../helpers/socket-client');
@@ -148,3 +149,29 @@ describe('signal relay is room-scoped (S1)', () => {
   });
 });
 
+describe('owner token satisfies the PIN on join (A1)', () => {
+  async function pinRoom() {
+    const { roomId, ownerToken } = await createRoom(server.app);
+    await request(server.app)
+      .post(`/api/rooms/${roomId}/pin`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ pin: '246800' });
+    return { roomId, ownerToken };
+  }
+
+  it('the room owner can join a PIN room with ownerToken and no PIN', async () => {
+    const { roomId, ownerToken } = await pinRoom();
+    const c = makeSocket();
+    await waitForEvent(c, 'connect');
+    const state = waitForEvent(c, 'room-state');
+    c.emit('join', { roomId, role: 'parent', userName: 'Owner', ownerToken });
+    expect((await state).participants).toBeDefined();
+  });
+
+  it('a wrong ownerToken does not bypass the PIN', async () => {
+    const { roomId } = await pinRoom();
+    const err = await joinExpectError(makeSocket(),
+      { roomId, role: 'parent', userName: 'X', ownerToken: 'f'.repeat(64) });
+    expect(err.code).toBe('INVALID_PIN');
+  });
+});

@@ -718,8 +718,15 @@ io.on('connection', (socket) => {
         return;
       }
 
+      // The room owner (holder of the ownerToken minted by POST /api/rooms)
+      // may join its own PIN room without re-typing the PIN — the token is a
+      // stronger secret than the PIN. Clients that don't send one are
+      // unaffected.
+      const isOwner = typeof data.ownerToken === 'string' && data.ownerToken.length > 0 &&
+        roomConfig.verifyOwnerToken(roomId, data.ownerToken) === 'ok';
+
       // PIN verification with lockout
-      if (roomConfig.hasPin(roomId)) {
+      if (!isOwner && roomConfig.hasPin(roomId)) {
         const ip = clientIp;
 
         if (isPinLocked(roomId, ip)) {
