@@ -36,3 +36,6 @@ dependencies:
   # esp-webrtc-solution repo. 5.1c is a link-verification step only,
   # no API use yet.
   espressif/esp_peer: "^1.4.0"
+  # Opus encoder for the WebRTC audio path. esp_peer only packetises: it
+  # expects already-encoded Opus frames, not PCM.
+  espressif/esp_audio_codec: "2.5.0"

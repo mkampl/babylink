@@ -23,6 +23,10 @@
 #include "esp_crt_bundle.h"
 #include "esp_peer.h"
 #include "esp_peer_default.h"
+#include "esp_opus_enc.h"
+#include "freertos/stream_buffer.h"
+#include "freertos/semphr.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_sleep.h"
@@ -71,6 +75,16 @@ static const int SAMPLE_RATE  = 16000;
 static const int BUFFER_SIZE  = 1024;
 static const int AUDIO_GAIN   = 32;
 static const float DC_ALPHA   = 0.001f;
+
+// WebRTC audio: esp_peer only packetises — it needs ready-encoded Opus frames,
+// not PCM. 20 ms frames at the mic's native 16 kHz (wideband; the browser's
+// decoder upsamples to the 48 kHz RTP clock itself).
+static const int OPUS_FRAME_MS      = 20;
+static const int OPUS_FRAME_SAMPLES = SAMPLE_RATE * OPUS_FRAME_MS / 1000;   // 320
+static const int OPUS_BITRATE       = 32000;
+static const int OPUS_COMPLEXITY    = 1;
+// PCM queued between the I2S loop and the encoder task: 4 I2S chunks (~256 ms).
+static const size_t OPUS_PCM_QUEUE_BYTES = BUFFER_SIZE * sizeof(int16_t) * 4;
 
 // --- Battery sense --------------------------------------------------------
 // The XIAO ESP32-S3 has NO built-in battery divider or dedicated ADC pin, so
@@ -146,8 +160,25 @@ volatile bool webrtcConnected = false;     // set/cleared by onPeerState
 volatile bool webrtcLoopDone = false;      // loop task has exited (for a clean restart)
 unsigned long webrtcPacketsSent = 0;
 unsigned long wssPacketsSent = 0;
-uint32_t webrtcAudioPts = 0;
+// esp_peer expects the audio pts in MILLISECONDS (it multiplies by 48 for the
+// Opus RTP clock), so this advances by OPUS_FRAME_MS per encoded frame.
+volatile uint32_t webrtcAudioPts = 0;
 TaskHandle_t webrtcLoopTaskHandle = nullptr;
+
+// Opus encoder task state. processAudio() pushes conditioned PCM into
+// opusPcmQueue while the tunnel is up; opusEncodeTask() cuts it into 20 ms
+// frames, encodes and hands them to esp_peer. Keeps encoding off the I2S/WSS
+// hot path. peerLock serialises esp_peer_send_audio against esp_peer_close.
+StreamBufferHandle_t opusPcmQueue = nullptr;
+SemaphoreHandle_t peerLock = nullptr;
+volatile bool opusResetPending = false;    // tunnel (re)connected: drop stale PCM
+TaskHandle_t opusTaskHandle = nullptr;
+unsigned long opusFramesEncoded = 0;
+unsigned long opusEncodeErrors = 0;
+unsigned long opusPcmDropped = 0;          // PCM bytes the queue had no room for
+unsigned long webrtcSendErrors = 0;
+uint32_t opusEncUsSum = 0, opusEncUsMax = 0, opusEncUsCount = 0;
+uint32_t opusBytesSum = 0;
 
 // Malformed-offer / wedged-esp_peer recovery: after long uptime esp_peer can
 // start emitting a malformed SDP offer the browser rejects, so WebRTC never
@@ -515,18 +546,9 @@ void processAudio() {
                                   chunkBytes, portMAX_DELAY);
     wssPacketsSent++;
   }
-  if (webrtcConnected && webrtcPeer) {
-    // NOTE: tried feeding esp_peer 20 ms (320-sample) frames to fix the faint
-    // "squeak" — it made the audio worse (garbled), so we send the full chunk
-    // as before. The squeak, if it matters, needs a different approach.
-    esp_peer_audio_frame_t frame = {};
-    frame.pts  = webrtcAudioPts;
-    frame.data = (uint8_t*)audioBuffer;
-    frame.size = chunkBytes;
-    if (esp_peer_send_audio(webrtcPeer, &frame) == ESP_PEER_ERR_NONE) {
-      webrtcPacketsSent++;
-    }
-    webrtcAudioPts += sampleCount;
+  if (webrtcConnected && webrtcPeer && opusPcmQueue) {
+    size_t queued = xStreamBufferSend(opusPcmQueue, audioBuffer, chunkBytes, 0);
+    if (queued < (size_t)chunkBytes) opusPcmDropped += chunkBytes - queued;
   }
 
   static unsigned long framesProcessed = 0;
@@ -535,6 +557,19 @@ void processAudio() {
     Serial.printf("[stats] wss=%lu wrtc=%lu avgLevel=%d rssi=%ddBm heap=%lu\n",
                   wssPacketsSent, webrtcPacketsSent, avgLevel, WiFi.RSSI(),
                   (unsigned long)ESP.getFreeHeap());
+    if (opusEncUsCount > 0 || opusEncodeErrors || webrtcSendErrors || opusPcmDropped) {
+      Serial.printf("[opus] frames=%lu avgUs=%lu maxUs=%lu avgB=%lu encErr=%lu sendErr=%lu "
+                    "dropB=%lu intHeap=%u minIntHeap=%u stackFree=%u\n",
+                    opusFramesEncoded,
+                    (unsigned long)(opusEncUsCount ? opusEncUsSum / opusEncUsCount : 0),
+                    (unsigned long)opusEncUsMax,
+                    (unsigned long)(opusEncUsCount ? opusBytesSum / opusEncUsCount : 0),
+                    opusEncodeErrors, webrtcSendErrors, opusPcmDropped,
+                    (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                    (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL),
+                    opusTaskHandle ? (unsigned)uxTaskGetStackHighWaterMark(opusTaskHandle) : 0u);
+      opusEncUsSum = opusEncUsMax = opusEncUsCount = opusBytesSum = 0;
+    }
   }
 }
 
@@ -1205,7 +1240,6 @@ int socFromVoltage(float v) {
 // Returns the smoothed battery voltage (already scaled by the divider), or a
 // negative value when the feature is off or NO divider is wired.
 float readBatteryVolts() {
-  if (BATTERY_ADC_PIN < 0) return -1.0f;
 
   pinMode(BATTERY_ADC_PIN, INPUT_PULLDOWN);
   delay(3);
@@ -1590,6 +1624,7 @@ static int onPeerState(esp_peer_state_t state, void* /*ctx*/) {
   if (state == ESP_PEER_STATE_CONNECTED) {
     webrtcConnected = true;
     webrtcAudioPts  = 0;       // restart timestamps on every fresh tunnel
+    opusResetPending = true;   // encoder: drop PCM queued before this tunnel
     webrtcOfferCount = 0;      // healthy tunnel — clear the recovery counter
   } else if (state == ESP_PEER_STATE_DISCONNECTED ||
              state == ESP_PEER_STATE_CONNECT_FAILED ||
@@ -1661,8 +1696,10 @@ static bool startPeer() {
   esp_peer_default_cfg_t defaults = {};
   defaults.agent_recv_timeout = 300;
   defaults.rtp_cfg.audio_recv_jitter.cache_size = 1024;
-  defaults.rtp_cfg.send_pool_size = 1024;
-  defaults.rtp_cfg.send_queue_num = 10;
+  // Holds sent RTP packets for NACK retransmission. Opus frames are
+  // ~60-120 B, so 16 KB keeps well over a second of history.
+  defaults.rtp_cfg.send_pool_size = 16 * 1024;
+  defaults.rtp_cfg.send_queue_num = 64;
 
   static esp_peer_ice_server_cfg_t iceServers[1] = {};
   iceServers[0].stun_url = (char*)"stun:stun.l.google.com:19302";
@@ -1714,17 +1751,129 @@ static void restartWebRTC() {
   for (int i = 0; i < 80 && !webrtcLoopDone; i++) { // wait up to ~800ms for it
     vTaskDelay(pdMS_TO_TICKS(10));
   }
+  webrtcConnected  = false;                         // encoder stops sending
+  if (peerLock) xSemaphoreTake(peerLock, portMAX_DELAY);
   if (webrtcPeer) {
     esp_peer_close(webrtcPeer);
     webrtcPeer = nullptr;
   }
-  webrtcConnected  = false;
+  if (peerLock) xSemaphoreGive(peerLock);
   pendingOfferRequest = false;
   webrtcOfferCount = 0;
   webrtcAudioPts   = 0;
   if (startPeer() && parentSocketId.length() > 0) {
     Serial.println("[peer] recovery: offering to the waiting parent");
     startOffer();
+  }
+}
+
+// Opus encoder task: pulls conditioned 16 kHz PCM from opusPcmQueue, encodes
+// 20 ms frames and sends them through esp_peer. Runs on its own task (stack in
+// PSRAM — libopus needs a deep stack) so encoding never stalls the I2S read or
+// the WSS-PCM send in loop().
+static void opusEncodeTask(void* /*arg*/) {
+  esp_opus_enc_config_t cfg = ESP_OPUS_ENC_CONFIG_DEFAULT();
+  cfg.sample_rate      = SAMPLE_RATE;
+  cfg.channel          = 1;
+  cfg.bits_per_sample  = 16;
+  cfg.bitrate          = OPUS_BITRATE;
+  cfg.frame_duration   = ESP_OPUS_ENC_FRAME_DURATION_20_MS;
+  cfg.application_mode = ESP_OPUS_ENC_APPLICATION_VOIP;
+  cfg.complexity       = OPUS_COMPLEXITY;
+  cfg.enable_fec       = false;
+  // No DTX: a quiet nursery must still produce a steady packet stream, or the
+  // parent's track looks stalled/muted between sounds.
+  cfg.enable_dtx       = false;
+  cfg.enable_vbr       = true;
+  void* enc = nullptr;
+  esp_audio_err_t err = esp_opus_enc_open(&cfg, sizeof(cfg), &enc);
+  int inSize = 0, outSize = 0;
+  if (err == ESP_AUDIO_ERR_OK) err = esp_opus_enc_get_frame_size(enc, &inSize, &outSize);
+  if (err != ESP_AUDIO_ERR_OK || inSize != OPUS_FRAME_SAMPLES * (int)sizeof(int16_t)) {
+    Serial.printf("[opus] encoder init failed err=%d in=%d out=%d — WebRTC audio disabled\n",
+                  (int)err, inSize, outSize);
+    if (enc) esp_opus_enc_close(enc);
+    vTaskDelete(nullptr);
+    return;
+  }
+  Serial.printf("[opus] encoder ready: %d Hz mono, %d ms, %d bps, in=%dB out<=%dB\n",
+                SAMPLE_RATE, OPUS_FRAME_MS, OPUS_BITRATE, inSize, outSize);
+
+  uint8_t* pcm = (uint8_t*)heap_caps_malloc(inSize, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  uint8_t* out = (uint8_t*)heap_caps_malloc(outSize, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  if (!pcm || !out) {
+    Serial.println("[opus] out of memory — WebRTC audio disabled");
+    free(pcm); free(out);
+    esp_opus_enc_close(enc);
+    vTaskDelete(nullptr);
+    return;
+  }
+  size_t have = 0;
+  for (;;) {
+    size_t got = xStreamBufferReceive(opusPcmQueue, pcm + have, inSize - have,
+                                      pdMS_TO_TICKS(500));
+    if (opusResetPending) {
+      // Fresh tunnel: start from live audio, not PCM left from a previous one.
+      opusResetPending = false;
+      xStreamBufferReset(opusPcmQueue);
+      have = 0;
+      continue;
+    }
+    have += got;
+    if (have < (size_t)inSize) continue;
+    have = 0;
+    if (!webrtcConnected) continue;
+
+    esp_audio_enc_in_frame_t  inFrame  = {};
+    esp_audio_enc_out_frame_t outFrame = {};
+    inFrame.buffer  = pcm;
+    inFrame.len     = inSize;
+    outFrame.buffer = out;
+    outFrame.len    = outSize;
+    int64_t t0 = esp_timer_get_time();
+    err = esp_opus_enc_process(enc, &inFrame, &outFrame);
+    uint32_t us = (uint32_t)(esp_timer_get_time() - t0);
+    if (err != ESP_AUDIO_ERR_OK || outFrame.encoded_bytes == 0) {
+      opusEncodeErrors++;
+      continue;
+    }
+    opusFramesEncoded++;
+    opusEncUsSum += us;
+    opusEncUsCount++;
+    if (us > opusEncUsMax) opusEncUsMax = us;
+    opusBytesSum += outFrame.encoded_bytes;
+
+    xSemaphoreTake(peerLock, portMAX_DELAY);
+    if (webrtcConnected && webrtcPeer) {
+      esp_peer_audio_frame_t frame = {};
+      frame.pts  = webrtcAudioPts;
+      frame.data = out;
+      frame.size = (int)outFrame.encoded_bytes;
+      if (esp_peer_send_audio(webrtcPeer, &frame) == ESP_PEER_ERR_NONE) {
+        webrtcPacketsSent++;
+      } else {
+        webrtcSendErrors++;
+      }
+      webrtcAudioPts += OPUS_FRAME_MS;
+    }
+    xSemaphoreGive(peerLock);
+  }
+}
+
+static void startOpusEncoder() {
+  peerLock = xSemaphoreCreateMutex();
+  opusPcmQueue = xStreamBufferCreateWithCaps(OPUS_PCM_QUEUE_BYTES,
+                                             OPUS_FRAME_SAMPLES * sizeof(int16_t),
+                                             MALLOC_CAP_SPIRAM);
+  if (!peerLock || !opusPcmQueue) {
+    Serial.println("[opus] failed to allocate queue — WebRTC audio disabled");
+    return;
+  }
+  // libopus is stack-hungry (Espressif recommend ~40 KB for its encoders);
+  // put the stack in PSRAM to spare internal RAM.
+  if (xTaskCreatePinnedToCoreWithCaps(opusEncodeTask, "opus-enc", 40 * 1024, nullptr, 4,
+                                      &opusTaskHandle, 1, MALLOC_CAP_SPIRAM) != pdPASS) {
+    Serial.println("[opus] failed to start encoder task — WebRTC audio disabled");
   }
 }
 
@@ -1735,6 +1884,7 @@ void setupWebRTC() {
   // babylink-idf image fixes this). Config lives in startPeer(), which the
   // recovery path reuses to reopen esp_peer without regenerating the cert.
   esp_peer_pre_generate_cert();
+  startOpusEncoder();
   startPeer();
 }
 
