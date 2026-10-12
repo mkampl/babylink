@@ -348,7 +348,9 @@ app.get('/api/config/webrtc', (req, res) => {
 // local BLE wizard, but must not be disclosed to the internet.
 app.get('/api/config/server-hint', (req, res) => {
   if (!isPrivateAddress(req.ip)) {
-    return res.json({ host: req.hostname, port: null });
+    const configured = process.env.PUBLIC_HOST;
+    const host = (configured && !isPrivateAddress(configured)) ? configured : req.hostname;
+    return res.json({ host, port: null });
   }
   let host = process.env.PUBLIC_HOST;
   if (!host) {

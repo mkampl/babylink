@@ -159,6 +159,20 @@ describe('server-hint does not leak the LAN address publicly (S6)', () => {
     expect(res.body.host).toBe('babylink.example.org');
   });
 
+  it('a public requester gets a configured PUBLIC_HOST that is itself public', async () => {
+    process.env.PUBLIC_HOST = 'babylink.example.org';
+    try {
+      const res = await request(s.app).get('/api/config/server-hint').set('X-Forwarded-For', '203.0.113.7');
+      expect(res.body.host).toBe('babylink.example.org');
+      process.env.PUBLIC_HOST = '192.168.1.5';
+      const lan = await request(s.app).get('/api/config/server-hint')
+        .set('X-Forwarded-For', '203.0.113.7').set('Host', 'monitor.example.org');
+      expect(lan.body.host).toBe('monitor.example.org');
+    } finally {
+      delete process.env.PUBLIC_HOST;
+    }
+  });
+
   it('a LAN requester still gets a LAN hint', async () => {
     const res = await request(s.app)
       .get('/api/config/server-hint')
