@@ -212,7 +212,6 @@
       }
 
       if (!visible && roomHasPin) {
-        document.getElementById('currentPinRow').style.display = 'block';
         document.getElementById('pinSettingsTitle').textContent = T('sr_pin_change_title');
         document.getElementById('pinSettingsDesc').textContent = T('sr_pin_change_desc');
       }
@@ -369,12 +368,11 @@
     document.getElementById('pinSetForm').addEventListener('submit', async function(e) {
       e.preventDefault();
       var newPin = document.getElementById('newPinInput').value;
-      var currentPin = document.getElementById('currentPinInput').value || verifiedPin;
       var resultEl = document.getElementById('pinSetResult');
 
       try {
         var res = await fetch('/api/rooms/' + encodeURIComponent(roomId) + '/pin',
-          ownerFetchOptions('POST', { pin: newPin || null, currentPin: currentPin }));
+          ownerFetchOptions('POST', { pin: newPin || null }));
         if (res.status === 401 || res.status === 403 || res.status === 429) {
           handleAuthError(res.status, resultEl);
           return;
@@ -389,7 +387,6 @@
           if (data.hasPin) verifiedPin = newPin;
           else verifiedPin = null;
           document.getElementById('newPinInput').value = '';
-          document.getElementById('currentPinInput').value = '';
         } else {
           resultEl.className = 'pin-result error';
           resultEl.textContent = data.error;

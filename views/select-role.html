@@ -42,7 +42,7 @@
       <h3 data-i18n="pin_protected_title">This room is protected</h3>
       <p data-i18n="pin_protected_body">Enter the room PIN to continue.</p>
       <form id="pinForm" class="pin-form">
-        <input type="password" id="pinInput" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="Enter PIN" autocomplete="off" required data-i18n-attr="placeholder:pin_ph" />
+        <input type="password" id="pinInput" inputmode="numeric" pattern="[0-9]{6,8}" minlength="6" maxlength="8" placeholder="Enter PIN" autocomplete="off" required data-i18n-attr="placeholder:pin_ph" />
         <button type="submit" data-i18n="pin_unlock">Unlock</button>
         <div id="pinError" class="pin-error" style="display:none;" data-i18n="pin_incorrect">Incorrect PIN</div>
       </form>
@@ -111,14 +111,10 @@
     </div>
     <div id="pinSettings" class="pin-settings" style="display:none;">
       <h3 id="pinSettingsTitle" data-i18n="pin_set_title">Set Room PIN</h3>
-      <p id="pinSettingsDesc" data-i18n="pin_set_desc">Optionally protect this room with a 4-6 digit PIN.</p>
+      <p id="pinSettingsDesc" data-i18n="pin_set_desc">Optionally protect this room with a 6–8 digit PIN.</p>
       <form id="pinSetForm" class="pin-form">
-        <div id="currentPinRow" style="display:none;">
-          <label for="currentPinInput" data-i18n="pin_current_label">Current PIN:</label>
-          <input type="password" id="currentPinInput" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="Current PIN" autocomplete="off" data-i18n-attr="placeholder:pin_current_ph" />
-        </div>
         <label for="newPinInput" data-i18n="pin_new_label">New PIN (leave empty to remove):</label>
-        <input type="password" id="newPinInput" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="4-6 digits" autocomplete="off" data-i18n-attr="placeholder:pin_new_ph" />
+        <input type="password" id="newPinInput" inputmode="numeric" pattern="[0-9]{6,8}" minlength="6" maxlength="8" placeholder="6–8 digits" autocomplete="off" data-i18n-attr="placeholder:pin_new_ph" />
         <button type="submit" data-i18n="pin_save">Save PIN</button>
         <div id="pinSetResult" class="pin-result" style="display:none;"></div>
       </form>
