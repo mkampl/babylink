@@ -154,7 +154,7 @@ class ESP32AudioHandler {
           if (audioContext.state === 'suspended') {
             const alert = document.getElementById('alert');
             if (alert) {
-              alert.textContent = 'Tap anywhere to enable audio';
+              alert.textContent = window.i18n ? window.i18n.t('mon_tap_enable_audio') : 'mon_tap_enable_audio';
               alert.hidden = false;
             }
           }

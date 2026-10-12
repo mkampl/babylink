@@ -258,5 +258,19 @@
   "footer_app_aria": "Download the Android app",
   "footer_support_aria": "Support on Ko-fi",
   "footer_impressum": "Legal notice",
-  "footer_datenschutz": "Privacy"
+  "footer_datenschutz": "Privacy",
+  "mon_confirm_stop_baby": "Stop this baby monitor? This device will stop streaming to parents.",
+  "mon_confirm_leave": "Leave this room? You will stop monitoring.",
+  "mon_mic_privacy": "Your browser will ask for the microphone. Audio goes straight to the parents' devices.",
+  "mon_reason_ice_failed": "connection failed",
+  "mon_reason_server_lost": "server connection lost",
+  "mon_tap_enable_audio": "Tap anywhere to enable audio",
+  "mon_screenlock_active": "Screen Lock: Active",
+  "mon_release": "Release",
+  "mon_retry": "Retry",
+  "mon_not_supported": "Not supported",
+  "js_theme_toggle": "Toggle dark mode",
+  "js_theme_toggle_title": "Toggle dark/light mode",
+  "js_server_error_status": "Server error {status}",
+  "js_no_room_id": "The server did not return a room."
 }

@@ -258,5 +258,19 @@
   "footer_app_aria": "Android-App herunterladen",
   "footer_support_aria": "Auf Ko-fi unterstützen",
   "footer_impressum": "Impressum",
-  "footer_datenschutz": "Datenschutz"
+  "footer_datenschutz": "Datenschutz",
+  "mon_confirm_stop_baby": "Dieses Babyphone beenden? Dieses Gerät sendet dann nicht mehr an die Eltern.",
+  "mon_confirm_leave": "Diesen Raum verlassen? Die Überwachung wird beendet.",
+  "mon_mic_privacy": "Dein Browser fragt gleich nach dem Mikrofon. Der Ton geht direkt an die Geräte der Eltern.",
+  "mon_reason_ice_failed": "Verbindung fehlgeschlagen",
+  "mon_reason_server_lost": "Verbindung zum Server verloren",
+  "mon_tap_enable_audio": "Tippe irgendwo, um den Ton zu aktivieren",
+  "mon_screenlock_active": "Bildschirmsperre: Aktiv",
+  "mon_release": "Freigeben",
+  "mon_retry": "Erneut versuchen",
+  "mon_not_supported": "Nicht unterstützt",
+  "js_theme_toggle": "Dunkelmodus umschalten",
+  "js_theme_toggle_title": "Hell/Dunkel umschalten",
+  "js_server_error_status": "Serverfehler {status}",
+  "js_no_room_id": "Der Server hat keinen Raum zurückgegeben."
 }

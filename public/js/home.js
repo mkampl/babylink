@@ -200,10 +200,10 @@
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || 'Server error ' + res.status);
+        throw new Error(body.error || T('js_server_error_status', { status: res.status }));
       }
       const data = await res.json();
-      if (!data.roomId) throw new Error('Server did not return a roomId');
+      if (!data.roomId) throw new Error(T('js_no_room_id'));
       // Persist the ownerToken under the canonical key so select-role.html
       // can find it and show management controls to this device only.
       if (data.ownerToken) {

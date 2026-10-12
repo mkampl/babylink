@@ -53,8 +53,13 @@ const ThemeManager = {
   createToggleButton(container) {
     const btn = document.createElement('button');
     btn.className = 'theme-toggle';
-    btn.setAttribute('aria-label', 'Toggle dark mode');
-    btn.title = 'Toggle dark/light mode';
+    // Translated by i18n.apply() (now, if the locale is loaded, and on every
+    // language change); the key is a harmless placeholder until then.
+    btn.setAttribute('data-i18n-attr', 'aria-label:js_theme_toggle;title:js_theme_toggle_title');
+    if (window.i18n) {
+      btn.setAttribute('aria-label', window.i18n.t('js_theme_toggle'));
+      btn.title = window.i18n.t('js_theme_toggle_title');
+    }
 
     const updateIcon = () => {
       btn.textContent = this.getCurrent() === 'dark' ? '\u2600\uFE0F' : '\uD83C\uDF19';

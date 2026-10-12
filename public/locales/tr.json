@@ -258,5 +258,19 @@
   "footer_app_aria": "Android uygulamasını indir",
   "footer_support_aria": "Ko-fi'de destekle",
   "footer_impressum": "Künye",
-  "footer_datenschutz": "Gizlilik"
+  "footer_datenschutz": "Gizlilik",
+  "mon_confirm_stop_baby": "Bu bebek monitörü durdurulsun mu? Bu cihaz ebeveynlere yayın yapmayı bırakacak.",
+  "mon_confirm_leave": "Bu odadan çıkılsın mı? İzleme duracak.",
+  "mon_mic_privacy": "Tarayıcın mikrofon izni isteyecek. Ses doğrudan ebeveynlerin cihazlarına gider.",
+  "mon_reason_ice_failed": "bağlantı başarısız",
+  "mon_reason_server_lost": "sunucu bağlantısı koptu",
+  "mon_tap_enable_audio": "Sesi açmak için herhangi bir yere dokun",
+  "mon_screenlock_active": "Ekran Kilidi: Etkin",
+  "mon_release": "Bırak",
+  "mon_retry": "Tekrar dene",
+  "mon_not_supported": "Desteklenmiyor",
+  "js_theme_toggle": "Karanlık modu aç/kapat",
+  "js_theme_toggle_title": "Açık/koyu modu değiştir",
+  "js_server_error_status": "Sunucu hatası {status}",
+  "js_no_room_id": "Sunucu bir oda döndürmedi."
 }

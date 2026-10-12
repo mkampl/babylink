@@ -118,9 +118,7 @@
   const homeBtn = document.getElementById('homeBtn');
   if (homeBtn) {
     homeBtn.addEventListener('click', () => {
-      const msg = role === 'baby'
-        ? 'Stop this baby monitor? This device will stop streaming to parents.'
-        : 'Leave this room? You will stop monitoring.';
+      const msg = role === 'baby' ? T('mon_confirm_stop_baby') : T('mon_confirm_leave');
       if (!window.confirm(msg)) return;
       try {
         if (localStream) localStream.getTracks().forEach((t) => t.stop());
@@ -273,8 +271,7 @@
     }
 
     // One-line privacy notice shown before the browser mic dialog appears.
-    document.getElementById('micStatus').textContent =
-      'Your browser will ask for the microphone. Audio stays on your local network.';
+    document.getElementById('micStatus').textContent = T('mon_mic_privacy');
 
     try {
       localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -609,7 +606,7 @@
     };
 
     multiStreamManager.onConnectionFailed = (participantId) => {
-      multiBabyUI.updateBabyStatus(participantId, false, 'ICE connection failed');
+      multiBabyUI.updateBabyStatus(participantId, false, T('mon_reason_ice_failed'));
     };
 
     // Both WSS-PCM and WebRTC level updates land here. Lazy-create the
@@ -759,7 +756,7 @@
       alarmMgr.schedule(5000, () => !socket.connected);
       if (multiBabyUI) {
         for (const [babyId] of multiBabyUI.babyCards) {
-          multiBabyUI.updateBabyStatus(babyId, false, 'Server disconnected');
+          multiBabyUI.updateBabyStatus(babyId, false, T('mon_reason_server_lost'));
         }
       }
     }
@@ -871,7 +868,7 @@
 
   initialize().catch(err => {
     console.error('FATAL: initialize() failed:', err);
-    document.getElementById('status').textContent = 'Error: ' + err.message;
+    document.getElementById('status').textContent = T('mon_error', { msg: err.message });
   });
 
 })();

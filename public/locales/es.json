@@ -258,5 +258,19 @@
   "footer_app_aria": "Descargar la app de Android",
   "footer_support_aria": "Apoyar en Ko-fi",
   "footer_impressum": "Aviso legal",
-  "footer_datenschutz": "Privacidad"
+  "footer_datenschutz": "Privacidad",
+  "mon_confirm_stop_baby": "¿Detener este vigilabebés? Este dispositivo dejará de transmitir a los padres.",
+  "mon_confirm_leave": "¿Salir de esta sala? Dejarás de vigilar.",
+  "mon_mic_privacy": "Tu navegador pedirá acceso al micrófono. El audio va directamente a los dispositivos de los padres.",
+  "mon_reason_ice_failed": "la conexión falló",
+  "mon_reason_server_lost": "se perdió la conexión con el servidor",
+  "mon_tap_enable_audio": "Toca en cualquier lugar para activar el audio",
+  "mon_screenlock_active": "Bloqueo de pantalla: Activo",
+  "mon_release": "Liberar",
+  "mon_retry": "Reintentar",
+  "mon_not_supported": "No compatible",
+  "js_theme_toggle": "Cambiar modo oscuro",
+  "js_theme_toggle_title": "Cambiar entre modo claro y oscuro",
+  "js_server_error_status": "Error del servidor {status}",
+  "js_no_room_id": "El servidor no devolvió ninguna sala."
 }
