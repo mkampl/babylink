@@ -275,5 +275,6 @@
   "js_no_room_id": "El servidor no devolvió ninguna sala.",
   "mon_baby_gone": "⚠ {name} se ha desconectado",
   "mon_reason_left": "salió de la sala",
-  "mon_babies_gone": "⚠ Desconectados: {names}"
+  "mon_babies_gone": "⚠ Desconectados: {names}",
+  "mon_background_warning": "BabyLink estuvo en segundo plano. Los navegadores pueden pausar la vigilancia en pestañas en segundo plano: mantén esta página delante con la pantalla encendida o usa la app de BabyLink."
 }

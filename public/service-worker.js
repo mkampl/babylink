@@ -32,6 +32,7 @@ const urlsToCache = [
   '/js/esp32-audio-handler.js',
   '/js/sleep-tracker.js',
   '/js/baby-roster.js',
+  '/js/background-watch.js',
   '/js/app.js',
   '/manifest.json',
   '/icons/icon-192x192.png',

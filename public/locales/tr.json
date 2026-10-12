@@ -275,5 +275,6 @@
   "js_no_room_id": "Sunucu bir oda döndürmedi.",
   "mon_baby_gone": "⚠ {name} bağlantısı koptu",
   "mon_reason_left": "odadan ayrıldı",
-  "mon_babies_gone": "⚠ Bağlantısı kopanlar: {names}"
+  "mon_babies_gone": "⚠ Bağlantısı kopanlar: {names}",
+  "mon_background_warning": "BabyLink arka plandaydı. Tarayıcılar arka plandaki sekmelerde izlemeyi duraklatabilir — bu sayfayı ekran açıkken önde tut ya da BabyLink uygulamasını kullan."
 }

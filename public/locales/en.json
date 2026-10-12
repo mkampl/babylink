@@ -275,5 +275,6 @@
   "js_no_room_id": "The server did not return a room.",
   "mon_baby_gone": "⚠ {name} disconnected",
   "mon_reason_left": "left the room",
-  "mon_babies_gone": "⚠ Disconnected: {names}"
+  "mon_babies_gone": "⚠ Disconnected: {names}",
+  "mon_background_warning": "BabyLink was in the background. Browsers may pause monitoring in background tabs — keep this page open in front with the screen on, or use the BabyLink app."
 }

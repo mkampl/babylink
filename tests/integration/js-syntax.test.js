@@ -36,6 +36,7 @@ const JS_FILES = [
   '/js/esp32-audio-handler.js',
   '/js/sleep-tracker.js',
   '/js/baby-roster.js',
+  '/js/background-watch.js',
   '/js/app.js',
 ];
 

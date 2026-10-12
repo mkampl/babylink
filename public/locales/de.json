@@ -275,5 +275,6 @@
   "js_no_room_id": "Der Server hat keinen Raum zurückgegeben.",
   "mon_baby_gone": "⚠ {name} ist nicht mehr verbunden",
   "mon_reason_left": "hat den Raum verlassen",
-  "mon_babies_gone": "⚠ Nicht mehr verbunden: {names}"
+  "mon_babies_gone": "⚠ Nicht mehr verbunden: {names}",
+  "mon_background_warning": "BabyLink war im Hintergrund. Browser können die Überwachung in Hintergrund-Tabs pausieren — lass diese Seite bei eingeschaltetem Bildschirm im Vordergrund oder nutze die BabyLink-App."
 }

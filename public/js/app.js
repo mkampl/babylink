@@ -170,6 +170,22 @@
   // Wake lock setup
   wakeLockMgr.bindEvents(role);
 
+  // Parent: browsers throttle background tabs, so a hidden monitor may have
+  // stopped listening. Say so when the parent comes back after a while.
+  if (role === 'parent') {
+    const bgWatch = new BackgroundWatch();
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) { bgWatch.hidden(Date.now()); return; }
+      if (bgWatch.visible(Date.now())) {
+        const alertEl = document.getElementById('alert');
+        if (alertEl) {
+          alertEl.textContent = T('mon_background_warning');
+          alertEl.hidden = false;
+        }
+      }
+    });
+  }
+
   // ========================
   // Start Monitoring gate (parent only)
   // Browsers require a user gesture before audio can play.
