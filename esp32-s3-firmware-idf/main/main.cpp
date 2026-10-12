@@ -417,10 +417,11 @@ void performFactoryReset() {
 // Strict debounce: any HIGH reading resets the press timer. BLE + WiFi
 // RF noise can briefly pull GPIO0 to ~250 ms of intermittent HIGH while
 // streaming; a permissive debounce would integrate that into a false
-// 5-second "press." Skipped during the captive portal (no factory-reset
-// of a device that's already being provisioned).
+// 5-second "press." Also active during the captive portal: a configured
+// device whose WiFi failed needs the short tap to unlock re-provisioning
+// (BLE and portal /save are both gated), and the 5 s factory reset is the
+// way out of a portal that keeps failing.
 static void checkResetButton() {
-  if (isConfigMode) return;
   if (millis() < 3000) return;   // ignore strapping-pin boot transients
 
   static unsigned long pressStart = 0;
@@ -905,24 +906,27 @@ input:focus,select:focus{outline:none;border-color:#667eea}
 const $=id=>document.getElementById(id);
 let cfg={wifi:[],servers:[],activeServer:0,deviceName:""};
 const MAX_WIFI=6,MAX_SRV=4;
+// Everything interpolated into innerHTML goes through esc(): SSIDs come from
+// any nearby access point and must never be able to inject markup.
+const esc=v=>String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function render(){
   const w=$('wifiRows');w.innerHTML='';
   if(!cfg.wifi.length)w.innerHTML='<div class="empty">No WiFi networks saved yet - scan or add one manually.</div>';
   cfg.wifi.forEach((p,i)=>{const r=document.createElement('div');r.className='row';
-    r.innerHTML=`<div class="col"><label>SSID</label><input data-i="${i}" data-k="ssid" value="${p.ssid||''}"><label>Password</label><input data-i="${i}" data-k="password" type="password" value="${p.password||''}"></div><button class="rm" data-rm-w="${i}" type="button">x</button>`;
+    r.innerHTML=`<div class="col"><label>SSID</label><input data-i="${i}" data-k="ssid" value="${esc(p.ssid)}"><label>Password</label><input data-i="${i}" data-k="password" type="password" value="${esc(p.password)}" placeholder="${p.hasPassword?'Saved - leave empty to keep':''}"></div><button class="rm" data-rm-w="${i}" type="button">x</button>`;
     w.appendChild(r);});
   const s=$('serverRows');s.innerHTML='';
   if(!cfg.servers.length)s.innerHTML='<div class="empty">No servers saved yet.</div>';
   cfg.servers.forEach((p,i)=>{const r=document.createElement('div');r.className='row';
-    r.innerHTML=`<div class="col"><label>Label</label><input data-i="${i}" data-k="label" value="${p.label||''}" placeholder="e.g. Home"><label>Host</label><input data-i="${i}" data-k="host" value="${p.host||''}" placeholder="192.168.1.10 or babylink.example"><label>Port</label><input data-i="${i}" data-k="port" type="number" value="${p.port||3001}"><label>Room ID</label><input data-i="${i}" data-k="roomId" value="${p.roomId||''}"><div class="active-pick"><input type="radio" name="active" ${i==cfg.activeServer?'checked':''} data-a="${i}"> Active for this device</div></div><button class="rm" data-rm-s="${i}" type="button">x</button>`;
+    r.innerHTML=`<div class="col"><label>Label</label><input data-i="${i}" data-k="label" value="${esc(p.label)}" placeholder="e.g. Home"><label>Host</label><input data-i="${i}" data-k="host" value="${esc(p.host)}" placeholder="192.168.1.10 or babylink.example"><label>Port</label><input data-i="${i}" data-k="port" type="number" value="${esc(p.port||3001)}"><label>Room ID</label><input data-i="${i}" data-k="roomId" value="${esc(p.roomId)}" placeholder="${p.hasRoomId?'Saved - leave empty to keep':''}"><div class="active-pick"><input type="checkbox" data-i="${i}" data-k="tls" ${(p.tls===undefined?(+p.port===443):p.tls)?'checked':''} style="width:auto"> Secure connection (wss / TLS)</div><div class="active-pick"><input type="radio" name="active" ${i==cfg.activeServer?'checked':''} data-a="${i}"> Active for this device</div></div><button class="rm" data-rm-s="${i}" type="button">x</button>`;
     s.appendChild(r);});
   $('devName').value=cfg.deviceName||'';
 }
-document.addEventListener('input',e=>{const t=e.target;if(t.dataset.k){const i=+t.dataset.i,k=t.dataset.k;const list=t.closest('#wifiRows')?cfg.wifi:cfg.servers;list[i][k]=k=='port'?+t.value:t.value;}else if(t.id=='devName'){cfg.deviceName=t.value;}});
-document.addEventListener('change',e=>{if(e.target.dataset.a!==undefined){cfg.activeServer=+e.target.dataset.a;}});
+document.addEventListener('input',e=>{const t=e.target;if(t.dataset.k){const i=+t.dataset.i,k=t.dataset.k;const list=t.closest('#wifiRows')?cfg.wifi:cfg.servers;list[i][k]=k=='port'?+t.value:(k=='tls'?t.checked:t.value);}else if(t.id=='devName'){cfg.deviceName=t.value;}});
+document.addEventListener('change',e=>{if(e.target.dataset.a!==undefined){cfg.activeServer=+e.target.dataset.a;}else if(e.target.dataset.k=='tls'){cfg.servers[+e.target.dataset.i].tls=e.target.checked;}});
 document.addEventListener('click',e=>{const t=e.target;if(t.dataset.rmW!==undefined){cfg.wifi.splice(+t.dataset.rmW,1);render();}else if(t.dataset.rmS!==undefined){cfg.servers.splice(+t.dataset.rmS,1);if(cfg.activeServer>=cfg.servers.length)cfg.activeServer=Math.max(0,cfg.servers.length-1);render();}else if(t.dataset.pick){cfg.wifi.push({ssid:t.dataset.pick,password:""});render();$('scanList').innerHTML='';}});
 $('addWifi').onclick=()=>{if(cfg.wifi.length<MAX_WIFI){cfg.wifi.push({ssid:"",password:""});render();}};
-$('addServer').onclick=()=>{if(cfg.servers.length<MAX_SRV){cfg.servers.push({label:"",host:"",port:3001,roomId:""});render();}};
+$('addServer').onclick=()=>{if(cfg.servers.length<MAX_SRV){cfg.servers.push({label:"",host:"",port:3001,roomId:"",tls:false});render();}};
 $('scanBtn').onclick=async()=>{$('scanBtn').disabled=true;$('scanBtn').textContent='Scanning...';
   try{
     await fetch('/scan',{method:'POST'});
@@ -936,15 +940,15 @@ $('scanBtn').onclick=async()=>{$('scanBtn').disabled=true;$('scanBtn').textConte
     const sl=$('scanList');
     sl.innerHTML=list.length?'<div style="font-size:12px;color:#555;margin:4px 0">Tap a network to add it:</div>':'<div class="msg err">No networks found.</div>';
     list.sort((a,b)=>b.rssi-a.rssi).forEach(n=>{const b=document.createElement('button');b.type='button';b.className='btn secondary';b.style.textAlign='left';b.dataset.pick=n.ssid;b.textContent=`${n.ssid} (${n.rssi} dBm${n.secure?'':' - open'})`;sl.appendChild(b);});
-  }catch(e){$('scanList').innerHTML='<div class="msg err">Scan failed: '+e.message+'</div>';}
+  }catch(e){$('scanList').innerHTML='<div class="msg err">Scan failed: '+esc(e.message)+'</div>';}
   $('scanBtn').disabled=false;$('scanBtn').textContent='Scan nearby networks';};
 $('saveBtn').onclick=async()=>{if(!cfg.wifi.length||!cfg.wifi[0].ssid){$('msg').innerHTML='<div class="msg err">Add at least one WiFi network.</div>';return;}
-  if(!cfg.servers.length||!cfg.servers[0].host||!cfg.servers[0].roomId){$('msg').innerHTML='<div class="msg err">Add at least one server with host + room.</div>';return;}
+  if(!cfg.servers.length||!cfg.servers[0].host||!(cfg.servers[0].roomId||cfg.servers[0].hasRoomId)){$('msg').innerHTML='<div class="msg err">Add at least one server with host + room.</div>';return;}
   $('saveBtn').disabled=true;
   try{const r=await fetch('/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)});const j=await r.json();
     if(r.ok){clearDraft();$('msg').innerHTML='<div class="msg ok">Saved! Device is rebooting...</div>';}
-    else{$('msg').innerHTML='<div class="msg err">'+(j.error||'Save failed')+'</div>';$('saveBtn').disabled=false;}
-  }catch(e){$('msg').innerHTML='<div class="msg err">'+e.message+'</div>';$('saveBtn').disabled=false;}};
+    else{$('msg').innerHTML='<div class="msg err">'+esc(j.error||'Save failed')+'</div>';$('saveBtn').disabled=false;}
+  }catch(e){$('msg').innerHTML='<div class="msg err">'+esc(e.message)+'</div>';$('saveBtn').disabled=false;}};
 // Persist in-progress edits to localStorage so an Android-induced
 // AP drop + auto-reconnect + page reload doesn't wipe what was typed.
 // On save the entry is dropped — we only want it across crash cycles
@@ -1037,6 +1041,14 @@ void pollWebScanComplete() {
 static void handleSave() {
   if (!webServer.hasArg("plain")) {
     webServer.send(400, "application/json", "{\"error\":\"missing JSON body\"}");
+    return;
+  }
+  // Same physical-presence rule as BLE: the AP is open, so on a device that is
+  // already configured (and only here because its WiFi failed) anyone in range
+  // could otherwise re-point the monitor. A short BOOT tap opens the window.
+  if (!provisioningAllowed()) {
+    webServer.send(403, "application/json",
+                   "{\"error\":\"Locked: briefly press the BOOT button on the device, then save again.\"}");
     return;
   }
   String body = webServer.arg("plain");
