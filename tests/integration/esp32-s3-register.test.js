@@ -127,3 +127,109 @@ describe('same-MAC re-register while the old socket is still open (B2)', () => {
     expect(frame.fromId).toBe('esp32_aabbccddeeb2');
   });
 });
+
+describe('device registration hardening (S4)', () => {
+  const deviceTokens = require('../../server/device-tokens');
+  beforeEach(() => deviceTokens.clear());
+
+  function registerRaw(client, payload) {
+    return (async () => {
+      await client.waitForOpen();
+      const reply = Promise.race([
+        client.waitForMessage('registered').then((m) => ({ ok: true, m })),
+        client.waitForMessage('error').then((m) => ({ ok: false, m })),
+      ]);
+      client.ws.send(JSON.stringify({ type: 'register', ...payload }));
+      return reply;
+    })();
+  }
+
+  it('rejects a malformed roomId', async () => {
+    const r = await registerRaw(makeESP32(), { roomId: '../../etc', name: 'x', mac: 'aa:bb:cc:dd:ee:40' });
+    expect(r.ok).toBe(false);
+  });
+
+  it('trusts the first token it sees and then requires it', async () => {
+    const { roomId } = await createRoom(server.app);
+    const MAC = 'aa:bb:cc:dd:ee:41';
+    const TOK = '0123456789abcdef0123456789abcdef';
+
+    const a = makeESP32();
+    expect((await registerRaw(a, { roomId, name: 'N', mac: MAC, deviceToken: TOK })).ok).toBe(true);
+    await a.close();
+    await new Promise(r => setTimeout(r, 50));
+
+    const b = makeESP32();
+    expect((await registerRaw(b, { roomId, name: 'N', mac: MAC, deviceToken: TOK })).ok).toBe(true);
+    await b.close();
+    await new Promise(r => setTimeout(r, 50));
+
+    const wrong = await registerRaw(makeESP32(), { roomId, name: 'N', mac: MAC, deviceToken: 'f'.repeat(32) });
+    expect(wrong.ok).toBe(false);
+    expect(wrong.m.code).toBe('DEVICE_TOKEN_MISMATCH');
+
+    const none = await registerRaw(makeESP32(), { roomId, name: 'N', mac: MAC });
+    expect(none.ok).toBe(false);
+    expect(none.m.code).toBe('DEVICE_TOKEN_MISMATCH');
+  });
+
+  it('a live token-verified device cannot be kicked by a registration from another room', async () => {
+    const { roomId } = await createRoom(server.app);
+    const other = await createRoom(server.app);
+    const MAC = 'aa:bb:cc:dd:ee:42';
+    const parent = makeSocket();
+    await joinRoom(parent, roomId, 'parent', 'Mom');
+
+    const real = makeESP32();
+    expect((await registerRaw(real, { roomId, name: 'Real', mac: MAC, deviceToken: 'a'.repeat(32) })).ok).toBe(true);
+
+    const left = [];
+    parent.on('participant-left', (d) => left.push(d));
+    const evil = await registerRaw(makeESP32(),
+      { roomId: other.roomId, name: 'Evil', mac: MAC, deviceToken: 'b'.repeat(32) });
+    expect(evil.ok).toBe(false);
+    await new Promise(r => setTimeout(r, 150));
+    expect(left).toHaveLength(0);
+    expect(real.ws.readyState).toBe(1); // still OPEN
+  });
+
+  it('devices without a token (older firmware) keep working', async () => {
+    const { roomId } = await createRoom(server.app);
+    const MAC = 'aa:bb:cc:dd:ee:43';
+    for (let i = 0; i < 2; i++) {
+      const c = makeESP32();
+      expect((await registerRaw(c, { roomId, name: 'Old', mac: MAC })).ok).toBe(true);
+      await c.close();
+      await new Promise(r => setTimeout(r, 50));
+    }
+  });
+
+  it('a token claimed in one room does not lock the device out of another room', async () => {
+    const mine = await createRoom(server.app);
+    const theirs = await createRoom(server.app);
+    const MAC = 'aa:bb:cc:dd:ee:44';
+    const squatter = makeESP32();
+    expect((await registerRaw(squatter, { roomId: theirs.roomId, name: 'S', mac: MAC, deviceToken: 'c'.repeat(32) })).ok).toBe(true);
+    await squatter.close();
+    await new Promise(r => setTimeout(r, 50));
+    const real = makeESP32();
+    expect((await registerRaw(real, { roomId: mine.roomId, name: 'R', mac: MAC })).ok).toBe(true);
+  });
+
+  it('the owner can make the room forget a device token', async () => {
+    const { roomId, ownerToken } = await createRoom(server.app);
+    const MAC = 'aa:bb:cc:dd:ee:45';
+    const a = makeESP32();
+    expect((await registerRaw(a, { roomId, name: 'N', mac: MAC, deviceToken: 'd'.repeat(32) })).ok).toBe(true);
+    await a.close();
+    await new Promise(r => setTimeout(r, 50));
+
+    const res = await request(server.app)
+      .delete(`/api/rooms/${roomId}/esp32/esp32_aabbccddee45/token`)
+      .set('Authorization', `Bearer ${ownerToken}`);
+    expect(res.status).toBe(200);
+
+    const b = makeESP32();
+    expect((await registerRaw(b, { roomId, name: 'N', mac: MAC, deviceToken: 'e'.repeat(32) })).ok).toBe(true);
+  });
+});

@@ -1,23 +1,26 @@
 // server/esp32-proxy.js
 // WebSocket proxy for ESP32-S3 baby devices
 //
-// The proxy handles JSON control messages (register / ping / signal) only.
-// Raw PCM audio is no longer forwarded by the server — the S3 firmware
-// uses WebRTC directly for audio, and crying detection runs in the browser.
+// The device sends JSON control messages (register / ping / status / signal)
+// and a raw 16-bit PCM audio stream as binary frames. The server relays the
+// PCM to the room's parents as `esp32-audio` without inspecting it (level and
+// crying detection run in the browser / app) and relays WebRTC signaling
+// between the device and browsers in the same room.
 //
-// Device-side authentication (token per device) is future work; today the
-// server trusts the registration payload at face value. The mitigations in
-// place are:
-//   – per-IP connection cap (maxSocketsPerIp)
-//   – per-IP message rate limit
-//   – maxPayload on the WebSocket.Server
+// Registration is protected by:
+//   – roomId format validation
+//   – a per-device token, trusted on first use per room (device-tokens.js);
+//     older firmware without a token registers as before
+//   – per-IP connection cap, per-connection control-message rate limit and
+//     maxPayload on the WebSocket.Server
 //   – all device management (rename/delete/reset) is gated behind owner auth
-//     so a spoofed registration cannot be weaponised by a third party
 
 const WebSocket = require('ws');
 const logger = require('../utils/logger');
 const roomConfig = require('./room-config');
 const notificationService = require('./notification-service');
+const deviceTokens = require('./device-tokens');
+const config = require('../config');
 
 // Maximum WebSocket frame payload (64 KB). Control messages are tiny;
 // a larger limit would let a single ESP32 frame exhaust server heap.
@@ -262,9 +265,9 @@ class ESP32AudioProxy {
       ? registrationData.device_type
       : null;
 
-    if (!roomId) {
-      logger.error('ESP32 registration missing roomId');
-      ws.send(JSON.stringify({ type: 'error', message: 'roomId required' }));
+    if (!config.validation.isValidRoomId(roomId)) {
+      logger.error('ESP32 registration with missing or malformed roomId');
+      ws.send(JSON.stringify({ type: 'error', code: 'INVALID_ROOM', message: 'valid roomId required' }));
       ws.close();
       return null;
     }
@@ -276,6 +279,32 @@ class ESP32AudioProxy {
       : `esp32_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     const existing = this.esp32Clients.get(esp32Id);
+
+    // Device token (trust on first use, per room — see device-tokens.js).
+    // A live registration that proved a token can only be replaced by a
+    // registration presenting the same token, whatever room it names, so a
+    // known MAC alone can't kick a device off. Token-less (older firmware)
+    // devices are accepted as before.
+    const presented = registrationData.deviceToken;
+    const rejectToken = () => {
+      logger.warn(`ESP32 ${esp32Id} registration rejected: device token mismatch`);
+      ws.send(JSON.stringify({
+        type: 'error', code: 'DEVICE_TOKEN_MISMATCH', message: 'device token mismatch'
+      }));
+      ws.close(4003, 'Device token mismatch');
+      return null;
+    };
+    if (macClean.length === 12) {
+      if (existing && existing.ws !== ws && existing.tokenHash &&
+          !deviceTokens.constructor.matches(presented, existing.tokenHash)) {
+        return rejectToken();
+      }
+    }
+    const tokenCheck = macClean.length === 12
+      ? deviceTokens.check(roomId, esp32Id, presented)
+      : { ok: true, hash: null };
+    if (!tokenCheck.ok) return rejectToken();
+
     if (existing) {
       // Same physical device reconnecting — drop the stale socket silently
       if (existing.ws && existing.ws !== ws) {
@@ -303,6 +332,7 @@ class ESP32AudioProxy {
       connectedAtMs: Date.now(),
       audioPacketsReceived: 0,
       lastAudioPacket: null,
+      tokenHash: tokenCheck.hash,
     };
 
     this.esp32Clients.set(esp32Id, esp32Info);
@@ -551,8 +581,17 @@ class ESP32AudioProxy {
       return false;
     }
     this.deviceNames.delete(esp32Id);
+    deviceTokens.forget(client.roomId, esp32Id);
     this.unregisterESP32(esp32Id);
     return true;
+  }
+
+  /**
+   * Owner action: forget a device's token in a room so the next registration
+   * is trusted afresh (e.g. after a full flash erase gave it a new token).
+   */
+  forgetDeviceToken(roomId, esp32Id) {
+    return deviceTokens.forget(roomId, esp32Id);
   }
 
   /**

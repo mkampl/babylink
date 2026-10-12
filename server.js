@@ -17,6 +17,7 @@ const { validateRoomId, validateRole, validateSocketJoinData, sanitizeInput } = 
 const ESP32AudioProxy = require('./server/esp32-proxy');
 const roomConfig = require('./server/room-config');
 const notificationService = require('./server/notification-service');
+const deviceTokens = require('./server/device-tokens');
 const { validateNtfyTopic, validateNtfyServer } = require('./server/notification-service');
 
 // =============================================================================
@@ -445,6 +446,17 @@ app.delete('/api/rooms/:roomId/esp32/:esp32Id', validateRoomId, requireOwnerAuth
 
   esp32Proxy.forceDisconnect(esp32Id);
   res.json({ success: true, message: 'Device disconnected' });
+});
+
+// Forget a device's token (owner only). The device need not be connected:
+// this is the recovery path for a device locked out after a full flash erase.
+app.delete('/api/rooms/:roomId/esp32/:esp32Id/token', validateRoomId, requireOwnerAuth, (req, res) => {
+  const { roomId, esp32Id } = req.params;
+  if (!/^esp32_[0-9a-f]{12}$/.test(esp32Id)) {
+    return res.status(400).json({ error: 'Invalid device id' });
+  }
+  const existed = esp32Proxy.forgetDeviceToken(roomId, esp32Id);
+  res.json({ success: true, forgotten: existed });
 });
 
 // Factory-reset an ESP32 device (owner only)
@@ -1061,6 +1073,7 @@ intervals.push(setInterval(() => {
   if (cleanedCount > 0) logger.info(`Cleaned up ${cleanedCount} stale rooms`);
 
   prunePinLockout(now);
+  deviceTokens.expire(now, config.room.configTtlDays * 24 * 3600 * 1000);
 
   const inUse = (id) => {
     const r = rooms.get(id);
@@ -1114,7 +1127,7 @@ if (require.main === module) {
   process.on('SIGTERM', shutdown);
   process.on('SIGINT', shutdown);
 
-  roomConfig.load().then(() => {
+  Promise.all([roomConfig.load(), deviceTokens.load()]).then(() => {
     server.listen(config.server.port, () => {
       logger.info(`BabyLink HTTP Server running at http://localhost:${config.server.port}`);
       logger.info(`Environment: ${config.server.nodeEnv}`);
