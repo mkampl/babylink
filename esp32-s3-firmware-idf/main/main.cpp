@@ -199,6 +199,12 @@ String parentSocketId;
 // DTLS cert. Queue it here and fire it from loop() once the peer is ready,
 // rather than dropping it (which left WebRTC permanently unconnected).
 volatile bool pendingOfferRequest = false;
+// esp_peer cannot be reused for a second connection: once a session has run
+// (or even just offered), every further esp_peer_new_connection — its own
+// auto-reconnect included — emits a malformed SDP offer (no m=audio) that the
+// browser rejects. So each parent request gets a freshly reopened peer.
+bool webrtcPeerUsed = false;
+String lastOfferParent;               // parent the last offer went to
 WebServer  webServer(80);
 DNSServer  dnsServer;
 
@@ -1381,13 +1387,23 @@ static String resolveMdnsCandidate(const String& cand) {
   return out;
 }
 
+// Hand an SDP / ICE message to esp_peer. Serialised with esp_peer_close (a
+// peer restart runs on the loop task while these arrive on the websocket and
+// mDNS tasks).
+static void sendMsgToPeer(esp_peer_msg_type_t type, const String& data) {
+  if (peerLock) xSemaphoreTake(peerLock, portMAX_DELAY);
+  if (webrtcPeer) {
+    esp_peer_msg_t pmsg = {};
+    pmsg.type = type;
+    pmsg.data = (uint8_t*)data.c_str();
+    pmsg.size = data.length();
+    esp_peer_send_msg(webrtcPeer, &pmsg);
+  }
+  if (peerLock) xSemaphoreGive(peerLock);
+}
+
 static void sendCandidateToPeer(const String& cand) {
-  if (!webrtcPeer) return;
-  esp_peer_msg_t pmsg = {};
-  pmsg.type = ESP_PEER_MSG_TYPE_CANDIDATE;
-  pmsg.data = (uint8_t*)cand.c_str();
-  pmsg.size = cand.length();
-  esp_peer_send_msg(webrtcPeer, &pmsg);
+  sendMsgToPeer(ESP_PEER_MSG_TYPE_CANDIDATE, cand);
   Serial.printf("[peer] <- ICE: %s\n", cand.c_str());
 }
 
@@ -1408,6 +1424,9 @@ static void mdnsResolveTask(void* /*arg*/) {
 }
 
 static void handleIceCandidate(const String& cand) {
+  // esp_peer's ICE agent is UDP-only and keeps at most 10 remote candidates;
+  // a desktop browser's TCP candidates would only use up those slots.
+  if (cand.indexOf(" udp ") < 0 && cand.indexOf(" UDP ") < 0) return;
   if (cand.indexOf(".local") < 0) { sendCandidateToPeer(cand); return; }
   if (!mdnsQueue) {
     mdnsQueue = xQueueCreate(8, sizeof(char*));
@@ -1430,7 +1449,9 @@ static void handleIceCandidate(const String& cand) {
 static void startOffer() {
   if (!webrtcPeer) return;
   esp_peer_new_connection(webrtcPeer);
+  webrtcPeerUsed = true;
   lastOfferMs = millis();
+  lastOfferParent = parentSocketId;
   webrtcOfferCount++;
 }
 
@@ -1472,20 +1493,16 @@ static void handleWsTextFrame(const char* data, size_t len) {
     const char* from = doc["fromSocketId"] | "";
     if (from[0]) parentSocketId = from;
 
-    if (!webrtcPeer) {
-      if (doc["requestOffer"] | false) {
-        // Peer still initialising — remember the request so loop() can fire
-        // it the moment esp_peer is ready.
-        pendingOfferRequest = true;
-        Serial.println("[peer] requestOffer before peer ready — queued");
-      } else {
-        Serial.println("[peer] inbound signal but esp_peer not initialised");
-      }
+    if (doc["requestOffer"] | false) {
+      // Served from loop(): it may need to reopen esp_peer (see
+      // webrtcPeerUsed), which must not run on this websocket task. Also
+      // covers a request that races esp_peer init.
+      pendingOfferRequest = true;
+      Serial.printf("[peer] requestOffer from %s — queued\n", from);
       return;
     }
-    if (doc["requestOffer"] | false) {
-      Serial.printf("[peer] requestOffer from %s — starting connection\n", from);
-      startOffer();
+    if (!webrtcPeer) {
+      Serial.println("[peer] inbound signal but esp_peer not initialised");
       return;
     }
     // MultiStreamManager (browser) sends answers as
@@ -1499,11 +1516,7 @@ static void handleWsTextFrame(const char* data, size_t len) {
       } else {
         answer = doc["answer"].as<String>();
       }
-      esp_peer_msg_t pmsg = {};
-      pmsg.type = ESP_PEER_MSG_TYPE_SDP;
-      pmsg.data = (uint8_t*)answer.c_str();
-      pmsg.size = answer.length();
-      esp_peer_send_msg(webrtcPeer, &pmsg);
+      sendMsgToPeer(ESP_PEER_MSG_TYPE_SDP, answer);
       Serial.printf("[peer] <- SDP/answer (%u B)\n", (unsigned)answer.length());
       return;
     }
@@ -1726,6 +1739,9 @@ static bool startPeer() {
   cfg.audio_dir          = ESP_PEER_MEDIA_DIR_SEND_ONLY;
   cfg.video_dir          = ESP_PEER_MEDIA_DIR_NONE;
   cfg.enable_data_channel = false;
+  // Its auto-reconnect reuses the peer and emits a malformed offer; the
+  // parent asks for a new offer instead and we answer with a fresh peer.
+  cfg.no_auto_reconnect  = true;
   cfg.on_state           = onPeerState;
   cfg.on_msg             = onPeerMsg;
   cfg.extra_cfg          = &defaults;
@@ -1739,6 +1755,7 @@ static bool startPeer() {
   }
   Serial.printf("[peer] esp_peer opened — heap=%lu\n", (unsigned long)ESP.getFreeHeap());
 
+  webrtcPeerUsed = false;
   webrtcPeerRunning = true;
   webrtcLoopDone = false;
   if (xTaskCreatePinnedToCore(webrtcLoopTask, "wrtc-loop", 10 * 1024, nullptr, 5,
@@ -1752,12 +1769,14 @@ static bool startPeer() {
   return true;
 }
 
-// Re-initialise esp_peer WITHOUT rebooting: stop the loop task, close the wedged
-// peer, reopen a fresh one, and re-offer to the current parent. The WSS-PCM
+// Re-initialise esp_peer WITHOUT rebooting: stop the loop task, close the used
+// or wedged peer, reopen a fresh one, and offer to the current parent. Runs for
+// every new parent request on a used peer, and as the self-heal below. The WSS-PCM
 // audio path is untouched throughout, so the parent never loses audio (no
 // "baby unreachable" alarm) — this just heals the WebRTC tunnel in place.
 static void restartWebRTC() {
-  Serial.println("[peer] recovery: reinitialising esp_peer (no reboot; PCM keeps flowing)");
+  Serial.printf("[peer] reopening esp_peer (PCM keeps flowing) heap=%lu\n",
+                (unsigned long)ESP.getFreeHeap());
   webrtcPeerRunning = false;                       // ask the loop task to exit
   for (int i = 0; i < 80 && !webrtcLoopDone; i++) { // wait up to ~800ms for it
     vTaskDelay(pdMS_TO_TICKS(10));
@@ -1773,7 +1792,7 @@ static void restartWebRTC() {
   webrtcOfferCount = 0;
   webrtcAudioPts   = 0;
   if (startPeer() && parentSocketId.length() > 0) {
-    Serial.println("[peer] recovery: offering to the waiting parent");
+    Serial.println("[peer] offering to the waiting parent");
     startOffer();
   }
 }
@@ -2106,8 +2125,18 @@ void loop() {
   // exists and we know which parent to answer.
   if (pendingOfferRequest && webrtcPeer && parentSocketId.length() > 0) {
     pendingOfferRequest = false;
-    Serial.println("[peer] firing queued requestOffer");
-    startOffer();
+    if (!webrtcConnected && parentSocketId == lastOfferParent &&
+        millis() - lastOfferMs < 2500) {
+      // A duplicate for the offer that is still in flight: reopening now
+      // would abort its handshake (each extra request used to do exactly that).
+      Serial.println("[peer] requestOffer: offer to this parent in flight — ignored");
+    } else if (webrtcPeerUsed) {
+      Serial.println("[peer] requestOffer: reopening esp_peer for a clean offer");
+      restartWebRTC();
+    } else {
+      Serial.println("[peer] requestOffer: offering");
+      startOffer();
+    }
   }
 
   processAudio();
@@ -2122,6 +2151,13 @@ void loop() {
     lastRecoveryMs = now;
     Serial.printf("[peer] %d offers, still not connected — recovering\n", webrtcOfferCount);
     restartWebRTC();
+  }
+  // A failed reopen (e.g. out of memory) leaves no peer; try again later
+  // rather than staying PCM-only until a reboot.
+  if (!webrtcPeer && !isConfigMode && now - lastRecoveryMs > 30000) {
+    lastRecoveryMs = now;
+    Serial.println("[peer] no esp_peer — reopening");
+    startPeer();
   }
 #if WRTC_RECOVERY_SELFTEST
   // One forced recovery ~25s after boot to prove the close/reopen is crash-free.
