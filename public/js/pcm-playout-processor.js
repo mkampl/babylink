@@ -7,7 +7,10 @@
 // playout runs on the audio render thread, pulling from a jitter buffer with a
 // fractional resampler (the ESP sends 16 kHz; the AudioContext runs at 48/44.1
 // kHz), with explicit underrun (emit silence) and overrun (drop oldest to cap
-// latency) handling instead of fragile timestamps.
+// latency) handling instead of fragile timestamps. After a network stall the
+// burst of late frames is worked off by playing ~4% fast until the buffer is
+// back at its target, so one hiccup doesn't add latency for the rest of the
+// session.
 //
 // Frames arrive from the main thread via port.postMessage (no SharedArrayBuffer
 // needed — the port message handler and process() both run on the audio thread,
@@ -23,6 +26,12 @@ class PcmRing {
     const outRate = opts.outputRate || 48000;
     this.step = inRate / outRate;                 // input samples per output sample
     this.maxSamples = Math.floor(inRate * ((opts.maxMs || 400) / 1000)); // latency cap
+    // Buffered audio above this is excess latency (a stall's clump of frames):
+    // drained by consuming input slightly faster than real time. The target
+    // leaves room for the normal arrival jitter of 64 ms chunks.
+    this.targetSamples = Math.floor(inRate * ((opts.targetMs || 160) / 1000));
+    this.catchup = opts.catchup != null ? opts.catchup : 1.04;
+    this.catchupBlocks = 0; // render blocks played at the catch-up rate
     this.chunks = [];   // queue of Float32Array (input-rate samples)
     this.headPos = 0;   // read index within chunks[0]
     this.frac = 0;      // fractional read position for interpolation
@@ -73,13 +82,18 @@ class PcmRing {
   // Fill `out` (Float32Array, length = render quantum) at the output rate with
   // linear-interpolated resampling. Emits silence on underrun.
   pull(out) {
+    let step = this.step;
+    if (this.catchup > 1 && this.available > this.targetSamples) {
+      step *= this.catchup;
+      this.catchupBlocks++;
+    }
     for (let i = 0; i < out.length; i++) {
       const cur = this._sampleAt(0);
       if (cur === null) { out[i] = 0; this.underruns++; continue; }
       const nxtRaw = this._sampleAt(1);
       const nxt = nxtRaw === null ? cur : nxtRaw;
       out[i] = cur + (nxt - cur) * this.frac;
-      this.frac += this.step;
+      this.frac += step;
       while (this.frac >= 1) { this.frac -= 1; this._advance(); }
     }
     return out;
