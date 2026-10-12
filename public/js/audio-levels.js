@@ -46,6 +46,39 @@
       return 'GREEN';
     },
 
+    // --- ESP (raw PCM) meter scale ---------------------------------------
+    // ESP devices stream raw 16-bit PCM. Their meter uses the time-domain
+    // peak of each chunk as it ARRIVES — the same metric as the Android app —
+    // instead of an analyser bin read after the playout jitter buffer, which
+    // showed a near-full-scale cry as YELLOW and lagged by whatever the
+    // buffer held. The peak (0..1) is mapped piecewise-linearly onto the
+    // shared 0..255 scale so the Android bands land on the shared thresholds:
+    //   0 -> 0,  0.12 -> YELLOW,  0.5 -> RED,  1.0 -> 255.
+    // The first segment passes through the origin, so below YELLOW the
+    // sensitivity multiplier acts exactly like the app's (level x s).
+    PCM_YELLOW_PEAK: 0.12,
+    PCM_RED_PEAK: 0.5,
+
+    /** Max |sample| of an Int16 PCM chunk as a 0..1 fraction of full scale. */
+    pcmPeak(samples) {
+      let peak = 0;
+      for (let i = 0; i < samples.length; i++) {
+        const a = samples[i] < 0 ? -samples[i] : samples[i];
+        if (a > peak) peak = a;
+      }
+      return Math.min(1, peak / 32768);
+    },
+
+    /** Map a 0..1 PCM peak onto the shared 0..255 meter scale. */
+    fromPcmPeak(p) {
+      if (!(p > 0)) return 0;
+      const y = this.PCM_YELLOW_PEAK, r = this.PCM_RED_PEAK;
+      if (p <= y) return (p / y) * this.YELLOW;
+      if (p <= r) return this.YELLOW + ((p - y) / (r - y)) * (this.RED - this.YELLOW);
+      if (p >= 1) return 255;
+      return this.RED + ((p - r) / (1 - r)) * (255 - this.RED);
+    },
+
     configureAnalyser(analyser) {
       analyser.minDecibels = this.MIN_DB;
       analyser.maxDecibels = this.MAX_DB;

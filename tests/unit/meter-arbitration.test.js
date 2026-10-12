@@ -1,7 +1,13 @@
 // Meter arbitration between the WebRTC path (multi-stream-manager) and the
 // PCM path (esp32-audio-handler). Both decide who drives the baby-card badge
-// from the shared AudioHealth.webrtcDelivering() flag, so exactly one path
-// owns the meter at any instant (no red/green flicker).
+// from the shared AudioHealth (pcmOwnsMeter / webrtcOwnsMeter), so exactly
+// one path owns the meter at any instant (no red/green flicker).
+//
+// For an ESP (it sends WebRTC AND raw PCM) the PCM path owns the meter while
+// its frames arrive: it is read at arrival from the raw samples (the Android
+// app's metric), whereas the WebRTC analyser reads a different, lower scale.
+// Letting whichever path was "delivering" drive the badge made the meter's
+// height depend on which transport happened to be live.
 //
 // The WebRTC loop must FEED that flag (markWebrtcLevel) on every frame before
 // it decides whether to drive the badge. If it gates first, the flag can
@@ -90,44 +96,51 @@ describe('WebRTC meter loop', () => {
     expect(registry.get('phone-baby').status(Date.now())).toBe('stalled');
   });
 
-  it('ESP (both paths): feeds health while silent, but yields the badge to PCM', () => {
+  it('ESP (both paths): feeds WebRTC health but leaves the badge to PCM while PCM arrives', () => {
     const mgr = new MultiStreamManager({}, {});
     const updates = [];
     mgr.onAudioLevelUpdate = (id, level) => updates.push(level);
     const state = { peak: 200 };
     attach(mgr, 'esp', state);
-    const pcm = setInterval(() => globalThis.getAudioHealth('esp').markPcmFrame(Date.now()), 66);
-    vi.advanceTimersByTime(500);
-    const before = updates.length;
-    expect(before).toBeGreaterThan(0);
-
-    // WebRTC goes silent (wedged tunnel) while PCM frames keep arriving:
-    // after the delivery window the PCM path owns the badge.
-    state.peak = 0;
-    vi.advanceTimersByTime(AudioHealth.DEFAULTS.webrtcWindowMs + 300);
+    const pcm = setInterval(() => globalThis.getAudioHealth('esp').markPcmFrame(Date.now()), 64);
+    vi.advanceTimersByTime(64);
     const settled = updates.length;
-    vi.advanceTimersByTime(1000);
+    vi.advanceTimersByTime(1500);
+    // WebRTC delivers sound (playback arbitration still sees it) ...
+    expect(registry.get('esp').webrtcDelivering(Date.now())).toBe(true);
+    // ... but it does not drive the badge while PCM frames keep arriving.
     expect(updates.length).toBe(settled);
-    expect(registry.get('esp').status(Date.now())).not.toBe('webrtc');
-
-    // Sound comes back on WebRTC → it takes the badge again.
-    state.peak = 200;
-    vi.advanceTimersByTime(300);
-    expect(updates.length).toBeGreaterThan(settled);
     clearInterval(pcm);
+
+    // PCM stops arriving (relay broken) → WebRTC takes the badge over.
+    vi.advanceTimersByTime(AudioHealth.DEFAULTS.stallMs + 300);
+    expect(updates.length).toBeGreaterThan(settled);
+    expect(updates[updates.length - 1]).toBe('RED');
   });
 });
 
 describe('partition: exactly one path drives the badge', () => {
-  it('for every recent-energy history, WebRTC drives iff PCM yields', () => {
-    for (const lastWebrtcAgo of [0, 100, 899, 900, 2000, Infinity]) {
-      const h = new AudioHealth();
-      const now = 50_000;
-      h.markPcmFrame(now - 50); // a device with a PCM path
-      if (lastWebrtcAgo !== Infinity) h.markWebrtcLevel(now - lastWebrtcAgo, 200);
-      const webrtcDrives = h.webrtcOwnsMeter(now);    // multi-stream emits
-      const pcmDrives = !h.webrtcDelivering(now);     // esp32 handler emits
-      expect(webrtcDrives !== pcmDrives).toBe(true);
+  it('for every PCM / WebRTC history, WebRTC drives iff PCM yields', () => {
+    const agos = [0, 100, 899, 900, 2000, 7999, 8000, 20000, Infinity];
+    for (const lastPcmAgo of agos) {
+      for (const lastWebrtcAgo of agos) {
+        const h = new AudioHealth();
+        const now = 50_000;
+        if (lastPcmAgo !== Infinity) h.markPcmFrame(now - lastPcmAgo);
+        if (lastWebrtcAgo !== Infinity) h.markWebrtcLevel(now - lastWebrtcAgo, 200);
+        const webrtcDrives = h.webrtcOwnsMeter(now); // multi-stream emits
+        const pcmDrives = h.pcmOwnsMeter(now);       // esp32 handler emits
+        expect(webrtcDrives !== pcmDrives).toBe(true);
+      }
     }
+  });
+
+  it('an ESP whose PCM is arriving: PCM drives even while WebRTC delivers sound', () => {
+    const h = new AudioHealth();
+    h.markPcmFrame(10_000);
+    h.markWebrtcLevel(10_000, 200);
+    expect(h.webrtcDelivering(10_050)).toBe(true);
+    expect(h.pcmOwnsMeter(10_050)).toBe(true);
+    expect(h.webrtcOwnsMeter(10_050)).toBe(false);
   });
 });

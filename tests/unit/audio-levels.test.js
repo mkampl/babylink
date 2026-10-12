@@ -58,3 +58,48 @@ describe('every detector uses the shared table', () => {
     }
   });
 });
+
+// ESP devices stream raw PCM. Their meter reads the time-domain peak of each
+// chunk as it ARRIVES (like the Android app), not an FFT bin after the
+// playout jitter buffer — that read far too low (a -4 dBFS cry only reached
+// YELLOW) and lagged by whatever the buffer held.
+describe('PCM peak scale (ESP meter, matches the Android app)', () => {
+  it('pcmPeak is the max |sample| as a 0..1 fraction of full scale', () => {
+    expect(AudioLevels.pcmPeak(new Int16Array([0, 100, -16384, 50]))).toBeCloseTo(0.5, 5);
+    expect(AudioLevels.pcmPeak(new Int16Array([-32768]))).toBe(1);
+    expect(AudioLevels.pcmPeak(new Int16Array([]))).toBe(0);
+  });
+
+  it('maps the Android bands onto the shared thresholds: 0.12 -> YELLOW, 0.5 -> RED', () => {
+    expect(AudioLevels.fromPcmPeak(0)).toBe(0);
+    expect(AudioLevels.fromPcmPeak(0.12)).toBeCloseTo(AudioLevels.YELLOW, 5);
+    expect(AudioLevels.fromPcmPeak(0.5)).toBeCloseTo(AudioLevels.RED, 5);
+    expect(AudioLevels.fromPcmPeak(1)).toBe(255);
+    expect(AudioLevels.fromPcmPeak(2)).toBe(255);
+  });
+
+  it('is monotonic', () => {
+    let prev = -1;
+    for (let p = 0; p <= 1.0001; p += 0.01) {
+      const v = AudioLevels.fromPcmPeak(p);
+      expect(v).toBeGreaterThanOrEqual(prev);
+      prev = v;
+    }
+  });
+
+  it('classifies like the Android app at sensitivity 1', () => {
+    const band = (p) => AudioLevels.classify(AudioLevels.fromPcmPeak(p), 1);
+    expect(band(0.05)).toBe('GREEN');
+    expect(band(0.11)).toBe('GREEN');
+    expect(band(0.13)).toBe('YELLOW');
+    expect(band(0.3)).toBe('YELLOW');
+    expect(band(0.51)).toBe('RED');
+    expect(band(0.6)).toBe('RED');
+  });
+
+  it('below the YELLOW knee, sensitivity scales exactly like the Android app (level x s)', () => {
+    // Android: YELLOW when peak * s >= 0.12.
+    expect(AudioLevels.classify(AudioLevels.fromPcmPeak(0.07), 2)).toBe('YELLOW'); // 0.14
+    expect(AudioLevels.classify(AudioLevels.fromPcmPeak(0.05), 2)).toBe('GREEN');  // 0.10
+  });
+});

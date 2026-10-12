@@ -79,12 +79,19 @@
     }
 
     /**
-     * Does the WebRTC loop drive the badge? Always for a WebRTC-only baby;
-     * for a dual-path device only while WebRTC is actually delivering sound
-     * (the exact complement of the PCM handler's yield condition).
+     * Does the PCM loop (esp32-audio-handler) drive the badge? For a dual-path
+     * device (ESP) it does whenever its frames are arriving: the PCM meter is
+     * read from the raw samples at arrival (the Android app's metric), so its
+     * height doesn't depend on which transport happens to be playing. WebRTC
+     * only takes the badge if the PCM stream stops.
      */
+    pcmOwnsMeter(now) {
+      return this.hasPcm() && this.pcmArriving(now);
+    }
+
+    /** Does the WebRTC loop drive the badge? Exactly the complement. */
     webrtcOwnsMeter(now) {
-      return !this.hasPcm() || this.webrtcDelivering(now);
+      return !this.pcmOwnsMeter(now);
     }
 
     pcmHasSound(now) {

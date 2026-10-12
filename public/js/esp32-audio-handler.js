@@ -1,5 +1,7 @@
-// Plays binary PCM chunks from ESP32-S3 babies and produces a per-device
-// level for the UI meter via an AnalyserNode (shared thresholds, audio-levels.js).
+// Plays binary PCM chunks from ESP32-S3 babies and drives the per-device card
+// meter. The meter reads the peak of each raw chunk as it ARRIVES (the Android
+// app's metric, mapped onto the shared thresholds in audio-levels.js); the
+// AnalyserNode on the playout output only feeds audio health.
 class ESP32AudioHandler {
   constructor(esp32AudioContexts) {
     this.contexts = esp32AudioContexts;
@@ -14,6 +16,26 @@ class ESP32AudioHandler {
     });
   }
 
+  // The meter input is already a per-chunk peak, so it can attack harder than
+  // the analyser-fed default without flicker (hysteresis/hold still apply):
+  // a loud chunk shows on the very next tick.
+  _createMeter() {
+    return new LevelMeter({ attack: 0.9 });
+  }
+
+  // Peak (0..1) for this meter tick: the loudest chunk since the last tick. A
+  // tick that saw no chunk (64 ms chunks vs 100 ms ticks) repeats the previous
+  // reading instead of dipping to zero, unless the stream has gone quiet.
+  _tickPeak(ctx, now) {
+    if (ctx.peakSinceTick != null) {
+      ctx.lastTickPeak = ctx.peakSinceTick;
+      ctx.peakSinceTick = null;
+      return ctx.lastTickPeak;
+    }
+    if (ctx.lastChunkAt && now - ctx.lastChunkAt < 250) return ctx.lastTickPeak || 0;
+    return 0;
+  }
+
   _startLevelMonitor(fromId) {
     // setInterval (not rAF) so the meter keeps running in background/hidden
     // tabs. 100 ms ≈ 10 fps — responsive without burning CPU.
@@ -24,10 +46,10 @@ class ESP32AudioHandler {
         return;
       }
 
-      // Always read the PCM level and feed the shared health tracker, even
-      // when WebRTC is driving — so a wedged (live-but-silent) WebRTC tunnel is
-      // detected (WebRTC energy stops, PCM energy continues) and this path can
-      // take back over the meter/speaker.
+      // Always read the playout level and feed the shared health tracker, even
+      // when WebRTC is playing — so a wedged (live-but-silent) WebRTC tunnel is
+      // detected (WebRTC energy stops, PCM energy continues) and the PCM copy
+      // is unmuted.
       ctx.analyser.getByteFrequencyData(ctx.levelData);
       let peak = 0;
       for (let i = 0; i < ctx.levelData.length; i++) {
@@ -38,21 +60,22 @@ class ESP32AudioHandler {
         getAudioHealth(fromId).markPcmLevel(now, peak);
       }
 
-      // WebRTC owns the meter only while it's actually DELIVERING audio; a
-      // wedged silent tunnel yields it back to this PCM path.
+      // For a device that streams PCM, this path owns the meter while its
+      // frames arrive (WebRTC only takes over if PCM stops) — see
+      // AudioHealth.pcmOwnsMeter.
       if (typeof getAudioHealth === 'function' &&
-          getAudioHealth(fromId).webrtcDelivering(now)) return;
+          !getAudioHealth(fromId).pcmOwnsMeter(now)) return;
 
       // Sensitivity scales DETECTION, never the audio: a higher setting lets a
       // quieter sound reach YELLOW/RED. Below 1.0x the thresholds scale down
       // too so RED stays reachable. (Amplifying the samples instead would make
       // sensitivity double as a volume control and clip — the old bug.)
       const sensitivity = ctx.sensitivity || 1.0;
-      const adjusted = peak * sensitivity;
+      const adjusted = AudioLevels.fromPcmPeak(this._tickPeak(ctx, now)) * sensitivity;
       const { yellow, red } = AudioLevels.thresholdsFor(sensitivity);
 
       // Shared LevelMeter: fast attack (no lag) + hysteresis/hold (no flicker).
-      const { level, volume } = ctx.meter.push(adjusted, yellow, red, Date.now());
+      const { level, volume } = ctx.meter.push(adjusted, yellow, red, now);
 
       if (this.multiBabyUI && this.multiBabyUI.babyCards.has(fromId)) {
         this.multiBabyUI.updateAudioLevel(fromId, level, volume);
@@ -108,7 +131,7 @@ class ESP32AudioHandler {
 
         const ctxRecord = {
           audioContext, gainNode, analyser,
-          meter: new LevelMeter(),
+          meter: this._createMeter(),
           levelData: new Uint8Array(analyser.frequencyBinCount),
           sampleRate: sampleRate || 16000,
           channels: channels || 1,
@@ -164,7 +187,6 @@ class ESP32AudioHandler {
       }
 
       const ctx = this.contexts.get(fromId);
-      if (ctx.audioContext.state === 'suspended') return;
 
       // Convert to Int16Array
       let pcmData;
@@ -177,6 +199,14 @@ class ESP32AudioHandler {
       } else {
         return;
       }
+
+      // Meter input: this chunk's peak, taken now — before the playout jitter
+      // buffer, so the meter never lags behind what the buffer is holding.
+      const chunkPeak = AudioLevels.pcmPeak(pcmData);
+      ctx.peakSinceTick = Math.max(ctx.peakSinceTick || 0, chunkPeak);
+      ctx.lastChunkAt = Date.now();
+
+      if (ctx.audioContext.state === 'suspended') return;
 
       // Convert Int16 PCM to Float32 and play as-is. Loudness is the gain
       // node (volume slider); sensitivity is detection-only and must NOT
@@ -226,4 +256,8 @@ class ESP32AudioHandler {
       console.error('Error playing ESP32 audio:', error);
     }
   }
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = ESP32AudioHandler;
 }
