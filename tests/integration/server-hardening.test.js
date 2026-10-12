@@ -168,3 +168,27 @@ describe('server-hint does not leak the LAN address publicly (S6)', () => {
     expect(res.body.port).toBeGreaterThan(0);
   });
 });
+
+describe('device list fields (B6)', () => {
+  it('includes mac and audio packet counters', async () => {
+    const s = await startServer();
+    const esp = createESP32Client(s.port);
+    try {
+      const { roomId, ownerToken } = await createRoom(s.app);
+      await esp.register(roomId, 'Nursery', 'AA:BB:CC:DD:EE:B6');
+      esp.sendAudio();
+      esp.sendAudio();
+      await new Promise(r => setTimeout(r, 150));
+      const res = await request(s.app)
+        .get(`/api/rooms/${roomId}/esp32/devices`)
+        .set('Authorization', `Bearer ${ownerToken}`);
+      const d = res.body.devices[0];
+      expect(d.mac).toBe('aabbccddeeb6');
+      expect(d.audioPacketsReceived).toBe(2);
+      expect(typeof d.lastAudioAt).toBe('string');
+    } finally {
+      await esp.close();
+      await s.close();
+    }
+  });
+});

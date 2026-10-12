@@ -475,13 +475,16 @@ class ESP32AudioProxy {
       if (client.roomId === roomId) {
         devices.push({
           id,
+          mac: client.mac,
           name: client.name,
           clientIp: client.clientIp,
           connectedAt: client.connectedAt,
           uptime: Date.now() - client.connectedAtMs,
           sampleRate: client.sampleRate,
           channels: client.channels,
-          deviceType: client.deviceType
+          deviceType: client.deviceType,
+          audioPacketsReceived: client.audioPacketsReceived || 0,
+          lastAudioAt: client.lastAudioPacket || null,
         });
       }
     });
