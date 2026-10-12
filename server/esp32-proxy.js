@@ -232,7 +232,13 @@ class ESP32AudioProxy {
         logger.warn(`signal from ${info.id} missing 'to', dropping`);
         return {};
       }
-      this.io.to(payload.to).emit('signal', {
+      // Only relay to a browser in the device's own room.
+      const target = typeof payload.to === 'string' ? this.io.sockets.sockets.get(payload.to) : null;
+      if (!target || target.roomId !== info.roomId) {
+        logger.warn(`signal from ${info.id} to a socket outside its room, dropping`);
+        return {};
+      }
+      target.emit('signal', {
         ...payload,
         from: 'baby',
         fromSocketId: info.id,
@@ -503,9 +509,10 @@ class ESP32AudioProxy {
    * Forward a WebRTC signaling message from a browser to an ESP32 peer.
    * The server is a pure relay — it does not inspect SDP/ICE content.
    */
-  relaySignalToESP(esp32Id, signalData, fromSocketId, fromUserName) {
+  relaySignalToESP(esp32Id, signalData, fromSocketId, fromUserName, fromRoomId) {
     const client = this.esp32Clients.get(esp32Id);
     if (!client || !client.ws) return false;
+    if (client.roomId !== fromRoomId) return false; // only within the same room
     try {
       const frame = {
         type: 'signal',

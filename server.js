@@ -736,6 +736,21 @@ io.on('connection', (socket) => {
         clearPinLockout(roomId, ip);
       }
 
+      // Capacity check BEFORE joining: a rejected socket must not stay in
+      // the Socket.IO room, where it would still receive every broadcast
+      // (participant lists, esp32-audio) and could signal into it.
+      const existing = rooms.get(roomId);
+      const roleCount = existing
+        ? existing.participants.filter(p => p.role === role && p.socketId !== socket.id).length
+        : 0;
+      const maxCapacity = role === 'baby' ? config.room.maxBabiesPerRoom : config.room.maxParentsPerRoom;
+
+      if (roleCount >= maxCapacity) {
+        logger.warn('Room capacity exceeded', { roomId, role, current: roleCount, max: maxCapacity });
+        socket.emit('error', { message: `Room is full (max ${maxCapacity} ${role}s)`, code: 'ROOM_FULL' });
+        return;
+      }
+
       socket.join(roomId);
       socket.roomId = roomId;
       socket.role = role;
@@ -747,15 +762,6 @@ io.on('connection', (socket) => {
       }
 
       const room = rooms.get(roomId);
-
-      const roleCount = room.participants.filter(p => p.role === role).length;
-      const maxCapacity = role === 'baby' ? config.room.maxBabiesPerRoom : config.room.maxParentsPerRoom;
-
-      if (roleCount >= maxCapacity) {
-        logger.warn('Room capacity exceeded', { roomId, role, current: roleCount, max: maxCapacity });
-        socket.emit('error', { message: `Room is full (max ${maxCapacity} ${role}s)` });
-        return;
-      }
 
       room.participants = room.participants.filter(p => p.socketId !== socket.id);
       room.participants.push({
@@ -835,11 +841,18 @@ io.on('connection', (socket) => {
       });
 
       if (data.to) {
+        // Unicast is only allowed to a participant of the sender's own room;
+        // otherwise any socket could push offers/ICE to anyone it can name.
         if (typeof data.to === 'string' && data.to.startsWith('esp32_')) {
-          const ok = esp32Proxy.relaySignalToESP(data.to, data, socket.id, socket.userName);
-          if (!ok) logger.warn(`Signal to ESP32 ${data.to} dropped — not connected`);
+          const ok = esp32Proxy.relaySignalToESP(data.to, data, socket.id, socket.userName, socket.roomId);
+          if (!ok) logger.warn(`Signal to ESP32 ${data.to} dropped — not connected in this room`);
         } else {
-          io.to(data.to).emit('signal', {
+          const target = typeof data.to === 'string' ? io.sockets.sockets.get(data.to) : null;
+          if (!target || target.roomId !== socket.roomId) {
+            logger.warn('Signal to a socket outside the sender\'s room dropped', { socketId: socket.id });
+            return;
+          }
+          target.emit('signal', {
             ...data,
             from: socket.role,
             fromSocketId: socket.id,
