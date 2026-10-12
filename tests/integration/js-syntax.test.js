@@ -25,6 +25,7 @@ const JS_FILES = [
   '/js/sw-register.js',
   '/js/home.js',
   '/js/select-role.js',
+  '/js/audio-levels.js',
   '/js/level-meter.js',
   '/js/audio-health.js',
   '/js/pcm-playout-processor.js',

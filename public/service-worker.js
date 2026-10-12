@@ -21,6 +21,7 @@ const urlsToCache = [
   '/locales/es.json',
   '/locales/tr.json',
   '/js/select-role.js',
+  '/js/audio-levels.js',
   '/js/level-meter.js',
   '/js/audio-health.js',
   '/js/pcm-playout-processor.js',

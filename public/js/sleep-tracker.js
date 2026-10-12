@@ -48,12 +48,11 @@ class SleepTracker {
   }
 
   _recomputeThresholds() {
-    // volume is the 0..255 peak from AnalyserNode.getByteFrequencyData.
-    const baseYellow = 60;
-    const baseRed    = 130;
+    // volume is the 0..255 peak from AnalyserNode.getByteFrequencyData;
+    // base values are the shared meter thresholds (audio-levels.js).
     this.thresholds = {
-      yellow: Math.max(1, baseYellow / this.sensitivity),
-      red:    Math.max(1, baseRed    / this.sensitivity),
+      yellow: Math.max(1, AudioLevels.YELLOW / this.sensitivity),
+      red:    Math.max(1, AudioLevels.RED    / this.sensitivity),
     };
   }
 

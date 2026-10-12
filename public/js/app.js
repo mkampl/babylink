@@ -391,6 +391,9 @@
     var source = audioCtx.createMediaStreamSource(stream);
     var analyser = audioCtx.createAnalyser();
     analyser.fftSize = 256;
+    // Same dB window + thresholds as the parent's meter (audio-levels.js), so
+    // the baby flags crying at the loudness the parent's card shows as RED.
+    AudioLevels.configureAnalyser(analyser);
     source.connect(analyser);
 
     var bufferLength = analyser.frequencyBinCount;
@@ -400,14 +403,6 @@
     var isCrying = false;
     var lastCryingEmit = 0;
     var CRYING_COOLDOWN = 10000;
-    var RED_THRESHOLD = 180;
-    var YELLOW_THRESHOLD = 100;
-
-    function getLevel(volume) {
-      if (volume > RED_THRESHOLD) return 'RED';
-      if (volume > YELLOW_THRESHOLD) return 'YELLOW';
-      return 'GREEN';
-    }
 
     function check() {
       // Use frequency data (same as multi-stream-manager on parent side)
@@ -418,8 +413,7 @@
       for (var i = 0; i < bufferLength; i++) {
         if (dataArray[i] > peak) peak = dataArray[i];
       }
-      var volume = peak;
-      var level = getLevel(volume);
+      var level = AudioLevels.classify(peak, 1);
 
       // --- Crying detection ---
       if (level === 'RED') {

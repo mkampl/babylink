@@ -135,11 +135,9 @@ class MultiStreamManager {
     // slow release) lives in LevelMeter so the meter reacts immediately to
     // sound but doesn't flicker. High smoothing here was the ~1s meter lag.
     analyser.smoothingTimeConstant = 0.2;
-    // Match the PCM path's dB window (esp32-audio-handler) so the SAME baby
-    // loudness maps to the SAME meter reading regardless of which transport is
-    // live — the badge means one thing, not two. Thresholds below match too.
-    analyser.minDecibels = -40;
-    analyser.maxDecibels = -5;
+    // Shared dB window + thresholds (audio-levels.js) so the SAME baby
+    // loudness maps to the SAME meter reading whichever transport is live.
+    AudioLevels.configureAnalyser(analyser);
     source.connect(analyser);
 
     const dataArray = new Uint8Array(analyser.frequencyBinCount);
@@ -211,16 +209,9 @@ class MultiStreamManager {
       const sensitivity = this.sensitivity.get(participantId) || 1.0;
       const adjustedVolume = peak * sensitivity;
 
-      // Unified thresholds — SAME as the PCM path (esp32-audio-handler 60/130)
-      // so YELLOW/RED trigger at the same loudness whichever transport is live.
-      // Scale at low sensitivity so RED stays reachable.
-      let yellowThreshold = 60;
-      let redThreshold = 130;
-
-      if (sensitivity < 0.71) {
-        yellowThreshold = 60 * sensitivity;
-        redThreshold = 130 * sensitivity;
-      }
+      // Shared thresholds (audio-levels.js), scaled at low sensitivity so
+      // RED stays reachable.
+      const { yellow: yellowThreshold, red: redThreshold } = AudioLevels.thresholdsFor(sensitivity);
 
       // LevelMeter applies fast-attack/slow-release smoothing + hysteresis +
       // a minimum hold, so the badge tracks sound instantly without flicker.

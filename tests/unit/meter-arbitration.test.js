@@ -11,6 +11,7 @@
 const MultiStreamManager = require('../../public/js/multi-stream-manager');
 const AudioHealth = require('../../public/js/audio-health');
 const LevelMeter = require('../../public/js/level-meter');
+globalThis.AudioLevels = require('../../public/js/audio-levels');
 
 let registry;
 

@@ -1,5 +1,5 @@
 // Plays binary PCM chunks from ESP32-S3 babies and produces a per-device
-// level for the UI meter via an AnalyserNode (dBFS, 60/130 thresholds).
+// level for the UI meter via an AnalyserNode (shared thresholds, audio-levels.js).
 class ESP32AudioHandler {
   constructor(esp32AudioContexts) {
     this.contexts = esp32AudioContexts;
@@ -49,8 +49,7 @@ class ESP32AudioHandler {
       // sensitivity double as a volume control and clip — the old bug.)
       const sensitivity = ctx.sensitivity || 1.0;
       const adjusted = peak * sensitivity;
-      let yellow = 60, red = 130;
-      if (sensitivity < 0.71) { yellow = 60 * sensitivity; red = 130 * sensitivity; }
+      const { yellow, red } = AudioLevels.thresholdsFor(sensitivity);
 
       // Shared LevelMeter: fast attack (no lag) + hysteresis/hold (no flicker).
       const { level, volume } = ctx.meter.push(adjusted, yellow, red, Date.now());
@@ -105,8 +104,7 @@ class ESP32AudioHandler {
         // Low analyser smoothing — LevelMeter does the envelope smoothing so
         // the meter reacts on the first loud frame (was 0.6 → ~1s lag).
         analyser.smoothingTimeConstant = 0.2;
-        analyser.minDecibels = -40;
-        analyser.maxDecibels = -5;
+        AudioLevels.configureAnalyser(analyser);
 
         const ctxRecord = {
           audioContext, gainNode, analyser,
