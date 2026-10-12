@@ -1713,10 +1713,33 @@ static void enterChargeMode() {
 // charge mode is then simply a matter of never starting them.
 // Runs before Serial is up, so it reports the flag it saw through [out] rather
 // than printing it; setup() logs it once the port is ready.
+// Only a reset a person can cause counts toward the gesture. A crash, watchdog
+// or brownout loop also restarts within the arm window, and must not park the
+// monitor in charge mode — it would go silent instead of recovering. This is a
+// deny-list on purpose: on the S3 the RESET button pulls CHIP_PU/EN, which
+// reports as a power-on reset (ESP_RST_POWERON), not ESP_RST_EXT, so an
+// allow-list of "external reset" would break the hand gesture.
+static bool resetCountsForGesture(esp_reset_reason_t r) {
+  switch (r) {
+    case ESP_RST_SW:          // ESP.restart(): apply, watchdog reboot, factory reset
+    case ESP_RST_PANIC:
+    case ESP_RST_INT_WDT:
+    case ESP_RST_TASK_WDT:
+    case ESP_RST_WDT:
+    case ESP_RST_BROWNOUT:
+    case ESP_RST_DEEPSLEEP:
+    case ESP_RST_PWR_GLITCH:
+      return false;
+    default:
+      return true;
+  }
+}
+
 static bool chargeModeRequested(uint8_t* seen) {
   const uint8_t armed = chargeArmRead();
   if (seen) *seen = armed;
-  if (armed == 1) return true;   // previous boot was cut short by a reset
+  // Previous boot was cut short by a reset — but only a hand-made one counts.
+  if (armed == 1 && resetCountsForGesture(esp_reset_reason())) return true;
   chargeArmWrite(1);
   chargeArmActive = true;
   return false;
@@ -1758,7 +1781,8 @@ void setup() {
   delay(200);
   Serial.println("\n=== BabyLink XIAO ESP32-S3 ===");
   Serial.printf("[id] MAC=%s\n", macHex().c_str());
-  Serial.printf("[charge] arm flag at boot = %u\n", armAtBoot);
+  Serial.printf("[charge] arm flag at boot = %u, reset reason = %d\n",
+                armAtBoot, (int)esp_reset_reason());
 
   if (charge) {
     cameraSleep();       // the LDO heats up otherwise, even while charging
