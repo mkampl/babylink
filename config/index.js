@@ -10,6 +10,13 @@ const config = {
     isProduction: process.env.NODE_ENV === 'production',
   },
 
+  // Socket.IO heartbeat. The defaults (25 s + 20 s) surface a vanished baby
+  // only after ~45 s; 10 s + 5 s brings that to ~15 s.
+  socket: {
+    pingInterval: parseInt(process.env.SOCKET_PING_INTERVAL, 10) || 10000,
+    pingTimeout: parseInt(process.env.SOCKET_PING_TIMEOUT, 10) || 5000,
+  },
+
   // WebRTC Configuration
   webrtc: {
     iceServers: [

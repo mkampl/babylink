@@ -147,6 +147,8 @@ function createServer() {
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
+  pingInterval: config.socket.pingInterval,
+  pingTimeout: config.socket.pingTimeout,
   cors: {
     origin: config.security.corsOrigin,
     credentials: config.security.corsCredentials
