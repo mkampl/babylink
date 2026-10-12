@@ -1286,14 +1286,73 @@ static String resolveMdnsCandidate(const String& cand) {
   int start = (sp < 0) ? 0 : sp + 1;
   String host = cand.substring(start, dot); // the <uuid>, without ".local"
   if (host.length() == 0) return cand;
-  IPAddress ip = MDNS.queryHost((char*)host.c_str(), 1000);
-  if ((uint32_t)ip == 0) {
-    Serial.printf("[mDNS] no A-record for %s.local — leaving candidate as-is\n", host.c_str());
-    return cand;
+  // Chrome reuses one <uuid> for every host candidate of a connection (UDP,
+  // TCP, per interface), so a tiny cache saves repeated 1 s lookups.
+  static String cacheHost[4];
+  static IPAddress cacheIp[4];
+  static int cacheNext = 0;
+  IPAddress ip;
+  bool cached = false;
+  for (int i = 0; i < 4; i++) {
+    if (cacheHost[i] == host) { ip = cacheIp[i]; cached = true; break; }
+  }
+  if (!cached) {
+    ip = MDNS.queryHost((char*)host.c_str(), 1000);
+    if ((uint32_t)ip == 0) {
+      Serial.printf("[mDNS] no A-record for %s.local — leaving candidate as-is\n", host.c_str());
+      return cand;
+    }
+    cacheHost[cacheNext] = host;
+    cacheIp[cacheNext] = ip;
+    cacheNext = (cacheNext + 1) % 4;
   }
   String out = cand.substring(0, start) + ip.toString() + cand.substring(dot + 6); // 6 = len(".local")
   Serial.printf("[mDNS] %s.local -> %s (direct-LAN candidate)\n", host.c_str(), ip.toString().c_str());
   return out;
+}
+
+static void sendCandidateToPeer(const String& cand) {
+  if (!webrtcPeer) return;
+  esp_peer_msg_t pmsg = {};
+  pmsg.type = ESP_PEER_MSG_TYPE_CANDIDATE;
+  pmsg.data = (uint8_t*)cand.c_str();
+  pmsg.size = cand.length();
+  esp_peer_send_msg(webrtcPeer, &pmsg);
+  Serial.printf("[peer] <- ICE: %s\n", cand.c_str());
+}
+
+// mDNS lookups block for up to a second each. They used to run inline on the
+// websocket event task, stalling every other inbound frame (and the server's
+// keepalive) for each `.local` candidate. A small worker task now resolves
+// them; numeric candidates still go straight to esp_peer.
+static QueueHandle_t mdnsQueue = nullptr;
+
+static void mdnsResolveTask(void* /*arg*/) {
+  for (;;) {
+    char* item = nullptr;
+    if (xQueueReceive(mdnsQueue, &item, portMAX_DELAY) != pdTRUE || !item) continue;
+    String cand = resolveMdnsCandidate(String(item));
+    free(item);
+    sendCandidateToPeer(cand);
+  }
+}
+
+static void handleIceCandidate(const String& cand) {
+  if (cand.indexOf(".local") < 0) { sendCandidateToPeer(cand); return; }
+  if (!mdnsQueue) {
+    mdnsQueue = xQueueCreate(8, sizeof(char*));
+    if (mdnsQueue &&
+        xTaskCreatePinnedToCore(mdnsResolveTask, "mdns-res", 6 * 1024, nullptr, 3,
+                                nullptr, 1) != pdPASS) {
+      vQueueDelete(mdnsQueue);
+      mdnsQueue = nullptr;
+    }
+  }
+  char* dup = mdnsQueue ? strdup(cand.c_str()) : nullptr;
+  if (!dup || xQueueSend(mdnsQueue, &dup, 0) != pdTRUE) {
+    free(dup);
+    sendCandidateToPeer(cand);   // can't resolve right now — pass it through as-is
+  }
 }
 
 // Start the WebRTC offer to the current parent, tracking attempts so the
@@ -1376,13 +1435,8 @@ static void handleWsTextFrame(const char* data, size_t len) {
       if (cand.length() == 0) return;   // end-of-candidates marker
       // Resolve a browser's mDNS-obscured `<uuid>.local` host candidate to a LAN
       // IP so esp_peer can pair on the direct-LAN path (not just STUN/hairpin).
-      cand = resolveMdnsCandidate(cand);
-      esp_peer_msg_t pmsg = {};
-      pmsg.type = ESP_PEER_MSG_TYPE_CANDIDATE;
-      pmsg.data = (uint8_t*)cand.c_str();
-      pmsg.size = cand.length();
-      esp_peer_send_msg(webrtcPeer, &pmsg);
-      Serial.printf("[peer] <- ICE: %s\n", cand.c_str());
+      // Done off this task (see handleIceCandidate).
+      handleIceCandidate(cand);
     }
   }
 }
