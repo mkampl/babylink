@@ -66,7 +66,6 @@ class MultiStreamManager {
       if (stream) {
         this.audioStreams.set(participantId, stream);
         this.createAudioElement(participantId, stream, participantInfo);
-        this.offerRetries.delete(participantId);   // success — clear breaker
         if (this.onStreamAdded) {
           this.onStreamAdded(participantId, stream, participantInfo);
         }
@@ -76,6 +75,10 @@ class MultiStreamManager {
     // Handle connection state changes
     peer.onconnectionstatechange = () => {
       const state = peer.connectionState;
+      // Only a completed ICE + DTLS handshake re-arms the retry breaker. ontrack
+      // fires as soon as the offer is applied, so clearing it there let a
+      // handshake that always fails retry forever (a requestOffer storm).
+      if (state === 'connected') this.offerRetries.delete(participantId);
       if (state === 'failed') {
         // Tear down the silently-dead peer and re-request a fresh offer.
         this._retryOffer(participantId);

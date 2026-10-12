@@ -49,13 +49,50 @@ describe('_retryOffer breaker', () => {
     expect(mgr._emitted).toEqual([{ ev: 'signal', payload: { requestOffer: true, to: 'p' } }]);
   });
 
-  it('a successful stream resets the breaker (via offerRetries.delete)', () => {
+  it('a successful connection resets the breaker (via offerRetries.delete)', () => {
     const mgr = makeManager();
     mgr.peerConnections.set('p', fakePeer());
     mgr._retryOffer('p');
-    mgr.offerRetries.delete('p'); // what ontrack does on success
+    mgr.offerRetries.delete('p'); // what reaching 'connected' does
     mgr.peerConnections.set('p', fakePeer());
     expect(mgr._retryOffer('p')).toBe(true);
     expect(mgr.offerRetries.get('p')).toBe(1); // counter restarted
+  });
+});
+
+// Chrome fires ontrack as soon as the remote offer is applied — long before
+// ICE/DTLS succeed. Resetting the breaker there meant a tunnel that always
+// failed its handshake re-armed the breaker on every attempt: an endless
+// requestOffer storm against the ESP (every ~3.5 s after a parent reload),
+// each new request aborting the device's handshake in progress.
+describe('breaker reset happens on a real connection, not on ontrack', () => {
+  class FakePC {
+    constructor() { this.connectionState = 'new'; FakePC.last = this; }
+    close() { this.connectionState = 'closed'; }
+  }
+  beforeEach(() => { globalThis.RTCPeerConnection = FakePC; });
+  afterEach(() => { delete globalThis.RTCPeerConnection; });
+
+  function attempt(mgr, finalState) {
+    const pc = mgr.createPeerConnection('esp', { socketId: 'esp', role: 'baby' });
+    mgr.createAudioElement = () => {};
+    pc.ontrack({ streams: [{ id: 's' }] });           // offer applied
+    pc.connectionState = finalState;
+    pc.onconnectionstatechange();
+  }
+
+  it('handshakes that keep failing trip the breaker after 3 retries', () => {
+    const mgr = makeManager();
+    for (let i = 0; i < 10; i++) attempt(mgr, 'failed');
+    const requests = mgr._emitted.filter((e) => e.payload && e.payload.requestOffer);
+    expect(requests.length).toBe(3);
+  });
+
+  it('reaching connected re-arms the breaker for a later failure', () => {
+    const mgr = makeManager();
+    attempt(mgr, 'failed');
+    attempt(mgr, 'failed');
+    attempt(mgr, 'connected');
+    expect(mgr.offerRetries.has('esp')).toBe(false);
   });
 });
