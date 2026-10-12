@@ -92,7 +92,10 @@ static const unsigned long BATTERY_REPORT_MS = 30000;
 #define WRTC_RECOVERY_SELFTEST 0
 
 struct WifiProfile   { String ssid;  String password; };
-struct ServerProfile { String label; String host; uint16_t port; String roomId; };
+// `tls` selects wss:// (+ CA bundle) vs ws://. Profiles saved by older
+// firmware/wizards have no "tls" field; for those it is derived from the old
+// convention (port 443 => TLS), so existing devices keep connecting the same way.
+struct ServerProfile { String label; String host; uint16_t port; String roomId; bool tls; };
 
 std::vector<WifiProfile>   wifiProfiles;
 std::vector<ServerProfile> serverProfiles;
@@ -185,7 +188,15 @@ static bool provisioningAllowed() {
          (long)(provisioningWindowUntil - millis()) > 0;
 }
 
-String serializeConfig() {
+// Serialize the config. `withSecrets` is true ONLY for the NVS copy. Anything
+// that leaves the device (BLE CONFIG characteristic, captive-portal GET
+// /config) uses withSecrets=false: WiFi passwords are never sent — each entry
+// carries "password":"" plus "hasPassword" — and, while the provisioning gate
+// is closed, the room ID (= access to the baby's audio) is blanked too, with
+// "hasRoomId". deserializeConfig() restores blanked fields from the stored
+// profile on write, so a wizard that round-trips a masked config loses nothing.
+String serializeConfig(bool withSecrets) {
+  const bool showRoom = withSecrets || provisioningAllowed();
   DynamicJsonDocument doc(4096);
   doc["version"] = 3;
   doc["deviceName"] = configDeviceName;
@@ -194,7 +205,8 @@ String serializeConfig() {
   for (auto& w : wifiProfiles) {
     JsonObject o = wifi.createNestedObject();
     o["ssid"] = w.ssid;
-    o["password"] = w.password;
+    o["password"] = withSecrets ? w.password : String("");
+    if (!withSecrets) o["hasPassword"] = w.password.length() > 0;
   }
   JsonArray servers = doc.createNestedArray("servers");
   for (auto& s : serverProfiles) {
@@ -202,7 +214,9 @@ String serializeConfig() {
     o["label"]  = s.label;
     o["host"]   = s.host;
     o["port"]   = s.port;
-    o["roomId"] = s.roomId;
+    o["roomId"] = showRoom ? s.roomId : String("");
+    if (!withSecrets) o["hasRoomId"] = s.roomId.length() > 0;
+    o["tls"]    = s.tls;
   }
   String out;
   serializeJson(doc, out);
@@ -216,22 +230,41 @@ bool deserializeConfig(const String& blob) {
     Serial.printf("[cfg] parse error: %s\n", err.c_str());
     return false;
   }
+  // Keep the previous profiles so masked fields (empty password / room ID,
+  // see serializeConfig) can be restored from what is already stored.
+  const std::vector<WifiProfile>   prevWifi    = wifiProfiles;
+  const std::vector<ServerProfile> prevServers = serverProfiles;
   wifiProfiles.clear();
   serverProfiles.clear();
   for (JsonObject p : doc["wifi"].as<JsonArray>()) {
     if (wifiProfiles.size() >= (size_t)MAX_WIFI_PROFILES) break;
     WifiProfile w;
-    w.ssid = p["ssid"].as<String>();
-    w.password = p["password"].as<String>();
+    w.ssid = p["ssid"] | "";
+    w.password = p["password"] | "";
+    if (w.password.length() == 0) {
+      // Masked round-trip: an empty password for a known SSID keeps the
+      // stored one. (Turning a saved network into an open one therefore
+      // needs the entry removed and re-added.)
+      for (auto& old : prevWifi) {
+        if (old.ssid == w.ssid) { w.password = old.password; break; }
+      }
+    }
     if (w.ssid.length() > 0) wifiProfiles.push_back(w);
   }
   for (JsonObject p : doc["servers"].as<JsonArray>()) {
     if (serverProfiles.size() >= (size_t)MAX_SERVER_PROFILES) break;
     ServerProfile s;
-    s.label  = p["label"].as<String>();
-    s.host   = p["host"].as<String>();
+    s.label  = p["label"] | "";
+    s.host   = p["host"] | "";
     s.port   = p["port"].as<uint16_t>();
-    s.roomId = p["roomId"].as<String>();
+    s.roomId = p["roomId"] | "";
+    s.tls    = p["tls"].is<bool>() ? p["tls"].as<bool>() : (s.port == 443);
+    if (s.roomId.length() == 0) {
+      // Masked round-trip (room ID blanked while the gate was closed).
+      for (auto& old : prevServers) {
+        if (old.host == s.host && old.port == s.port) { s.roomId = old.roomId; break; }
+      }
+    }
     if (s.host.length() > 0 && s.roomId.length() > 0) serverProfiles.push_back(s);
   }
   activeServer = doc["activeServer"] | 0;
@@ -242,7 +275,7 @@ bool deserializeConfig(const String& blob) {
 }
 
 void saveConfig() {
-  String blob = serializeConfig();
+  String blob = serializeConfig(true);
   preferences.begin("babylink", false);
   preferences.putString("cfg_v3", blob);
   preferences.end();
@@ -275,6 +308,7 @@ static void seedFromDevDefaults() {
     s.host   = DEV_DEFAULT_SERVER_HOST;
     s.port   = DEV_DEFAULT_SERVER_PORT;
     s.roomId = DEV_DEFAULT_ROOM_ID;
+    s.tls    = (s.port == 443);
     serverProfiles.push_back(s);
   }
 }
@@ -522,7 +556,7 @@ bool isBLEActive = false;
 
 void publishConfigToBle() {
   if (!bleConfigChar) return;
-  String json = serializeConfig();
+  String json = serializeConfig(false);
   bleConfigChar->setValue((const uint8_t*)json.c_str(), json.length());
 }
 
@@ -561,6 +595,7 @@ void openProvisioningWindow() {
   Serial.printf("[BLE] provisioning window OPEN for %lus\n",
                 (unsigned long)(PROVISION_WINDOW_MS / 1000));
   for (int i = 0; i < 3; i++) { setLED(true); delay(60); setLED(false); delay(60); }
+  publishConfigToBle();   // the room ID is readable again while the window is open
   if (bleInfoChar) {
     publishInfoToBle();
     bleInfoChar->notify();
@@ -931,7 +966,7 @@ document.addEventListener('click',e=>{if(e.target.closest('.btn'))setTimeout(sav
 )rawliteral";
 
 static void handleRoot()      { webServer.send_P(200, "text/html", CONFIG_HTML); }
-static void handleGetConfig() { webServer.send(200, "application/json", serializeConfig()); }
+static void handleGetConfig() { webServer.send(200, "application/json", serializeConfig(false)); }
 
 // Captive-portal scan plumbing.
 //
@@ -1324,7 +1359,7 @@ void connectWebSocket() {
   const ServerProfile& s = serverProfiles[activeServer];
   char uri[160];
   snprintf(uri, sizeof(uri), "%s://%s:%u%s",
-           s.port == 443 ? "wss" : "ws",
+           s.tls ? "wss" : "ws",
            s.host.c_str(), s.port, WS_PATH);
   Serial.printf("[WS] Connecting to %s\n", uri);
 
@@ -1337,7 +1372,7 @@ void connectWebSocket() {
   cfg.buffer_size = 4096;
   cfg.ping_interval_sec   = 15;
   cfg.pingpong_timeout_sec = 6;
-  if (s.port == 443) {
+  if (s.tls) {
     cfg.crt_bundle_attach = esp_crt_bundle_attach;
   }
 
@@ -1676,9 +1711,28 @@ void setup() {
   }
 }
 
+// Keep the BLE INFO characteristic's provOpen flag fresh (e.g. after the
+// provisioning window expires) for any connected wizard, and re-publish the
+// CONFIG value so the room ID is masked again once the window closes.
+static void provGateTick() {
+  static bool lastProvOpen = false;
+  static unsigned long lastCheck = 0;
+  unsigned long now = millis();
+  if (now - lastCheck < 500) return;
+  lastCheck = now;
+  bool provOpen = provisioningAllowed();
+  if (isBLEActive && provOpen != lastProvOpen) {
+    lastProvOpen = provOpen;
+    publishConfigToBle();
+    publishInfoToBle();
+    if (bleInfoChar) bleInfoChar->notify();
+  }
+}
+
 void loop() {
   chargeArmTick();
   checkResetButton();
+  provGateTick();
   if (isConfigMode) {
     portalLoopTick();
     updateLED();
@@ -1752,15 +1806,6 @@ void loop() {
                   (unsigned)ESP.getFreeHeap(),
                   (vb < 0.0f) ? -1 : socFromVoltage(vb),
                   (int)lroundf(vb * 1000.0f));
-    // Keep the BLE INFO characteristic's provOpen flag fresh (e.g. after the
-    // provisioning window expires) for any connected wizard.
-    static bool lastProvOpen = false;
-    bool provOpen = provisioningAllowed();
-    if (isBLEActive && provOpen != lastProvOpen) {
-      lastProvOpen = provOpen;
-      publishInfoToBle();
-      if (bleInfoChar) bleInfoChar->notify();
-    }
   }
 }
 
