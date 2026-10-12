@@ -1681,6 +1681,17 @@ static int onPeerMsg(esp_peer_msg_t* msg, void* /*ctx*/) {
   return 0;
 }
 
+// esp_peer 1.4.1 leak fix (see main/CMakeLists.txt): peer_close() calls
+// dtls_srtp_deinit() and drops the pointer without freeing the context that
+// dtls_srtp_init() calloc'd. Each reconnect reopens esp_peer, so without this
+// the internal heap shrank ~1.9 KB per parent reload until TLS ran out.
+extern "C" void __real_dtls_srtp_deinit(void* dtls);
+extern "C" void __wrap_dtls_srtp_deinit(void* dtls) {
+  if (!dtls) return;
+  __real_dtls_srtp_deinit(dtls);
+  free(dtls);   // media_lib_calloc → calloc (media_lib_weak.c)
+}
+
 static void webrtcLoopTask(void* /*arg*/) {
   while (webrtcPeerRunning) {
     esp_peer_main_loop(webrtcPeer);

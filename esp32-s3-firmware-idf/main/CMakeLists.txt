@@ -14,6 +14,13 @@ target_link_options(${COMPONENT_LIB} INTERFACE
     "SHELL:-u __wrap_esp_log_writev"
 )
 
+# esp_peer 1.4.1's prebuilt peer_close() deinits its DTLS context but never
+# frees the struct dtls_srtp_init() allocated: ~1.9 KB of internal RAM lost on
+# every close, i.e. on every WebRTC reconnect. main.cpp's wrapper frees it.
+# --wrap only redirects the prebuilt library's (undefined) references, not
+# dtls_srtp.c's own internal call that already frees.
+target_link_options(${COMPONENT_LIB} INTERFACE "-Wl,--wrap=dtls_srtp_deinit")
+
 # ARDUINO_USB_CDC_ON_BOOT / ARDUINO_USB_MODE are set at the project
 # level (see ../CMakeLists.txt) so they reach the Arduino component
 # build too; defining them only here would NOT propagate backwards.
