@@ -669,7 +669,17 @@
     // Both WSS-PCM and WebRTC level updates land here. Lazy-create the
     // tracker on first observation so a baby whose WebRTC handshake
     // never succeeds still gets tracked off the WSS feed.
+    // Crying (RED) → the server's push notification. Fed here, from the hook
+    // both meter paths go through, so ESP babies (PCM meter) alert too — the
+    // report used to live in the WebRTC-only callback.
+    const cryingReporter = new CryingReporter((babyId) => {
+      const babyCard = multiBabyUI.babyCards.get(babyId);
+      const babyName = (babyCard && babyCard.participantInfo && babyCard.participantInfo.userName) || 'Baby';
+      socket.emit('crying-detected', { roomId, babyId, babyName });
+    }, 10000);
+
     multiBabyUI.onLevelObserved = (babyId, level, volume) => {
+      cryingReporter.observe(babyId, level, Date.now());
       let tracker = sleepTrackers.get(babyId);
       if (!tracker) {
         const sens = multiBabyUI.sensitivity.get(babyId) || 1.0;
@@ -708,30 +718,8 @@
       }
     }, 1000);
 
-    // Track crying state per baby to avoid spamming socket events
-    const cryingState = new Map(); // babyId → { isCrying, lastEmit }
-    const CRYING_EMIT_COOLDOWN = 10000; // Emit every 10s while baby is crying
-
     multiStreamManager.onAudioLevelUpdate = (participantId, level, volume) => {
       multiBabyUI.updateAudioLevel(participantId, level, volume);
-
-      // Notify server when crying detected (RED level)
-      if (level === 'RED') {
-        const state = cryingState.get(participantId) || { isCrying: false, lastEmit: 0 };
-        const now = Date.now();
-        if (!state.isCrying || now - state.lastEmit > CRYING_EMIT_COOLDOWN) {
-          state.isCrying = true;
-          state.lastEmit = now;
-          cryingState.set(participantId, state);
-
-          var babyCard = multiBabyUI.babyCards.get(participantId);
-          var babyName = (babyCard && babyCard.participantInfo && babyCard.participantInfo.userName) || 'Baby';
-          socket.emit('crying-detected', { roomId, babyId: participantId, babyName: babyName });
-        }
-      } else {
-        var s = cryingState.get(participantId);
-        if (s) s.isCrying = false;
-      }
     };
 
     document.getElementById('status').textContent = '\uD83D\uDC42 ' + T('mon_listening_babies');

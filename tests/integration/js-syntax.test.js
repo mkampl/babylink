@@ -29,6 +29,7 @@ const JS_FILES = [
   '/js/audio-levels.js',
   '/js/level-meter.js',
   '/js/audio-health.js',
+  '/js/crying-reporter.js',
   '/js/pcm-playout-processor.js',
   '/js/multi-baby-ui.js',
   '/js/multi-stream-manager.js',
