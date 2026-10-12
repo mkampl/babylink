@@ -144,3 +144,27 @@ describe('PIN lockout map is pruned (B7)', () => {
     expect([..._pinLockout.keys()].sort()).toEqual(['r:2.2.2.2', 'r:3.3.3.3']);
   });
 });
+
+describe('server-hint does not leak the LAN address publicly (S6)', () => {
+  let s;
+  beforeAll(async () => { s = await startServer(); });
+  afterAll(async () => { await s.close(); });
+
+  it('a public requester gets the public host it already used', async () => {
+    const res = await request(s.app)
+      .get('/api/config/server-hint')
+      .set('X-Forwarded-For', '203.0.113.7')
+      .set('Host', 'babylink.example.org');
+    expect(res.status).toBe(200);
+    expect(res.body.host).toBe('babylink.example.org');
+  });
+
+  it('a LAN requester still gets a LAN hint', async () => {
+    const res = await request(s.app)
+      .get('/api/config/server-hint')
+      .set('X-Forwarded-For', '192.168.1.20');
+    expect(res.status).toBe(200);
+    expect(typeof res.body.host).toBe('string');
+    expect(res.body.port).toBeGreaterThan(0);
+  });
+});

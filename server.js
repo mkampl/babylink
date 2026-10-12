@@ -343,7 +343,12 @@ app.get('/api/config/webrtc', (req, res) => {
 });
 
 // LAN address hint for the BLE wizard
+// Only LAN/loopback requesters get the LAN address: it is needed by the
+// local BLE wizard, but must not be disclosed to the internet.
 app.get('/api/config/server-hint', (req, res) => {
+  if (!isPrivateAddress(req.ip)) {
+    return res.json({ host: req.hostname, port: null });
+  }
   let host = process.env.PUBLIC_HOST;
   if (!host) {
     const os = require('os');
