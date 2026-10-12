@@ -216,7 +216,7 @@ const socketIpCount = new Map();
 const intervals = [];
 
 // Initialize ESP32 Audio Proxy
-const esp32Proxy = new ESP32AudioProxy(io);
+const esp32Proxy = new ESP32AudioProxy(io, { publicBaseUrl });
 esp32Proxy.createWebSocketServer();
 
 // =============================================================================
@@ -980,7 +980,8 @@ io.on('connection', (socket) => {
                   cfg.ntfyTopic,
                   socket.roomId,
                   socket.userName || 'Baby',
-                  cfg.ntfyServer || null
+                  cfg.ntfyServer || null,
+                  publicBaseUrl(socket.handshake.headers)
                 );
               }
             } catch (ntfyErr) {
@@ -1024,7 +1025,7 @@ io.on('connection', (socket) => {
         cfg.ntfyTopic,
         socket.roomId,
         babyName,
-        null,
+        publicBaseUrl(socket.handshake.headers),
         cfg.ntfyServer || null
       );
 

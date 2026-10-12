@@ -227,7 +227,7 @@ class NotificationService {
   /**
    * Send device disconnect notification
    */
-  async sendDisconnectAlert(topic, roomId, babyName, serverOverride = null) {
+  async sendDisconnectAlert(topic, roomId, babyName, serverOverride = null, serverUrl = null) {
     if (!this.shouldSendNotification(roomId, 'disconnect')) {
       logger.debug(`Skipping disconnect alert for room ${roomId} (cooldown active)`);
       return false;
@@ -239,7 +239,8 @@ class NotificationService {
       `${babyName} has disconnected from the room`,
       {
         priority: 'default',
-        tags: ['baby', 'warning', 'disconnect']
+        tags: ['baby', 'warning', 'disconnect'],
+        click: serverUrl ? `${serverUrl}/${roomId}?role=parent` : null
       },
       serverOverride
     );

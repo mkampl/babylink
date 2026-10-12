@@ -178,3 +178,42 @@ describe('GET /api/rooms/:roomId/config (public, non-sensitive fields only)', ()
     expect(res.body).not.toHaveProperty('ownerHash');
   });
 });
+
+describe('notification click links', () => {
+  const notificationService = require('../../server/notification-service');
+
+  it('the crying alert carries a click URL back to the room', async () => {
+    const { roomId, ownerToken } = await createRoom(server.app);
+    await request(server.app)
+      .post(`/api/rooms/${roomId}/ntfy`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ topic: 'test-click-topic', enabled: true, notifyOnCrying: true });
+
+    const spy = vi.spyOn(notificationService, 'sendCryingAlert').mockResolvedValue(true);
+    const client = createSocketClient(server.port);
+    try {
+      await joinRoom(client, roomId, 'parent', 'P');
+      client.emit('crying-detected', { babyName: 'B' });
+      await new Promise(r => setTimeout(r, 300));
+      expect(spy).toHaveBeenCalled();
+      const serverUrl = spy.mock.calls[0][3];
+      expect(serverUrl).toMatch(/^http:\/\/localhost:\d+$/);
+    } finally {
+      spy.mockRestore();
+      client.disconnect();
+    }
+  });
+
+  it('publicBaseUrl rejects a forged Host header and honours PUBLIC_URL', () => {
+    const { publicBaseUrl } = require('../../server');
+    expect(publicBaseUrl({ host: 'evil.example/phish?x=' })).toBeNull();
+    expect(publicBaseUrl({ host: 'babylink.example.org', 'x-forwarded-proto': 'https' }))
+      .toBe('https://babylink.example.org');
+    process.env.PUBLIC_URL = 'https://monitor.example.org/';
+    try {
+      expect(publicBaseUrl({ host: 'x' })).toBe('https://monitor.example.org');
+    } finally {
+      delete process.env.PUBLIC_URL;
+    }
+  });
+});

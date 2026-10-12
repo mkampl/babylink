@@ -74,6 +74,8 @@ class ESP32AudioProxy {
     this._maxConnectionsPerIp = opts.maxConnectionsPerIp ?? MAX_CONNECTIONS_PER_IP;
     this._msgRateMax = opts.msgRateMax ?? MSG_RATE_MAX;
     this._msgRateWindowMs = opts.msgRateWindowMs ?? MSG_RATE_WINDOW_MS;
+    // (headers) => base URL for notification click links, or null
+    this._publicBaseUrl = opts.publicBaseUrl || (() => null);
 
     logger.info('ESP32AudioProxy initialized (S3/WebRTC mode)');
   }
@@ -105,6 +107,7 @@ class ESP32AudioProxy {
     this.wss.on('connection', (ws, request) => {
       const clientIp = request.socket.remoteAddress || 'unknown';
       ws._clientIp = clientIp;
+      ws._baseUrl = this._publicBaseUrl(request.headers);
 
       // Per-IP connection cap
       const ipCount = (this._ipConnections.get(clientIp) || 0) + 1;
@@ -364,7 +367,8 @@ class ESP32AudioProxy {
         cfg.ntfyTopic,
         client.roomId,
         client.name,
-        cfg.ntfyServer || null
+        cfg.ntfyServer || null,
+        client.ws ? client.ws._baseUrl : null
       ).catch(err => {
         logger.error(`Failed to send disconnect notification for ${client.name}:`, err);
       });
