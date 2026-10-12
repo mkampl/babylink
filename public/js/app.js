@@ -161,6 +161,7 @@
       document.getElementById('startMonitoringBtn').addEventListener('click', () => {
         // Create a "pre-warmed" AudioContext during this gesture — it starts running
         window.__sharedAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        alarmMgr.unlock(); // the disconnect alarm must be able to sound later
         enableAllAudio();
         overlay.remove();
         resolve();
@@ -181,6 +182,7 @@
       const skipOverlay = new URLSearchParams(window.location.search).get('autostart') === '1';
       if (skipOverlay) {
         window.__sharedAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        alarmMgr.unlock();
         enableAllAudio();
       } else {
         await showStartOverlay();
