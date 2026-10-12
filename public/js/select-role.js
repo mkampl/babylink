@@ -403,6 +403,8 @@
     // ========================
 
     var devicesPollingInterval = null;
+    // Gentle on the shared per-IP rate limit (a household shares one NAT).
+    var DEVICE_POLL_MS = 30000;
 
     document.getElementById('devicesSettingsBtn').addEventListener('click', function() {
       var settings = document.getElementById('devicesSettings');
@@ -442,7 +444,9 @@
 
     function startDevicePolling() {
       stopDevicePolling();
-      devicesPollingInterval = setInterval(loadDevices, 10000);
+      devicesPollingInterval = setInterval(function() {
+        if (!document.hidden) loadDevices();
+      }, DEVICE_POLL_MS);
     }
 
     function stopDevicePolling() {
