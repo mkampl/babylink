@@ -19,7 +19,8 @@ the server knows and what is protected.
 
 - **Room PIN** — an optional second factor that gates the listen/baby
   role. PINs are hashed with a salted KDF before storage; the server
-  never retains the plaintext.
+  never retains the plaintext. The room owner may join with the owner
+  token instead of the PIN.
 
 ### What the server can see
 
@@ -36,20 +37,35 @@ Regardless of deployment mode the server has access to:
   default).
 - **ntfy topic identifiers** if push notifications are configured.
 
-For ESP32-S3 (XIAO) devices connected via the WebSocket proxy, the
-device streams **Opus-encoded audio** to the server for WebRTC
-re-signaling; the server decodes nothing but does relay packets. A
-self-hosted instance means you control this path. A public/demo
-instance operator can observe the encrypted Opus stream.
+ESP32-S3 (XIAO) devices send audio on two paths at once: a WebRTC
+(Opus, peer-to-peer) stream, and a **raw 16-bit PCM stream over the
+device's WebSocket to the server**, which the server relays unmodified
+to the parents in the room (`esp32-audio`). The server does not analyse
+or store it, but the PCM relay is plain audio inside the TLS connection:
+whoever operates the server can listen to it. Self-host if that matters
+to you; a public/demo instance operator could hear ESP32-S3 babies.
 
-### Known residual: device authentication
+### Device registration
 
-ESP32-S3 device registration is not yet device-authenticated. Any
-client that knows the server's WebSocket endpoint and a valid room ID
-can register as a device. A per-device provisioning token (minted
-during BLE setup and verified on registration) is planned. Until that
-lands, trust in device identity depends on room-ID secrecy and network
-access controls.
+A device registers with its room ID and MAC address. Newer firmware also
+sends a per-device token that it generates once and keeps across factory
+resets; the server trusts the first token it sees for a device in a room
+and requires it from then on, so knowing a MAC is not enough to take over
+or kick a registered device. Devices running older firmware send no token
+and are accepted as before. Anyone who knows a room ID can still register
+an extra (fake) device into that room — the same as joining it as a baby
+from a browser — so keep room links private and use a PIN. The owner can
+release a device's token (e.g. after a full flash erase gave it a new one)
+via `DELETE /api/rooms/:roomId/esp32/:esp32Id/token`.
+
+### Device setup (BLE and the setup access point)
+
+The device's BLE config and its setup portal never return stored WiFi
+passwords, and hide the room ID until the setup window is opened with a
+tap on the BOOT button; changing the configuration needs that tap too.
+WiFi credentials are still sent **unencrypted** over BLE and over the
+open setup access point while you set the device up — do it somewhere an
+eavesdropper is unlikely to be in radio range.
 
 ### Deployment advice
 
@@ -57,8 +73,9 @@ access controls.
   secure context; plain HTTP works only on `localhost`.
 - Use the owner token to set a PIN on any room that is accessible to
   others on the network.
-- On public instances, consider rate-limiting room creation and
-  rotating room IDs regularly.
+- On public instances, keep `ROOM_CREATE_LIMIT` low and consider
+  rotating room IDs regularly. Unused rooms without a PIN or
+  notifications are forgotten after `ROOM_CONFIG_TTL_DAYS`.
 
 ---
 

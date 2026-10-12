@@ -197,7 +197,11 @@ docker compose -f docker-compose.yml -f docker-compose.override.yml up -d
 | `PORT` | `3001` | HTTP port the server listens on |
 | `PUBLIC_HOST` | auto | Host advertised to ESP32-S3 devices. **Must be set in Docker.** |
 | `PUBLIC_PORT` | `$PORT` | Port advertised to ESP32-S3 devices |
-| `RATE_LIMIT_MAX_REQUESTS` | `100` | Per-IP request cap per 15-minute window |
+| `PUBLIC_URL` | — | Base URL used in notification links (e.g. `https://babylink.example.org`); defaults to the request host |
+| `RATE_LIMIT_MAX_REQUESTS` | `600` | Per-IP request cap per 15-minute window (static files and locales not counted) |
+| `ROOM_CREATE_LIMIT` | `30` | Per-IP room creations per hour |
+| `ROOM_CONFIG_TTL_DAYS` | `90` | Unused rooms without PIN/notifications are forgotten after this |
+| `SOCKET_PING_INTERVAL` / `SOCKET_PING_TIMEOUT` | `10000` / `5000` | Socket.IO heartbeat (ms); a vanished device shows up after ~15 s |
 | `LOG_LEVEL` | `info` | `error` / `warn` / `info` / `debug` |
 
 ### WebRTC / TURN
@@ -223,25 +227,28 @@ MAX_PARENTS_PER_ROOM=10
 Things to know before exposing BabyLink to the internet.
 
 **Data that persists in `data/`:**
-Room configuration (PIN hashes, ntfy topics, device associations) is
-written to `data/` and survives restarts. Rooms do not expire
-automatically; add a cron task or admin script if you want a TTL.
+Room configuration (PIN hashes, ntfy topics) and device tokens are
+written to `data/` and survive restarts. Rooms without a PIN or
+notifications that nobody used for `ROOM_CONFIG_TTL_DAYS` (default 90)
+are forgotten automatically.
 
 **What the server can see:**
 The server sees signaling metadata (room membership, join/leave events),
-client IP addresses in logs, and Opus audio frames relayed from
+client IP addresses in logs, and the raw PCM audio it relays from
 ESP32-S3 devices. WebRTC audio between two browsers never traverses the
 server. See [SECURITY.md](SECURITY.md) for the full breakdown.
 
 **Abuse considerations:**
 
-- Rate limiting is on by default (`RATE_LIMIT_MAX_REQUESTS=100` per 15
-  min). Tighten it for public instances.
+- Rate limiting is on by default (`RATE_LIMIT_MAX_REQUESTS=600` per 15
+  min, `ROOM_CREATE_LIMIT=30` room creations per hour). Tighten them for
+  public instances.
 - Room creation is unauthenticated; anyone with network access can
   create rooms. Consider adding a reverse-proxy basic-auth layer or
   keeping `MAX_ROOMS` set to a conservative value to cap server load.
-- Room IDs are 128-bit random tokens, but the server does not
-  time-out idle rooms. Monitor room count via `/health`.
+- Room IDs are 128-bit random tokens. Idle rooms without a PIN or
+  notifications expire after `ROOM_CONFIG_TTL_DAYS`. Monitor room count
+  via `/health`.
 
 **Health endpoint:**
 
