@@ -134,7 +134,10 @@ class RoomConfigManager {
    */
   touch(roomId, now = Date.now()) {
     const cfg = this.configs.get(roomId);
-    if (cfg) cfg.lastUsedAt = now;
+    if (cfg) {
+      cfg.lastUsedAt = now;
+      this._touched = true;
+    }
   }
 
   /**
@@ -146,7 +149,10 @@ class RoomConfigManager {
    */
   async expireStale(now, maxAgeMs, inUse = () => false) {
     const removed = [];
-    let dirty = false;
+    // Persist touch()ed timestamps too: otherwise the file keeps the creation
+    // time and, after a restart, a room in daily use looks abandoned.
+    let dirty = !!this._touched;
+    this._touched = false;
     for (const [roomId, cfg] of this.configs.entries()) {
       if (typeof cfg.lastUsedAt !== 'number') {
         cfg.lastUsedAt = now;

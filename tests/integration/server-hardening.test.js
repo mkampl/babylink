@@ -117,6 +117,25 @@ describe('room config expiry (S5)', () => {
     expect(roomConfig.configs.get('f'.repeat(32)).lastUsedAt).toBe(now);
   });
 
+  it('the sweep persists lastUsedAt refreshed by touch(), so a restart does not forget recent use', async () => {
+    const now = Date.now();
+    const id = 'g'.repeat(32);
+    roomConfig.configs.set(id, { ownerHash: 'x', lastUsedAt: now - 30 * DAY });
+    const save = vi.spyOn(roomConfig, 'save').mockResolvedValue();
+    try {
+      roomConfig.touch(id, now);
+      await roomConfig.expireStale(now, config.room.configTtlDays * DAY, () => false);
+      expect(save).toHaveBeenCalledTimes(1);
+
+      // Nothing touched since: the next sweep has nothing to write.
+      save.mockClear();
+      await roomConfig.expireStale(now + 1, config.room.configTtlDays * DAY, () => false);
+      expect(save).not.toHaveBeenCalled();
+    } finally {
+      save.mockRestore();
+    }
+  });
+
   it('owner API use and joins refresh lastUsedAt', async () => {
     const s = await startServer();
     try {
