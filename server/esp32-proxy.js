@@ -304,6 +304,7 @@ class ESP32AudioProxy {
 
     this.esp32Clients.set(esp32Id, esp32Info);
     ws.esp32Id = esp32Id;
+    roomConfig.touch(roomId);
 
     ws.send(JSON.stringify({
       type: 'registered',

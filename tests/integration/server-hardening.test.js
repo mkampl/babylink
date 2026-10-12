@@ -7,6 +7,18 @@ const roomConfig = require('../../server/room-config');
 const { startServer, createRoom } = require('../helpers/server-factory');
 const { createESP32Client } = require('../helpers/esp32-client');
 
+describe('Socket.IO liveness (R5)', () => {
+  it('detects a dead client within ~15 s, not the 45 s default', async () => {
+    const s = await startServer();
+    try {
+      expect(s.io.engine.opts.pingInterval).toBe(10000);
+      expect(s.io.engine.opts.pingTimeout).toBe(5000);
+    } finally {
+      await s.close();
+    }
+  });
+});
+
 describe('general rate limiter (B4)', () => {
   // vitest.config.js raises RATE_LIMIT_MAX_REQUESTS for the whole suite, so
   // these tests set the limit explicitly.
@@ -68,5 +80,67 @@ describe('room creation limiter (S5)', () => {
       config.security.roomCreateMax = orig;
       await s.close();
     }
+  });
+});
+
+describe('room config expiry (S5)', () => {
+  const DAY = 24 * 3600 * 1000;
+  let saved;
+  beforeEach(() => { saved = new Map(roomConfig.configs); roomConfig.configs.clear(); });
+  afterEach(() => {
+    roomConfig.configs.clear();
+    for (const [k, v] of saved) roomConfig.configs.set(k, v);
+  });
+
+  it('drops long-unused rooms that have no PIN and no notifications', async () => {
+    const now = Date.now();
+    const old = now - (config.room.configTtlDays + 1) * DAY;
+    roomConfig.configs.set('a'.repeat(32), { ownerHash: 'x', lastUsedAt: old });
+    roomConfig.configs.set('b'.repeat(32), { ownerHash: 'x', lastUsedAt: now - DAY });
+    roomConfig.configs.set('c'.repeat(32), { ownerHash: 'x', lastUsedAt: old, pin: { salt: 's', hash: 'h' } });
+    roomConfig.configs.set('d'.repeat(32), { ownerHash: 'x', lastUsedAt: old, ntfyEnabled: true, ntfyTopic: 't' });
+    roomConfig.configs.set('e'.repeat(32), { ownerHash: 'x', lastUsedAt: old });
+
+    const removed = await roomConfig.expireStale(now, config.room.configTtlDays * DAY,
+      (id) => id === 'e'.repeat(32) /* still in use right now */);
+
+    expect(removed).toEqual(['a'.repeat(32)]);
+    expect([...roomConfig.configs.keys()].sort()).toEqual(
+      ['b', 'c', 'd', 'e'].map(ch => ch.repeat(32)));
+  });
+
+  it('configs without lastUsedAt (written by older versions) are not expired on first sight', async () => {
+    const now = Date.now();
+    roomConfig.configs.set('f'.repeat(32), { ownerHash: 'x' });
+    const removed = await roomConfig.expireStale(now, DAY, () => false);
+    expect(removed).toEqual([]);
+    expect(roomConfig.configs.get('f'.repeat(32)).lastUsedAt).toBe(now);
+  });
+
+  it('owner API use and joins refresh lastUsedAt', async () => {
+    const s = await startServer();
+    try {
+      const { roomId, ownerToken } = await createRoom(s.app);
+      roomConfig.configs.get(roomId).lastUsedAt = 1;
+      await request(s.app)
+        .get(`/api/rooms/${roomId}/esp32/devices`)
+        .set('Authorization', `Bearer ${ownerToken}`);
+      expect(roomConfig.configs.get(roomId).lastUsedAt).toBeGreaterThan(1);
+    } finally {
+      await s.close();
+    }
+  });
+});
+
+describe('PIN lockout map is pruned (B7)', () => {
+  it('expired lockout entries are removed by the cleanup sweep', () => {
+    const { _pinLockout, prunePinLockout } = require('../../server');
+    _pinLockout.clear();
+    const now = Date.now();
+    _pinLockout.set('r:1.1.1.1', { failures: 2, lockedUntil: 0, lastFailureAt: now - 2 * 3600_000 });
+    _pinLockout.set('r:2.2.2.2', { failures: 7, lockedUntil: now + 60_000, lastFailureAt: now });
+    _pinLockout.set('r:3.3.3.3', { failures: 1, lockedUntil: 0, lastFailureAt: now - 1000 });
+    prunePinLockout(now);
+    expect([..._pinLockout.keys()].sort()).toEqual(['r:2.2.2.2', 'r:3.3.3.3']);
   });
 });

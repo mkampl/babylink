@@ -124,6 +124,48 @@ class RoomConfigManager {
   }
 
   // -------------------------------------------------------------------------
+  // Lifecycle: last-use tracking + expiry of abandoned rooms
+  // -------------------------------------------------------------------------
+
+  /**
+   * Record that a persisted room was used (join, device register, owner API).
+   * In-memory only; the periodic expiry sweep persists it, so a busy room
+   * doesn't rewrite the config file on every join.
+   */
+  touch(roomId, now = Date.now()) {
+    const cfg = this.configs.get(roomId);
+    if (cfg) cfg.lastUsedAt = now;
+  }
+
+  /**
+   * Drop configs that carry nothing worth keeping (no PIN, no ntfy) and have
+   * not been used for maxAgeMs. `inUse(roomId)` lets the caller protect rooms
+   * with live participants. Configs from older versions have no lastUsedAt:
+   * they are stamped "now" instead of being judged on unknown history.
+   * Returns the removed room ids.
+   */
+  async expireStale(now, maxAgeMs, inUse = () => false) {
+    const removed = [];
+    let dirty = false;
+    for (const [roomId, cfg] of this.configs.entries()) {
+      if (typeof cfg.lastUsedAt !== 'number') {
+        cfg.lastUsedAt = now;
+        dirty = true;
+        continue;
+      }
+      const keep = !!cfg.pin || !!(cfg.ntfyEnabled && cfg.ntfyTopic) || inUse(roomId);
+      if (keep) continue;
+      if (now - cfg.lastUsedAt > maxAgeMs) {
+        this.configs.delete(roomId);
+        removed.push(roomId);
+      }
+    }
+    if (removed.length > 0 || dirty) await this.save();
+    if (removed.length > 0) logger.info(`Expired ${removed.length} unused room configurations`);
+    return removed;
+  }
+
+  // -------------------------------------------------------------------------
   // Owner token management
   // -------------------------------------------------------------------------
 
@@ -136,7 +178,7 @@ class RoomConfigManager {
    */
   async setOwnerToken(roomId, ownerToken) {
     const ownerHash = crypto.createHash('sha256').update(ownerToken).digest('hex');
-    return await this.updateConfig(roomId, { ownerHash });
+    return await this.updateConfig(roomId, { ownerHash, lastUsedAt: Date.now() });
   }
 
   /**

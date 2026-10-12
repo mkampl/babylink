@@ -47,6 +47,10 @@ const config = {
     // Per-IP cap on simultaneous socket connections (anti-DoS)
     maxSocketsPerIp: parseInt(process.env.MAX_SOCKETS_PER_IP, 10) || 20,
     cleanupInterval: parseInt(process.env.ROOM_CLEANUP_INTERVAL, 10) || 3600000, // 1 hour
+    // Persisted room configs (created via POST /api/rooms) that have no PIN,
+    // no notifications and nobody using them for this long are dropped, so
+    // abandoned rooms can't fill MAX_ROOMS forever.
+    configTtlDays: parseInt(process.env.ROOM_CONFIG_TTL_DAYS, 10) || 90,
     roomIdLength: 32, // 32 hex characters
     roomIdPattern: /^[a-f0-9]{32}$/i, // Hex string validator
   },

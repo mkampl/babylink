@@ -52,6 +52,7 @@ function requireOwnerAuth(req, res, next) {
     return res.status(401).json({ error: 'Invalid authorization token' });
   }
 
+  roomConfig.touch(roomId);
   next();
 }
 
@@ -102,6 +103,7 @@ function recordPinFailure(roomId, ip) {
   const key = `${roomId}:${ip}`;
   const state = getPinLockout(roomId, ip);
   state.failures++;
+  state.lastFailureAt = Date.now();
   if (state.failures >= PIN_MAX_FAILURES) {
     const extra = state.failures - PIN_MAX_FAILURES;
     state.lockedUntil = Date.now() + PIN_LOCKOUT_BASE_MS * Math.pow(2, extra);
@@ -116,6 +118,51 @@ function clearPinLockout(roomId, ip) {
 function isPinLocked(roomId, ip) {
   const state = getPinLockout(roomId, ip);
   return state.lockedUntil > Date.now();
+}
+
+// Failure counters are forgotten after this long without a new failure.
+const PIN_FAILURE_MEMORY_MS = 3600_000;
+
+/**
+ * Drop lockout entries that are no longer locked and have had no failure for
+ * PIN_FAILURE_MEMORY_MS. Without this the map grew by one entry per
+ * (room, IP) that ever mistyped a PIN and was only cleared on success.
+ */
+function prunePinLockout(now = Date.now()) {
+  for (const [key, st] of pinLockout.entries()) {
+    if (st.lockedUntil > now) continue;
+    if (now - (st.lastFailureAt || 0) > PIN_FAILURE_MEMORY_MS) pinLockout.delete(key);
+  }
+}
+
+// IPv4/IPv6 private, loopback and link-local ranges.
+function isPrivateAddress(ip) {
+  if (!ip) return false;
+  let a = String(ip).trim();
+  if (a.startsWith('::ffff:')) a = a.slice(7);
+  if (a === '::1' || a === 'localhost') return true;
+  if (/^(10|127)\./.test(a)) return true;
+  if (/^192\.168\./.test(a)) return true;
+  if (/^169\.254\./.test(a)) return true;
+  const m = a.match(/^172\.(\d+)\./);
+  if (m && +m[1] >= 16 && +m[1] <= 31) return true;
+  if (/^f[cd][0-9a-f]{2}:/i.test(a) || /^fe80:/i.test(a)) return true;
+  return false;
+}
+
+/**
+ * Base URL parents should open from a notification. PUBLIC_URL wins; else
+ * derived from the request headers (the reverse proxy sets X-Forwarded-*),
+ * accepting only a plain host[:port] so a forged Host header can't smuggle
+ * an arbitrary URL into the owner's notification.
+ */
+function publicBaseUrl(headers) {
+  if (process.env.PUBLIC_URL) return process.env.PUBLIC_URL.replace(/\/+$/, '');
+  const h = headers || {};
+  const host = String(h['x-forwarded-host'] || h.host || '').split(',')[0].trim();
+  if (!/^[a-z0-9.-]+(:\d{1,5})?$/i.test(host)) return null;
+  const proto = String(h['x-forwarded-proto'] || 'http').split(',')[0].trim();
+  return `${proto === 'https' ? 'https' : 'http'}://${host}`;
 }
 
 // =============================================================================
@@ -785,6 +832,7 @@ io.on('connection', (socket) => {
       }
 
       const room = rooms.get(roomId);
+      roomConfig.touch(roomId);
 
       room.participants = room.participants.filter(p => p.socketId !== socket.id);
       room.participants.push({
@@ -1005,6 +1053,17 @@ intervals.push(setInterval(() => {
   }
 
   if (cleanedCount > 0) logger.info(`Cleaned up ${cleanedCount} stale rooms`);
+
+  prunePinLockout(now);
+
+  const inUse = (id) => {
+    const r = rooms.get(id);
+    if (r && r.participants.length > 0) return true;
+    for (const c of esp32Proxy.esp32Clients.values()) if (c.roomId === id) return true;
+    return false;
+  };
+  roomConfig.expireStale(now, config.room.configTtlDays * 24 * 3600 * 1000, inUse)
+    .catch(err => logger.error('Room config expiry failed', { error: err.message }));
 }, config.room.cleanupInterval));
 
 intervals.push(setInterval(() => {
@@ -1059,4 +1118,11 @@ if (require.main === module) {
   });
 }
 
-module.exports = { createServer, socketClientIp };
+module.exports = {
+  createServer,
+  socketClientIp,
+  prunePinLockout,
+  isPrivateAddress,
+  publicBaseUrl,
+  _pinLockout: pinLockout,
+};
