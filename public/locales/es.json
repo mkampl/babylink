@@ -272,5 +272,8 @@
   "js_theme_toggle": "Cambiar modo oscuro",
   "js_theme_toggle_title": "Cambiar entre modo claro y oscuro",
   "js_server_error_status": "Error del servidor {status}",
-  "js_no_room_id": "El servidor no devolvió ninguna sala."
+  "js_no_room_id": "El servidor no devolvió ninguna sala.",
+  "mon_baby_gone": "⚠ {name} se ha desconectado",
+  "mon_reason_left": "salió de la sala",
+  "mon_babies_gone": "⚠ Desconectados: {names}"
 }

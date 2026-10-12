@@ -19,7 +19,8 @@
     "test:integration": "vitest run tests/integration/",
     "test:full": "vitest run",
     "test:gate": "vitest run --reporter=verbose",
-    "test:browser": "node tests/browser/run-meter-harness.js"
+    "test:browser": "node tests/browser/run-meter-harness.js",
+    "test:browser:parent": "node tests/browser/run-parent-harness.js"
   },
   "keywords": [
     "webrtc",

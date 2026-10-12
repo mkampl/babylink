@@ -272,5 +272,8 @@
   "js_theme_toggle": "Dunkelmodus umschalten",
   "js_theme_toggle_title": "Hell/Dunkel umschalten",
   "js_server_error_status": "Serverfehler {status}",
-  "js_no_room_id": "Der Server hat keinen Raum zurückgegeben."
+  "js_no_room_id": "Der Server hat keinen Raum zurückgegeben.",
+  "mon_baby_gone": "⚠ {name} ist nicht mehr verbunden",
+  "mon_reason_left": "hat den Raum verlassen",
+  "mon_babies_gone": "⚠ Nicht mehr verbunden: {names}"
 }

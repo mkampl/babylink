@@ -36,6 +36,9 @@
   // persisted in localStorage. Per-parent on purpose — different parents
   // have different sensitivities and want their own view.
   const sleepTrackers = new Map();  // babyId → SleepTracker
+  // Which babies are present vs. dropped out (parent role). A dropped baby
+  // keeps its card and keeps the alarm going until it returns.
+  const roster = new BabyRoster();
   let sleepRenderInterval = null;
   let audioHealthInterval = null;
 
@@ -47,9 +50,9 @@
 
   let disconnectBanner = null;
 
-  function showDisconnectBanner() {
+  function showDisconnectBanner(text) {
     if (role !== 'parent') return;
-    if (disconnectBanner) return; // already showing
+    if (disconnectBanner) hideDisconnectBanner(); // re-arm with fresh text/button
     disconnectBanner = document.createElement('div');
     disconnectBanner.id = 'disconnectBanner';
     disconnectBanner.style.cssText =
@@ -60,7 +63,7 @@
       'font-size:0.95rem;font-weight:600;box-shadow:var(--shadow-md);' +
       'max-width:calc(100vw - 2rem);';
     disconnectBanner.innerHTML =
-      '<span>' + escapeHtml(T('mon_conn_lost')) + '</span>' +
+      '<span>' + escapeHtml(text || T('mon_conn_lost')) + '</span>' +
       '<button id="muteAlarmBtn" style="padding:0.3em 0.8em;border:1px solid var(--color-danger);' +
         'background:transparent;color:var(--color-danger-text);border-radius:var(--radius-sm);' +
         'cursor:pointer;font-size:0.85rem;">' + escapeHtml(T('mon_mute_alarm')) + '</button>';
@@ -77,6 +80,41 @@
       disconnectBanner.remove();
       disconnectBanner = null;
     }
+  }
+
+  // Alarm + banner while any baby that was here has dropped out.
+  function refreshBabyAlarm() {
+    if (role !== 'parent') return;
+    if (roster.shouldAlarm()) {
+      const names = roster.goneNames();
+      alarmMgr.play();
+      showDisconnectBanner(names.length === 1
+        ? T('mon_baby_gone', { name: names[0] })
+        : T('mon_babies_gone', { names: names.join(', ') }));
+    } else {
+      alarmMgr.stop();
+      hideDisconnectBanner();
+    }
+  }
+
+  // Remove every trace of a baby: card, peer/audio, health and sleep tracker.
+  function teardownBaby(id) {
+    roster.forget(id);
+    if (multiBabyUI) multiBabyUI.removeBaby(id);
+    if (multiStreamManager) multiStreamManager.removeParticipant(id);
+    esp32Handler.removeContext(id);
+    if (typeof dropAudioHealth === 'function') dropAudioHealth(id);
+    const tracker = sleepTrackers.get(id);
+    if (tracker) { tracker.destroy(); sleepTrackers.delete(id); }
+  }
+
+  // A baby joined (or is listed in room-state): replace stale cards of the
+  // same baby, revive its own card if it came back under the same id.
+  function babyPresent(id, info) {
+    const res = roster.joined(id, info && info.userName);
+    res.replaced.forEach(teardownBaby);
+    if (!multiBabyUI.babyCards.has(id)) multiBabyUI.addBaby(id, info);
+    else if (res.revived) multiBabyUI.updateBabyStatus(id, true);
   }
 
   // Enable all audio (WebRTC + ESP32) — resumes suspended AudioContexts
@@ -604,7 +642,8 @@
     };
 
     multiStreamManager.onStreamRemoved = (participantId) => {
-      multiBabyUI.removeBaby(participantId);
+      // A baby that dropped out keeps its (disconnected) card.
+      if (!roster.isGone(participantId)) multiBabyUI.removeBaby(participantId);
     };
 
     multiStreamManager.onConnectionFailed = (participantId) => {
@@ -647,6 +686,7 @@
       if (typeof getAudioHealth !== 'function') return;
       const now = Date.now();
       for (const [babyId] of multiBabyUI.babyCards) {
+        if (roster.isGone(babyId)) continue;
         const st = getAudioHealth(babyId).status(now);
         multiBabyUI.setConnectionState(babyId, st === 'stalled' ? 'stalled' : 'ok');
       }
@@ -718,13 +758,11 @@
     if (wasDisconnected) {
       hasJoinedRoom = false;
       if (role === 'parent' && multiBabyUI) {
-        const babyIds = Array.from(multiBabyUI.babyCards.keys());
-        babyIds.forEach(id => {
-          multiBabyUI.removeBaby(id);
-          multiStreamManager.removeParticipant(id);
-          esp32Handler.removeContext(id);
-          if (typeof dropAudioHealth === 'function') dropAudioHealth(id);
-        });
+        // Fresh start from the room-state that follows the rejoin. Sleep
+        // trackers are destroyed too (their history is persisted and reloads
+        // with the new card); before, they leaked and kept ticking.
+        Array.from(multiBabyUI.babyCards.keys()).forEach(teardownBaby);
+        roster.clear();
       } else if (role === 'baby' && multiStreamManager) {
         // Close all parent peer connections so we get fresh offers on rejoin
         const peerIds = Array.from(multiStreamManager.peerConnections.keys());
@@ -780,9 +818,7 @@
     } else if (role === 'parent') {
       const babies = participants.filter(p => p.role === 'baby');
       babies.forEach(baby => {
-        if (!multiBabyUI.babyCards.has(baby.socketId)) {
-          multiBabyUI.addBaby(baby.socketId, baby);
-        }
+        babyPresent(baby.socketId, baby);
         // Ask each baby to send us a WebRTC offer. PWA babies respond
         // with RTCPeerConnection.createOffer(); S3 firmware uses esp_peer.
         if (!multiStreamManager.peerConnections.has(baby.socketId)) {
@@ -790,7 +826,7 @@
         }
       });
       applyBatteryFromParticipants(participants);
-      if (babies.length > 0) { alarmMgr.stop(); hideDisconnectBanner(); }
+      refreshBabyAlarm();
     }
   });
 
@@ -808,9 +844,9 @@
         pendingParents.push(parentInfo);
       }
     } else if (role === 'parent' && pRole === 'baby') {
-      multiBabyUI.addBaby(socketId, { socketId, role: pRole, userName: pName });
+      babyPresent(socketId, { socketId, role: pRole, userName: pName });
       applyBatteryFromParticipants(participants);
-      if (multiBabyUI.babyCards.size > 0) { alarmMgr.stop(); hideDisconnectBanner(); }
+      refreshBabyAlarm();
       // Unified dispatch — same requestOffer kickoff for every baby
       // type. multiStreamManager handles the inbound offer regardless
       // of source. See the room-state handler above for the rationale.
@@ -826,16 +862,16 @@
       // Close the peer connection to the departed parent to release ICE/SRTP resources.
       if (multiStreamManager) multiStreamManager.removeParticipant(socketId);
     } else if (role === 'parent' && pRole === 'baby') {
-      multiBabyUI.removeBaby(socketId);
+      if (!multiBabyUI.babyCards.has(socketId)) return;
+      // Keep the card, shown as disconnected, and alarm for THIS baby — even
+      // if other babies are still connected. Audio resources are released;
+      // the card comes back to life if the baby returns.
+      roster.left(socketId);
       multiStreamManager.removeParticipant(socketId);
       esp32Handler.removeContext(socketId);
       if (typeof dropAudioHealth === 'function') dropAudioHealth(socketId);
-      const tracker = sleepTrackers.get(socketId);
-      if (tracker) { tracker.destroy(); sleepTrackers.delete(socketId); }
-      if (multiBabyUI.babyCards.size === 0) {
-        alarmMgr.play();
-        showDisconnectBanner();
-      }
+      multiBabyUI.updateBabyStatus(socketId, false, T('mon_reason_left'));
+      refreshBabyAlarm();
     }
   });
 

@@ -272,5 +272,8 @@
   "js_theme_toggle": "Toggle dark mode",
   "js_theme_toggle_title": "Toggle dark/light mode",
   "js_server_error_status": "Server error {status}",
-  "js_no_room_id": "The server did not return a room."
+  "js_no_room_id": "The server did not return a room.",
+  "mon_baby_gone": "⚠ {name} disconnected",
+  "mon_reason_left": "left the room",
+  "mon_babies_gone": "⚠ Disconnected: {names}"
 }

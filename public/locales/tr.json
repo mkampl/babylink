@@ -272,5 +272,8 @@
   "js_theme_toggle": "Karanlık modu aç/kapat",
   "js_theme_toggle_title": "Açık/koyu modu değiştir",
   "js_server_error_status": "Sunucu hatası {status}",
-  "js_no_room_id": "Sunucu bir oda döndürmedi."
+  "js_no_room_id": "Sunucu bir oda döndürmedi.",
+  "mon_baby_gone": "⚠ {name} bağlantısı koptu",
+  "mon_reason_left": "odadan ayrıldı",
+  "mon_babies_gone": "⚠ Bağlantısı kopanlar: {names}"
 }
