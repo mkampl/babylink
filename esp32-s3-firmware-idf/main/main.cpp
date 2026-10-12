@@ -1245,7 +1245,22 @@ int socFromVoltage(float v) {
 // threshold ⇒ nothing connected ⇒ unknown.
 // Returns the smoothed battery voltage (already scaled by the divider), or a
 // negative value when the feature is off or NO divider is wired.
+// Called from the loop task (status line, periodic report) AND the websocket
+// task (register). The pin reconfiguration + ADC oneshot driver are not safe to
+// run concurrently: two overlapping reads deadlocked on the GPIO spinlock and
+// the interrupt watchdog rebooted the device right after it registered.
+SemaphoreHandle_t batteryLock = nullptr;
+static float readBatteryVoltsLocked();
+
 float readBatteryVolts() {
+  if (BATTERY_ADC_PIN < 0) return -1.0f;
+  if (batteryLock) xSemaphoreTake(batteryLock, portMAX_DELAY);
+  float v = readBatteryVoltsLocked();
+  if (batteryLock) xSemaphoreGive(batteryLock);
+  return v;
+}
+
+static float readBatteryVoltsLocked() {
 
   pinMode(BATTERY_ADC_PIN, INPUT_PULLDOWN);
   delay(3);
@@ -2050,6 +2065,7 @@ void setup() {
   // stays unavoidable — hence the acknowledgement blink below.
   pinMode(LED_PIN, OUTPUT);
   setLED(false);
+  batteryLock = xSemaphoreCreateMutex();
   uint8_t armAtBoot = 0;
   const bool charge = chargeModeRequested(&armAtBoot);
   if (!charge) chargeArmBlink();
