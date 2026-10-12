@@ -54,7 +54,12 @@ const config = {
   // Security Configuration
   security: {
     rateLimitWindow: parseInt(process.env.RATE_LIMIT_WINDOW, 10) || 900000, // 15 minutes
-    rateLimitMaxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS, 10) || 100,
+    // Static assets and locale files are not counted; this covers the API and
+    // page loads. 600 / 15 min leaves room for a household behind one NAT
+    // (several phones + the device-list poll) while still stopping floods.
+    rateLimitMaxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS, 10) || 600,
+    // POST /api/rooms has its own, tighter budget (per IP per hour).
+    roomCreateMax: parseInt(process.env.ROOM_CREATE_LIMIT, 10) || 30,
     // CORS: default to same-origin; set CORS_ORIGIN=* only in dev if cross-origin is needed
     corsOrigin: process.env.CORS_ORIGIN || false,
     corsCredentials: process.env.CORS_CREDENTIALS === 'true',

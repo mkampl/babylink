@@ -222,6 +222,8 @@ const limiter = rateLimit({
     return p.startsWith('/css/') ||
            p.startsWith('/js/') ||
            p.startsWith('/icons/') ||
+           p.startsWith('/locales/') ||
+           p === '/favicon.ico' ||
            p === '/manifest.json' ||
            p === '/service-worker.js' ||
            p === '/health';
@@ -239,6 +241,18 @@ const pinVerifyLimiter = rateLimit({
   message: 'Too many PIN attempts, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
+});
+
+// Room creation persists state, so it gets its own per-IP budget on top.
+const roomCreateLimiter = rateLimit({
+  windowMs: 3600_000,
+  max: config.security.roomCreateMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    logger.warn('Room creation rate limit exceeded', { ip: req.ip });
+    res.status(429).json({ error: 'Too many rooms created, please try again later.' });
+  }
 });
 
 app.use(limiter);
@@ -320,7 +334,7 @@ app.get('/api/config/server-hint', (req, res) => {
  * Response 201: { "roomId": "<32-hex>", "ownerToken": "<64-hex>" }
  * Response 429: server at capacity
  */
-app.post('/api/rooms', async (req, res) => {
+app.post('/api/rooms', roomCreateLimiter, async (req, res) => {
   // Enforce maxRooms cap on persisted configs
   if (roomConfig.configs.size >= config.room.maxRooms) {
     logger.warn('Room limit reached', { current: roomConfig.configs.size, max: config.room.maxRooms });
